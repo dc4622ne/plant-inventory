@@ -257,6 +257,49 @@
   color: var(--text-h);
 }
 
+.dashboard-section {
+  margin-top: 34px;
+}
+
+.dashboard-quick-actions {
+  margin-top: 0;
+  padding: 20px;
+  background: color-mix(in srgb, var(--brand-cream) 34%, #fff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.dashboard-section-heading {
+  margin-bottom: 16px;
+}
+
+.dashboard-section-heading h3 {
+  margin: 3px 0 4px;
+  color: var(--brand-green);
+  font-size: 1.3rem;
+}
+
+.dashboard-section-heading p {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.84rem;
+}
+
+.dashboard-section-heading .detail-eyebrow {
+  margin-bottom: 3px;
+}
+
+.dashboard-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dashboard-action-buttons .secondary-button {
+  margin: 0;
+  padding: 10px 16px;
+}
+
 .dashboard-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -267,23 +310,6 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
-}
-
-.dashboard-breakdown-heading {
-  margin: 34px 0 16px;
-  text-align: left;
-}
-
-.dashboard-breakdown-heading h3 {
-  margin: 3px 0 4px;
-  color: var(--brand-green);
-  font-size: 1.3rem;
-}
-
-.dashboard-breakdown-heading p:last-child {
-  margin: 0;
-  color: var(--text-h);
-  font-size: 0.84rem;
 }
 
 .dashboard-chart {
@@ -1624,6 +1650,15 @@
 
   .dashboard-add-button {
     align-self: flex-start;
+  }
+
+  .dashboard-action-buttons {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-action-buttons button {
+    width: 100%;
   }
 
   .data-tool-row {

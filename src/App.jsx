@@ -612,13 +612,17 @@ function App() {
   ].sort((firstOption, secondOption) => firstOption.localeCompare(secondOption));
   const visiblePlants = plants
     .filter((plant) => {
-      const matchesLifecycle = (plant.lifecycleStatus || 'active') === lifecycleView;
+      const matchesLifecycle = lifecycleView === 'all'
+        || (plant.lifecycleStatus || 'active') === lifecycleView;
       const matchesFilters = filterFields.every(([fieldName]) => {
         const selectedFilter = plantFilters[fieldName];
         const plantValue = normalizedFilterValue(plant[fieldName]);
 
         if (!selectedFilter) return true;
         if (selectedFilter === missingFilterValue) return !plantValue;
+        if (fieldName === 'attention' && selectedFilter === 'Watch list') {
+          return ['Watch', 'Watch list'].includes(plantValue);
+        }
         return plantValue === selectedFilter;
       });
       const matchesSearch = !normalizedSearch || searchableFields.some((fieldName) => (
@@ -626,9 +630,10 @@ function App() {
       ));
       const quarantineStatus = getQuarantineStatus(plant);
       const matchesQuarantine = !quarantineFilter
-        || (quarantineFilter === 'current'
-          ? quarantineStatus.isInAnyQuarantine
-          : quarantineStatus.isAnyQuarantineEndingSoon);
+        || (quarantineFilter === 'current' && quarantineStatus.isInAnyQuarantine)
+        || (quarantineFilter === 'soon' && quarantineStatus.isAnyQuarantineEndingSoon)
+        || (quarantineFilter === 'new' && quarantineStatus.isInNewPlantQuarantine)
+        || (quarantineFilter === 'pest' && quarantineStatus.isInPestQuarantine);
       const matchesRecentlyChecked = !recentlyCheckedFilter || wasRecentlyChecked(plant);
 
       return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine
@@ -648,19 +653,25 @@ function App() {
     getQuarantineStatus(plant).isAnyQuarantineEndingSoon
   );
   const selectedPlantQuarantine = selectedPlant ? getQuarantineStatus(selectedPlant) : null;
-  const dashboardMetrics = [
-    { label: 'Total active plants', count: activePlants.length, lifecycle: 'active' },
-    { label: 'Recently checked', count: activePlants.filter((plant) => wasRecentlyChecked(plant)).length, lifecycle: 'active', recentlyChecked: true },
-    { label: 'Plants in LECA', count: activePlants.filter((plant) => normalizedFilterValue(plant.medium).toLowerCase() === 'leca').length, lifecycle: 'active', filter: ['medium', 'LECA'] },
-    { label: 'Tissue cultures', count: activePlants.filter((plant) => normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture').length, lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
-    { label: 'Plants in quarantine', count: activePlants.filter(isPlantInQuarantine).length, lifecycle: 'active', quarantine: 'current' },
-    { label: 'Coming out of quarantine soon', count: activePlants.filter(isPlantLeavingQuarantineSoon).length, lifecycle: 'active', quarantine: 'soon' },
-    { label: 'Plants needing attention', count: activePlants.filter((plant) => normalizedFilterValue(plant.attention).toLowerCase() === 'high').length, lifecycle: 'active', filter: ['attention', 'High'] },
-    { label: 'Keep moist plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.wateringRhythm).toLowerCase() === 'keep moist').length, lifecycle: 'active', filter: ['wateringRhythm', 'Keep moist'] },
-    { label: 'Rehab / watch closely plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'rehab / watch closely').length, lifecycle: 'active', filter: ['careDifficulty', 'Rehab / watch closely'] },
-    { label: 'Fussy plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'fussy').length, lifecycle: 'active', filter: ['careDifficulty', 'Fussy'] },
+  const keyMetrics = [
+    { label: 'Active plants', count: activePlants.length, lifecycle: 'active' },
+    { label: 'Total plants', count: plants.length, lifecycle: 'all' },
     { label: 'Archived plants', count: lifecycleCounts.archived, lifecycle: 'archived' },
     { label: 'Graveyard plants', count: lifecycleCounts.graveyard, lifecycle: 'graveyard' },
+  ];
+  const carePriorityMetrics = [
+    { label: 'Needs attention', count: activePlants.filter((plant) => normalizedFilterValue(plant.attention).toLowerCase() === 'high').length, lifecycle: 'active', filter: ['attention', 'High'] },
+    { label: 'Watch list', count: activePlants.filter((plant) => ['watch', 'watch list'].includes(normalizedFilterValue(plant.attention).toLowerCase())).length, lifecycle: 'active', filter: ['attention', 'Watch list'] },
+    { label: 'Keep moist', count: activePlants.filter((plant) => normalizedFilterValue(plant.wateringRhythm).toLowerCase() === 'keep moist').length, lifecycle: 'active', filter: ['wateringRhythm', 'Keep moist'] },
+    { label: 'Rehab / watch closely', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'rehab / watch closely').length, lifecycle: 'active', filter: ['careDifficulty', 'Rehab / watch closely'] },
+    { label: 'Fussy plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'fussy').length, lifecycle: 'active', filter: ['careDifficulty', 'Fussy'] },
+    { label: 'Recently checked', count: activePlants.filter((plant) => wasRecentlyChecked(plant)).length, lifecycle: 'active', recentlyChecked: true },
+  ];
+  const quarantineMetrics = [
+    { label: 'New plants', count: activePlants.filter((plant) => getQuarantineStatus(plant).isInNewPlantQuarantine).length, lifecycle: 'active', quarantine: 'new' },
+    { label: 'Plants in quarantine', count: activePlants.filter(isPlantInQuarantine).length, lifecycle: 'active', quarantine: 'current' },
+    { label: 'Coming out of quarantine soon', count: activePlants.filter(isPlantLeavingQuarantineSoon).length, lifecycle: 'active', quarantine: 'soon' },
+    { label: 'Pest quarantine', count: activePlants.filter((plant) => getQuarantineStatus(plant).isInPestQuarantine).length, lifecycle: 'active', quarantine: 'pest' },
   ];
   const dashboardCharts = [
     {
@@ -700,7 +711,7 @@ function App() {
     setSearchText('');
     setQuarantineFilter(metric.quarantine || '');
     setRecentlyCheckedFilter(Boolean(metric.recentlyChecked));
-    setLifecycleView(metric.lifecycle || 'active');
+    setLifecycleView(metric.lifecycle === 'all' ? 'all' : (metric.lifecycle || 'active'));
     setAreMoreFiltersVisible(Boolean(
       metric.filter && advancedFilterFields.some(([fieldName]) => fieldName === metric.filter[0])
     ));
@@ -1543,31 +1554,56 @@ function App() {
             <div>
               <p className="detail-eyebrow">Collection overview</p>
               <h2 id="dashboard-heading">Dashboard</h2>
-              <p>Choose a metric to open the matching plants.</p>
+              <p>Your collection, care tasks, and insights at a glance.</p>
             </div>
-            <button className="dashboard-add-button" type="button" onClick={() => {
-              setAddPlantMessage('');
-              setShowForm(true);
-            }}>
-              + Add New Plant
-            </button>
           </div>
-          <div className="dashboard-metrics">
-            {dashboardMetrics.map((metric) => (
-              <button className="dashboard-metric-card" type="button" key={metric.label}
-                onClick={() => openPlantList(metric)}>
-                <strong>{metric.count}</strong>
-                <span>{metric.label}</span>
-                <small>View plants →</small>
+          <section className="dashboard-section dashboard-quick-actions" aria-labelledby="quick-actions-heading">
+            <div className="dashboard-section-heading">
+              <h3 id="quick-actions-heading">Quick Actions</h3>
+              <p>Jump straight to the things you use most.</p>
+            </div>
+            <div className="dashboard-action-buttons">
+              <button className="dashboard-add-button" type="button" onClick={() => {
+                setAddPlantMessage('');
+                setShowForm(true);
+              }}>+ Add New Plant</button>
+              <button className="secondary-button" type="button" onClick={() => openPlantList()}>
+                View Plant List
               </button>
-            ))}
-          </div>
-          <div className="dashboard-breakdown-heading">
-            <p className="detail-eyebrow">Plant insights</p>
-            <h3>Collection Breakdown</h3>
-            <p>Select a legend item to see those plants.</p>
-          </div>
-          <div className="dashboard-charts" aria-label="Collection breakdown charts">
+              <button className="secondary-button" type="button" onClick={openSettings}>
+                Settings / Tools
+              </button>
+            </div>
+          </section>
+          {[
+            ['key-metrics-heading', 'Key Metrics', 'A simple snapshot of your collection.', keyMetrics],
+            ['care-priorities-heading', 'Care Priorities', 'Plants that may need your attention next.', carePriorityMetrics],
+            ['quarantine-heading', 'Quarantine / New Plants', 'Keep arrivals and isolated plants easy to track.', quarantineMetrics],
+          ].map(([headingId, title, description, metrics]) => (
+            <section className="dashboard-section" aria-labelledby={headingId} key={headingId}>
+              <div className="dashboard-section-heading">
+                <h3 id={headingId}>{title}</h3>
+                <p>{description}</p>
+              </div>
+              <div className="dashboard-metrics">
+                {metrics.map((metric) => (
+                  <button className="dashboard-metric-card" type="button" key={metric.label}
+                    onClick={() => openPlantList(metric)}>
+                    <strong>{metric.count}</strong>
+                    <span>{metric.label}</span>
+                    <small>View plants →</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+          <section className="dashboard-section" aria-labelledby="collection-breakdown-heading">
+            <div className="dashboard-section-heading">
+              <p className="detail-eyebrow">Plant insights</p>
+              <h3 id="collection-breakdown-heading">Collection Breakdown</h3>
+              <p>Select a legend item to see those plants.</p>
+            </div>
+            <div className="dashboard-charts" aria-label="Collection breakdown charts">
             {dashboardCharts.map((chart) => {
               const total = chart.rows.reduce((sum, row) => sum + row.count, 0);
               const coloredRows = chart.rows.map((row, index) => ({
@@ -1624,7 +1660,8 @@ function App() {
                 </section>
               );
             })}
-          </div>
+            </div>
+          </section>
         </section>
         ) : appView === 'settings' ? (
         <section className="settings-view" aria-labelledby="settings-heading">
@@ -1687,7 +1724,12 @@ function App() {
         <div className="plant-search-tools">
           {quarantineFilter && (
             <div className="applied-dashboard-filter" role="status">
-              <span>{quarantineFilter === 'current' ? 'Plants in quarantine' : 'Coming out of quarantine soon'}</span>
+              <span>{({
+                current: 'Plants in quarantine',
+                soon: 'Coming out of quarantine soon',
+                new: 'New plants',
+                pest: 'Pest quarantine',
+              })[quarantineFilter]}</span>
               <button type="button" onClick={() => setQuarantineFilter('')}>Clear</button>
             </div>
           )}
@@ -1727,6 +1769,7 @@ function App() {
               <label htmlFor="lifecycle-filter">Plant view</label>
               <select id="lifecycle-filter" value={lifecycleView}
                 onChange={(event) => setLifecycleView(event.target.value)}>
+                <option value="all">All Plants</option>
                 <option value="active">Active Plants</option>
                 <option value="archived">Archived Plants</option>
                 <option value="graveyard">Graveyard Plants</option>
