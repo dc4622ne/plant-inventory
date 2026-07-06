@@ -204,8 +204,28 @@
   transform: translateY(-3px);
 }
 
+.plant-card-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.plant-image {
+  display: grid;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  font-size: 1.75rem;
+  line-height: 1;
+  background: rgba(107, 143, 113, 0.14);
+  border: 1px solid rgba(107, 143, 113, 0.22);
+  border-radius: 12px;
+}
+
 .plant-card h2 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 1.2rem;
   font-weight: 700;
   line-height: 1.25;

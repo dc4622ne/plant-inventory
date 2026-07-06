@@ -4,6 +4,7 @@ import './App.css';
 const initialPlants = [
   {
     name: 'Monstera Albo',
+    image: '🪴',
     type: 'Houseplant',
     location: 'Plant Wall',
     status: 'Watching for new growth',
@@ -13,6 +14,7 @@ const initialPlants = [
   },
   {
     name: 'Venom TC',
+    image: '🧪',
     type: 'Tissue Culture',
     location: 'TC / Acclimation Area',
     status: 'Acclimating',
@@ -22,6 +24,7 @@ const initialPlants = [
   },
   {
     name: 'Sweet Potato Slips',
+    image: '🍠',
     type: 'Garden',
     location: 'South Window',
     status: 'Growing outdoors',
@@ -31,6 +34,7 @@ const initialPlants = [
   },
   {
     name: 'Pothos Cuttings',
+    image: '🌱',
     type: 'Propagation',
     location: 'Propagation Area',
     status: 'Rooting',
@@ -41,6 +45,15 @@ const initialPlants = [
 ];
 
 const filterOptions = ['All', ...new Set(initialPlants.map((plant) => plant.type))];
+
+function getPlantImage(name, type) {
+  const plantDetails = `${name} ${type}`.toLowerCase();
+
+  if (plantDetails.includes('tissue culture') || plantDetails.includes(' tc')) return '🧪';
+  if (plantDetails.includes('propagation') || plantDetails.includes('cutting')) return '🌱';
+  if (plantDetails.includes('sweet potato') || plantDetails.includes('garden')) return '🍠';
+  return '🪴';
+}
 
 function App() {
   const [plants, setPlants] = useState(initialPlants);
@@ -66,6 +79,7 @@ function App() {
       ...currentPlants,
       {
         name,
+        image: getPlantImage(name, type),
         type,
         location,
         status: 'New',
@@ -168,7 +182,12 @@ function App() {
         <div className="plant-list">
           {visiblePlants.length > 0 ? visiblePlants.map((plant) => (
             <article className="plant-card" key={plant.name}>
-              <h2>{plant.name}</h2>
+              <div className="plant-card-heading">
+                <span className="plant-image" role="img" aria-label={`${plant.name} placeholder`}>
+                  {plant.image}
+                </span>
+                <h2>{plant.name}</h2>
+              </div>
               <p className="plant-type">{plant.type}</p>
               <p className="plant-status"><strong>Location:</strong> {plant.location}</p>
               <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
