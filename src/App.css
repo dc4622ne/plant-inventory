@@ -133,6 +133,31 @@
   grid-column: span 3;
 }
 
+.tc-form-section {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  padding: 18px;
+  border: 1px solid rgba(107, 143, 113, 0.32);
+  border-radius: 16px;
+}
+
+.tc-form-section legend {
+  padding: 0 8px;
+  color: var(--brand-green);
+  font-weight: 800;
+}
+
+.tc-form-section > p, .tc-empty-message {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+}
+
+.tc-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
 .form-field {
   display: grid;
   gap: 6px;
@@ -1030,6 +1055,9 @@
 }
 
 .badge-new, .badge-tc { color: #4e4770; background: #eeebf8; border-color: #cbc3e6; }
+.badge-tc-acclimating { color: #715817; background: #fff2d8; border-color: #e6c583; }
+.badge-tc-acclimated { color: #356243; background: #e1f0e4; border-color: #a8cfb0; }
+.badge-tc-failed { color: #8a3328; background: #fae8e4; border-color: #e9b9ae; }
 .badge-quarantine, .badge-pest-quarantine { color: #715817; background: #f6edcf; border-color: #ddca89; }
 .badge-attention { color: #8a3328; background: #fae8e4; border-color: #e9b9ae; }
 .badge-watch { color: #79531b; background: #fff2d8; border-color: #e6c583; }
@@ -1686,6 +1714,10 @@
   }
 
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tc-form-grid {
     grid-template-columns: 1fr;
   }
 

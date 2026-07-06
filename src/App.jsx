@@ -108,6 +108,8 @@ const emptyPlant = {
   potSize: '', thirstLevel: '', soilMix: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
   propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
   pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
+  tcStage: '', tcDeflaskDate: '', tcAcclimationStartDate: '', tcAcclimationEndDate: '',
+  tcSetup: '', tcHumidityLevel: '', tcNotes: '',
 };
 
 const activityTypes = [
@@ -138,6 +140,19 @@ const wateringRhythmOptions = [
 const moisturePreferenceOptions = ['Dry', 'Moderate', 'Moist', 'Wet / boggy'];
 const careDifficultyOptions = ['Easy', 'Moderate', 'Fussy', 'Rehab / watch closely'];
 const careRhythmFields = ['wateringRhythm', 'moisturePreference', 'careDifficulty'];
+const tcStageOptions = [
+  'In vitro / unopened', 'Deflasked', 'Community cup', 'High humidity acclimation',
+  'Venting', 'Transitioning to ambient', 'Fully acclimated', 'Failed / lost',
+];
+const tcSetupOptions = [
+  'Original TC cup', 'Community cup', 'Prop box', 'Humidity dome',
+  'Greenhouse cabinet', 'Open air', 'Other',
+];
+const tcHumidityOptions = ['Very high', 'High', 'Moderate', 'Ambient'];
+const acclimatingTcStages = [
+  'Deflasked', 'Community cup', 'High humidity acclimation', 'Venting',
+  'Transitioning to ambient',
+];
 
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
@@ -190,6 +205,9 @@ const initialDropdownOptions = {
   wateringRhythm: wateringRhythmOptions,
   moisturePreference: moisturePreferenceOptions,
   careDifficulty: careDifficultyOptions,
+  tcStage: tcStageOptions,
+  tcSetup: tcSetupOptions,
+  tcHumidityLevel: tcHumidityOptions,
 };
 
 const plantsStorageKey = 'plant-inventory-plants';
@@ -368,10 +386,20 @@ const emptyPlantFilters = {
   genus: '', type: '', status: '', location: '',
   medium: '', potSize: '', attention: '', thirstLevel: '', soilMix: '',
   wateringRhythm: '', moisturePreference: '', careDifficulty: '',
+  tcStage: '',
 };
 
 function normalizedFilterValue(value) {
   return String(value ?? '').trim();
+}
+
+function isTissueCulture(plant) {
+  return normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture';
+}
+
+function hasTcTrackerData(plant) {
+  return ['tcStage', 'tcDeflaskDate', 'tcAcclimationStartDate', 'tcAcclimationEndDate',
+    'tcSetup', 'tcHumidityLevel', 'tcNotes'].some((fieldName) => normalizedFilterValue(plant[fieldName]));
 }
 
 function countPlantsByField(plants, fieldName, preferredLabels = []) {
@@ -422,6 +450,7 @@ function FilterDropdown({ fieldName, label, value, options, onChange }) {
       <select id={`${fieldName}-filter`} value={value}
         onChange={(event) => onChange(event.target.value)}>
         <option value="">All</option>
+        {fieldName === 'tcStage' && <option value="__acclimating__">Acclimating (all stages)</option>}
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}
@@ -504,8 +533,15 @@ function getPlantBadges(plant) {
   if (normalizedFilterValue(plant.medium).toLowerCase() === 'leca') {
     badges.push({ label: 'LECA', kind: 'leca' });
   }
-  if (normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture') {
+  if (isTissueCulture(plant)) {
     badges.push({ label: 'TC', kind: 'tc' });
+  }
+  if (acclimatingTcStages.includes(plant.tcStage)) {
+    badges.push({ label: 'Acclimating', kind: 'tc-acclimating' });
+  } else if (plant.tcStage === 'Fully acclimated') {
+    badges.push({ label: 'Fully acclimated', kind: 'tc-acclimated' });
+  } else if (plant.tcStage === 'Failed / lost') {
+    badges.push({ label: 'Failed TC', kind: 'tc-failed' });
   }
   if (quarantine.isInNewPlantQuarantine) {
     badges.push({ label: 'Quarantine', kind: 'quarantine' });
@@ -600,6 +636,7 @@ function App() {
   const [newOptionText, setNewOptionText] = useState({
     genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
     wateringRhythm: '', moisturePreference: '', careDifficulty: '',
+    tcStage: '', tcSetup: '', tcHumidityLevel: '',
   });
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
@@ -635,6 +672,7 @@ function App() {
     'name', 'genus', 'type', 'status', 'location', 'lightNeeds',
     'careNote', 'watering', 'pestNotes', 'growthNotes',
     'wateringRhythm', 'moisturePreference', 'careDifficulty',
+    'tcStage', 'tcSetup', 'tcHumidityLevel', 'tcNotes',
   ];
   const primaryFilterFields = [
     ['medium', 'Growing medium'], ['type', 'Type / category'], ['location', 'Location'],
@@ -645,6 +683,7 @@ function App() {
     ['soilMix', 'Soil mix / substrate mix'],
     ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
     ['careDifficulty', 'Care difficulty'],
+    ['tcStage', 'TC stage'],
   ];
   const filterFields = [...primaryFilterFields, ...advancedFilterFields];
   const getFilterOptions = (fieldName) => [
@@ -666,6 +705,9 @@ function App() {
         if (selectedFilter === missingFilterValue) return !plantValue;
         if (fieldName === 'attention' && selectedFilter === 'Watch list') {
           return ['Watch', 'Watch list'].includes(plantValue);
+        }
+        if (fieldName === 'tcStage' && selectedFilter === '__acclimating__') {
+          return acclimatingTcStages.includes(plantValue);
         }
         return plantValue === selectedFilter;
       });
@@ -721,6 +763,12 @@ function App() {
     { label: 'Plants in quarantine', count: activePlants.filter(isPlantInQuarantine).length, lifecycle: 'active', quarantine: 'current' },
     { label: 'Coming out of quarantine soon', count: activePlants.filter(isPlantLeavingQuarantineSoon).length, lifecycle: 'active', quarantine: 'soon' },
     { label: 'Pest quarantine', count: activePlants.filter((plant) => getQuarantineStatus(plant).isInPestQuarantine).length, lifecycle: 'active', quarantine: 'pest' },
+  ];
+  const tcMetrics = [
+    { label: 'Tissue cultures', count: activePlants.filter(isTissueCulture).length, lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
+    { label: 'TC acclimating', count: activePlants.filter((plant) => isTissueCulture(plant) && acclimatingTcStages.includes(plant.tcStage)).length, lifecycle: 'active', filter: ['tcStage', '__acclimating__'] },
+    { label: 'TC fully acclimated', count: activePlants.filter((plant) => isTissueCulture(plant) && plant.tcStage === 'Fully acclimated').length, lifecycle: 'active', filter: ['tcStage', 'Fully acclimated'] },
+    { label: 'Failed/lost TC', count: activePlants.filter((plant) => isTissueCulture(plant) && plant.tcStage === 'Failed / lost').length, lifecycle: 'active', filter: ['tcStage', 'Failed / lost'] },
   ];
   const today = todayDate();
   const sevenDaysFromToday = addDaysToDate(today, 7);
@@ -901,6 +949,9 @@ function App() {
     { id: 'all-active', label: 'All active plants', lifecycle: 'active' },
     { id: 'leca', label: 'LECA plants', lifecycle: 'active', filter: ['medium', 'LECA'] },
     { id: 'tissue-cultures', label: 'Tissue cultures', lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
+    { id: 'tc-acclimating', label: 'TC acclimating', lifecycle: 'active', filter: ['tcStage', '__acclimating__'] },
+    { id: 'tc-acclimated', label: 'Fully acclimated TC', lifecycle: 'active', filter: ['tcStage', 'Fully acclimated'] },
+    { id: 'tc-failed', label: 'Failed/lost TC', lifecycle: 'active', filter: ['tcStage', 'Failed / lost'] },
     { id: 'new', label: 'New plants', lifecycle: 'active', recentlyAcquired: true },
     { id: 'quarantine', label: 'In quarantine', lifecycle: 'active', quarantine: 'current' },
     { id: 'pest-quarantine', label: 'Pest quarantine', lifecycle: 'active', quarantine: 'pest' },
@@ -1042,7 +1093,7 @@ function App() {
 
     if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
+    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setShowForm(shouldAddAnother);
     setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
     setIsEditing(false);
@@ -1078,7 +1129,7 @@ function App() {
 
   function cancelForm() {
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
+    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setShowForm(false);
     setIsEditing(false);
@@ -1096,8 +1147,11 @@ function App() {
       acquiredDate: dateInputValue(selectedPlant.acquiredDate),
       pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
       pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
+      tcDeflaskDate: dateInputValue(selectedPlant.tcDeflaskDate),
+      tcAcclimationStartDate: dateInputValue(selectedPlant.tcAcclimationStartDate),
+      tcAcclimationEndDate: dateInputValue(selectedPlant.tcAcclimationEndDate),
     });
-    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
+    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setIsEditing(true);
   }
@@ -1422,6 +1476,23 @@ function App() {
                 </dl>
               </section>
             ))}
+            {(isTissueCulture(selectedPlant) || hasTcTrackerData(selectedPlant)) && (
+              <section className="detail-section tc-detail-section">
+                <h3>TC Acclimation</h3>
+                {hasTcTrackerData(selectedPlant) ? (
+                  <dl className="detail-list">
+                    {[
+                      ['tcStage', 'TC stage'], ['tcDeflaskDate', 'Deflask date'],
+                      ['tcAcclimationStartDate', 'Acclimation start'],
+                      ['tcAcclimationEndDate', 'Acclimation end'], ['tcSetup', 'Current setup'],
+                      ['tcHumidityLevel', 'Humidity level'], ['tcNotes', 'Notes'],
+                    ].filter(([fieldName]) => selectedPlant[fieldName]).map(([fieldName, label]) => (
+                      <div key={fieldName}><dt>{label}</dt><dd>{selectedPlant[fieldName]}</dd></div>
+                    ))}
+                  </dl>
+                ) : <p className="tc-empty-message">No TC acclimation details added yet.</p>}
+              </section>
+            )}
           </div>
           <section className="photo-log" aria-labelledby="photo-log-heading">
             <h3 id="photo-log-heading">Photo Log</h3>
@@ -1737,6 +1808,53 @@ function App() {
                   onChange={handleInputChange} rows="3" />
               </div>
             ))}
+            {isTissueCulture(newPlant) && (
+              <fieldset className="tc-form-section">
+                <legend>Tissue Culture Acclimation</legend>
+                <p>Optional details for tracking this plant from arrival through ambient conditions.</p>
+                <div className="tc-form-grid">
+                  {[
+                    ['tcStage', 'TC stage'], ['tcSetup', 'Current acclimation setup'],
+                    ['tcHumidityLevel', 'Humidity level'],
+                  ].map(([fieldName, label]) => (
+                    <div className="form-field" key={fieldName}>
+                      <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                      <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                        onChange={handleInputChange}>
+                        <option value="">Not set</option>
+                        {dropdownOptions[fieldName].map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <div className="new-option-row">
+                        <input type="text" aria-label={`New ${label.toLowerCase()} option`}
+                          placeholder="Add new option" value={newOptionText[fieldName]}
+                          onChange={(event) => setNewOptionText((currentText) => ({
+                            ...currentText, [fieldName]: event.target.value,
+                          }))} />
+                        <button type="button" onClick={() => addDropdownOption(fieldName)}>Add option</button>
+                      </div>
+                    </div>
+                  ))}
+                  {[
+                    ['tcDeflaskDate', 'Deflask date'],
+                    ['tcAcclimationStartDate', 'Acclimation start date'],
+                    ['tcAcclimationEndDate', 'Acclimation end date'],
+                  ].map(([fieldName, label]) => (
+                    <div className="form-field" key={fieldName}>
+                      <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                      <input id={`plant-${fieldName}`} name={fieldName} type="date"
+                        value={newPlant[fieldName]} onChange={handleInputChange} />
+                    </div>
+                  ))}
+                  <div className="form-field form-field-wide">
+                    <label htmlFor="plant-tcNotes">TC acclimation notes</label>
+                    <textarea id="plant-tcNotes" name="tcNotes" value={newPlant.tcNotes}
+                      onChange={handleInputChange} rows="3" />
+                  </div>
+                </div>
+              </fieldset>
+            )}
           </div>
           <div className="form-actions">
             <button type="submit">{isEditing ? 'Save changes' : 'Add Plant & Close'}</button>
@@ -1780,6 +1898,7 @@ function App() {
             ['key-metrics-heading', 'Key Metrics', 'A simple snapshot of your collection.', keyMetrics],
             ['care-priorities-heading', 'Care Priorities', 'Plants that may need your attention next.', carePriorityMetrics],
             ['quarantine-heading', 'Quarantine / New Plants', 'Keep arrivals and isolated plants easy to track.', quarantineMetrics],
+            ['tc-metrics-heading', 'Tissue Culture Acclimation', 'Follow tissue cultures through acclimation.', tcMetrics],
           ].map(([headingId, title, description, metrics]) => (
             <section className="dashboard-section" aria-labelledby={headingId} key={headingId}>
               <div className="dashboard-section-heading">
