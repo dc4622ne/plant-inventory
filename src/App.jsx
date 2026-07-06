@@ -236,6 +236,7 @@ function App() {
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [lifecycleView, setLifecycleView] = useState('active');
+  const [addPlantMessage, setAddPlantMessage] = useState('');
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
@@ -253,6 +254,8 @@ function App() {
 
   function handleSubmit(event) {
     event.preventDefault();
+    const shouldAddAnother = !isEditing
+      && event.nativeEvent.submitter?.value === 'add-another';
 
     const savedPlant = {
       ...newPlant,
@@ -277,7 +280,9 @@ function App() {
 
     if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
-    setShowForm(false);
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setShowForm(shouldAddAnother);
+    setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
     setIsEditing(false);
   }
 
@@ -308,6 +313,7 @@ function App() {
   function cancelForm() {
     setNewPlant(emptyPlant);
     setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setAddPlantMessage('');
     setShowForm(false);
     setIsEditing(false);
   }
@@ -322,6 +328,7 @@ function App() {
       acquiredDate: dateInputValue(selectedPlant.acquiredDate),
     });
     setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setAddPlantMessage('');
     setIsEditing(true);
   }
 
@@ -434,6 +441,9 @@ function App() {
         ) : showForm || isEditing ? (
         <form className="plant-form" onSubmit={handleSubmit}>
           <h2>{isEditing ? `Edit ${selectedPlant.name}` : 'Add New Plant'}</h2>
+          {!isEditing && addPlantMessage && (
+            <p className="form-success-message" role="status">{addPlantMessage}</p>
+          )}
           <div className="form-grid">
             {[
               ['name', 'Plant name'], ['source', 'Source'],
@@ -512,7 +522,12 @@ function App() {
             ))}
           </div>
           <div className="form-actions">
-            <button type="submit">{isEditing ? 'Save changes' : 'Add plant'}</button>
+            <button type="submit">{isEditing ? 'Save changes' : 'Add Plant & Close'}</button>
+            {!isEditing && (
+              <button className="add-another-button" type="submit" value="add-another">
+                Save &amp; Add Another
+              </button>
+            )}
             <button className="secondary-button" type="button" onClick={cancelForm}>Cancel</button>
           </div>
         </form>
@@ -520,7 +535,10 @@ function App() {
         <>
         <div className="section-heading">
           <h2 className="section-title" id="plant-list-heading">My Plants</h2>
-          <button className="add-plant-button" type="button" onClick={() => setShowForm(true)}
+          <button className="add-plant-button" type="button" onClick={() => {
+            setAddPlantMessage('');
+            setShowForm(true);
+          }}
             aria-label="Add new plant" title="Add new plant">
             +
           </button>
