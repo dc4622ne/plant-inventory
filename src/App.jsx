@@ -5,30 +5,26 @@ const initialPlants = [
   {
     name: 'Monstera Albo',
     type: 'Houseplant',
-    light: 'Bright indirect light',
-    water: 'Let LECA reservoir get low before refilling',
-    note: 'Recently converted to LECA',
+    status: 'Watching for new growth',
+    careNote: 'Keep in bright indirect light and monitor LECA roots.',
   },
   {
     name: 'Venom TC',
     type: 'Tissue Culture',
-    light: 'Bright filtered light',
-    water: 'High humidity, carefully acclimating',
-    note: 'Watch for steady new growth',
+    status: 'Acclimating',
+    careNote: 'Keep humidity high and avoid disturbing the roots.',
   },
   {
     name: 'Sweet Potato Slips',
     type: 'Garden',
-    light: 'Full sun',
-    water: 'Keep evenly watered outdoors',
-    note: 'Planted in the garden bed',
+    status: 'Growing outdoors',
+    careNote: 'Keep evenly watered while vines establish.',
   },
   {
     name: 'Pothos Cuttings',
     type: 'Propagation',
-    light: 'Low to bright indirect light',
-    water: 'Keep roots moist while establishing',
-    note: 'Rooted cuttings from propagation',
+    status: 'Rooting',
+    careNote: 'Change water regularly and pot up once roots are strong.',
   },
 ];
 
@@ -46,9 +42,8 @@ function App() {
       {
         name,
         type,
-        light: 'Not specified',
-        water: 'Not specified',
-        note,
+        status: 'New',
+        careNote: note,
       },
     ]);
     setName('');
@@ -97,9 +92,8 @@ function App() {
             <article className="plant-card" key={plant.name}>
               <h2>{plant.name}</h2>
               <p>{plant.type}</p>
-              <p><strong>Light:</strong> {plant.light}</p>
-              <p><strong>Water:</strong> {plant.water}</p>
-              <p><strong>Note:</strong> {plant.note}</p>
+              <p><strong>Status:</strong> {plant.status}</p>
+              <p>{plant.careNote}</p>
             </article>
           ))}
         </div>
