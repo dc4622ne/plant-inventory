@@ -435,7 +435,6 @@
 }
 
 .back-button {
-  margin-bottom: 28px;
   padding: 9px 13px;
   color: var(--brand-green);
   font: inherit;
@@ -445,6 +444,34 @@
   border: 1px solid var(--brand-leaf);
   border-radius: 8px;
   cursor: pointer;
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.edit-plant-button {
+  padding: 9px 16px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 750;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.edit-plant-button:hover {
+  filter: brightness(0.92);
+}
+
+.edit-plant-button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
 }
 
 .back-button:hover {

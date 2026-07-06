@@ -155,6 +155,10 @@ function displayValue(value) {
   return value || 'Not set';
 }
 
+function dateInputValue(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : '';
+}
+
 const detailSections = [
   {
     title: 'Plant information',
@@ -197,6 +201,7 @@ function App() {
   const [searchText, setSearchText] = useState('');
   const [newPlant, setNewPlant] = useState(emptyPlant);
   const [selectedPlant, setSelectedPlant] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
@@ -214,20 +219,31 @@ function App() {
   function handleSubmit(event) {
     event.preventDefault();
 
-    setPlants((currentPlants) => {
-      const updatedPlants = [
-        ...currentPlants,
-        {
-          ...newPlant,
-          image: getPlantImage(newPlant.name, newPlant.type),
-        },
-      ];
+    const savedPlant = {
+      ...newPlant,
+      image: getPlantImage(newPlant.name, newPlant.type),
+    };
 
-      localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-      return updatedPlants;
-    });
+    // Keep older text values unless the user chooses a replacement date.
+    if (isEditing) {
+      ['lastWatered', 'repotDate', 'acquiredDate'].forEach((fieldName) => {
+        const previousValue = selectedPlant[fieldName];
+        const isLegacyText = previousValue && !dateInputValue(previousValue);
+
+        if (!newPlant[fieldName] && isLegacyText) savedPlant[fieldName] = previousValue;
+      });
+    }
+    const updatedPlants = isEditing
+      ? plants.map((plant) => plant === selectedPlant ? savedPlant : plant)
+      : [...plants, savedPlant];
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+
+    if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
     setShowForm(false);
+    setIsEditing(false);
   }
 
   function handleInputChange(event) {
@@ -258,6 +274,19 @@ function App() {
     setNewPlant(emptyPlant);
     setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
     setShowForm(false);
+    setIsEditing(false);
+  }
+
+  function startEditing() {
+    setNewPlant({
+      ...emptyPlant,
+      ...selectedPlant,
+      lastWatered: dateInputValue(selectedPlant.lastWatered),
+      repotDate: dateInputValue(selectedPlant.repotDate),
+      acquiredDate: dateInputValue(selectedPlant.acquiredDate),
+    });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setIsEditing(true);
   }
 
   return (
@@ -269,11 +298,16 @@ function App() {
       </header>
 
       <section className="plant-section">
-        {selectedPlant ? (
+        {selectedPlant && !isEditing ? (
         <article className="plant-detail" aria-labelledby="plant-detail-heading">
-          <button className="back-button" type="button" onClick={() => setSelectedPlant(null)}>
-            ← Back to Plant List
-          </button>
+          <div className="detail-actions">
+            <button className="back-button" type="button" onClick={() => setSelectedPlant(null)}>
+              ← Back to Plant List
+            </button>
+            <button className="edit-plant-button" type="button" onClick={startEditing}>
+              Edit Plant
+            </button>
+          </div>
           <div className="detail-heading">
             <span className="plant-image detail-image" role="img" aria-label={`${selectedPlant.name} placeholder`}>
               {selectedPlant.image || getPlantImage(selectedPlant.name, selectedPlant.type)}
@@ -300,9 +334,9 @@ function App() {
             ))}
           </div>
         </article>
-        ) : showForm ? (
+        ) : showForm || isEditing ? (
         <form className="plant-form" onSubmit={handleSubmit}>
-          <h2>Add New Plant</h2>
+          <h2>{isEditing ? `Edit ${selectedPlant.name}` : 'Add New Plant'}</h2>
           <div className="form-grid">
             {[
               ['name', 'Plant name'], ['source', 'Source'],
@@ -377,7 +411,7 @@ function App() {
             ))}
           </div>
           <div className="form-actions">
-            <button type="submit">Add plant</button>
+            <button type="submit">{isEditing ? 'Save changes' : 'Add plant'}</button>
             <button className="secondary-button" type="button" onClick={cancelForm}>Cancel</button>
           </div>
         </form>
