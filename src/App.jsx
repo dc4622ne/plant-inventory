@@ -155,6 +155,36 @@ function displayValue(value) {
   return value || 'Not set';
 }
 
+const detailSections = [
+  {
+    title: 'Plant information',
+    fields: [
+      ['genus', 'Genus'], ['type', 'Type / category'], ['source', 'Source'],
+      ['location', 'Location'], ['status', 'Status'], ['attention', 'Attention'],
+    ],
+  },
+  {
+    title: 'Care details',
+    fields: [
+      ['lightNeeds', 'Lighting'], ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+      ['watering', 'Watering notes'], ['lastWatered', 'Last watered'], ['repotDate', 'Repotted'],
+    ],
+  },
+  {
+    title: 'Collection details',
+    fields: [
+      ['acquiredDate', 'Acquired'], ['purchasePrice', 'Purchase price'],
+      ['wishlistStatus', 'Collection'], ['propagationStatus', 'Propagation'],
+    ],
+  },
+  {
+    title: 'Notes',
+    fields: [
+      ['careNote', 'Care notes'], ['pestNotes', 'Pest notes'], ['growthNotes', 'Growth notes'],
+    ],
+  },
+];
+
 function App() {
   const [plants, setPlants] = useState(loadPlants);
   const [showForm, setShowForm] = useState(false);
@@ -166,17 +196,20 @@ function App() {
   const [activeGenus, setActiveGenus] = useState('All Genus');
   const [searchText, setSearchText] = useState('');
   const [newPlant, setNewPlant] = useState(emptyPlant);
+  const [selectedPlant, setSelectedPlant] = useState(null);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
   const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus).filter(Boolean))];
-  const visiblePlants = plants.filter((plant) => {
-    const matchesType = activeFilter === 'All' || plant.type === activeFilter;
-    const matchesGenus = activeGenus === 'All Genus' || plant.genus === activeGenus;
-    const matchesSearch = plant.name.toLowerCase().includes(normalizedSearch);
+  const visiblePlants = plants
+    .filter((plant) => {
+      const matchesType = activeFilter === 'All' || plant.type === activeFilter;
+      const matchesGenus = activeGenus === 'All Genus' || plant.genus === activeGenus;
+      const matchesSearch = plant.name.toLowerCase().includes(normalizedSearch);
 
-    return matchesType && matchesGenus && matchesSearch;
-  });
+      return matchesType && matchesGenus && matchesSearch;
+    })
+    .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -236,7 +269,38 @@ function App() {
       </header>
 
       <section className="plant-section">
-        {showForm ? (
+        {selectedPlant ? (
+        <article className="plant-detail" aria-labelledby="plant-detail-heading">
+          <button className="back-button" type="button" onClick={() => setSelectedPlant(null)}>
+            ← Back to Plant List
+          </button>
+          <div className="detail-heading">
+            <span className="plant-image detail-image" role="img" aria-label={`${selectedPlant.name} placeholder`}>
+              {selectedPlant.image || getPlantImage(selectedPlant.name, selectedPlant.type)}
+            </span>
+            <div>
+              <p className="detail-eyebrow">Plant details</p>
+              <h2 id="plant-detail-heading">{selectedPlant.name}</h2>
+              <p>{displayValue(selectedPlant.genus)} · {displayValue(selectedPlant.type)}</p>
+            </div>
+          </div>
+          <div className="detail-sections">
+            {detailSections.map((section) => (
+              <section className="detail-section" key={section.title}>
+                <h3>{section.title}</h3>
+                <dl className="detail-list">
+                  {section.fields.map(([fieldName, label]) => (
+                    <div key={fieldName}>
+                      <dt>{label}</dt>
+                      <dd>{displayValue(selectedPlant[fieldName])}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))}
+          </div>
+        </article>
+        ) : showForm ? (
         <form className="plant-form" onSubmit={handleSubmit}>
           <h2>Add New Plant</h2>
           <div className="form-grid">
@@ -361,8 +425,14 @@ function App() {
           />
         </div>
         <div className="plant-list">
-          {visiblePlants.length > 0 ? visiblePlants.map((plant) => (
-            <article className="plant-card" key={plant.name}>
+          {visiblePlants.length > 0 ? visiblePlants.map((plant, plantIndex) => (
+            <button
+              className="plant-card"
+              type="button"
+              key={`${plant.name}-${plantIndex}`}
+              onClick={() => setSelectedPlant(plant)}
+              aria-label={`View details for ${plant.name}`}
+            >
               <div className="plant-card-heading">
                 <span className="plant-image" role="img" aria-label={`${plant.name} placeholder`}>
                   {plant.image}
@@ -371,41 +441,14 @@ function App() {
               </div>
               <p className="plant-type">{displayValue(plant.type)}</p>
               <section className="card-section">
-                <h3>Care</h3>
                 <dl className="plant-details">
-                  <div><dt>Light</dt><dd>{displayValue(plant.lightNeeds)}</dd></div>
-                  <div><dt>Medium</dt><dd>{displayValue(plant.medium)}</dd></div>
-                  <div><dt>Pot size</dt><dd>{displayValue(plant.potSize)}</dd></div>
-                  <div><dt>Watering</dt><dd>{displayValue(plant.watering)}</dd></div>
-                  <div><dt>Last watered</dt><dd>{displayValue(plant.lastWatered)}</dd></div>
-                  <div><dt>Repotted</dt><dd>{displayValue(plant.repotDate)}</dd></div>
-                </dl>
-              </section>
-              <section className="card-section">
-                <h3>Tracking</h3>
-                <dl className="plant-details">
-                  <div><dt>Source</dt><dd>{displayValue(plant.source)}</dd></div>
                   <div><dt>Genus</dt><dd>{displayValue(plant.genus)}</dd></div>
                   <div><dt>Location</dt><dd>{displayValue(plant.location)}</dd></div>
                   <div><dt>Status</dt><dd>{displayValue(plant.status)}</dd></div>
-                  <div><dt>Collection</dt><dd>{displayValue(plant.wishlistStatus)}</dd></div>
-                  <div><dt>Propagation</dt><dd>{displayValue(plant.propagationStatus)}</dd></div>
-                  <div><dt>Acquired</dt><dd>{displayValue(plant.acquiredDate)}</dd></div>
-                  <div><dt>Price</dt><dd>{displayValue(plant.purchasePrice)}</dd></div>
-                  <div className="attention-detail"><dt>Attention</dt><dd>
-                    <span className={`attention-badge attention-${plant.attention.toLowerCase()}`}>
-                      {plant.attention}
-                    </span>
-                  </dd></div>
                 </dl>
               </section>
-              <section className="card-section notes-section">
-                <h3>Notes</h3>
-                <p><strong>Care:</strong> {displayValue(plant.careNote)}</p>
-                <p><strong>Pests:</strong> {displayValue(plant.pestNotes)}</p>
-                <p><strong>Growth:</strong> {displayValue(plant.growthNotes)}</p>
-              </section>
-            </article>
+              <span className="view-details">View details →</span>
+            </button>
           )) : <p className="empty-message">No plants found.</p>}
         </div>
         </>
