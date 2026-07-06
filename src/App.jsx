@@ -53,37 +53,47 @@ function App() {
 
   return (
     <main className="plant-inventory">
-      <h1>Welcome to Gibre’s Plant Tracker</h1>
+      <header className="brand-header">
+        <p className="brand-name">Grow With Gibre</p>
+        <h1>Plant Tracker</h1>
+        <p className="brand-tagline">From the city to the soil</p>
+      </header>
 
-      <section aria-labelledby="plant-list-heading">
-        <h2 id="plant-list-heading">My Plants</h2>
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="plant-name">Plant name</label>
-          <input
-            id="plant-name"
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
+      <section className="plant-section" aria-labelledby="plant-list-heading">
+        <h2 className="section-title" id="plant-list-heading">My Plants</h2>
+        <form className="plant-form" onSubmit={handleSubmit}>
+          <div className="form-field">
+            <label htmlFor="plant-name">Plant name</label>
+            <input
+              id="plant-name"
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </div>
 
-          <label htmlFor="plant-type">Type</label>
-          <input
-            id="plant-type"
-            type="text"
-            value={type}
-            onChange={(event) => setType(event.target.value)}
-            required
-          />
+          <div className="form-field">
+            <label htmlFor="plant-type">Type</label>
+            <input
+              id="plant-type"
+              type="text"
+              value={type}
+              onChange={(event) => setType(event.target.value)}
+              required
+            />
+          </div>
 
-          <label htmlFor="plant-note">Note</label>
-          <input
-            id="plant-note"
-            type="text"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            required
-          />
+          <div className="form-field">
+            <label htmlFor="plant-note">Note</label>
+            <input
+              id="plant-note"
+              type="text"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              required
+            />
+          </div>
 
           <button type="submit">Add plant</button>
         </form>
@@ -91,9 +101,9 @@ function App() {
           {plants.map((plant) => (
             <article className="plant-card" key={plant.name}>
               <h2>{plant.name}</h2>
-              <p>{plant.type}</p>
-              <p><strong>Status:</strong> {plant.status}</p>
-              <p>{plant.careNote}</p>
+              <p className="plant-type">{plant.type}</p>
+              <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
+              <p className="plant-note">{plant.careNote}</p>
             </article>
           ))}
         </div>

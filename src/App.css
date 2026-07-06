@@ -1,30 +1,206 @@
 .plant-inventory {
-  padding: 32px;
+  width: 100%;
+  padding: clamp(24px, 5vw, 56px);
+  box-sizing: border-box;
+}
+
+.brand-header {
+  max-width: 760px;
+  margin: 0 auto 40px;
+}
+
+.brand-header h1 {
+  margin: 6px 0 8px;
+  line-height: 1.08;
+}
+
+.brand-name {
+  color: var(--brand-gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.brand-tagline {
+  color: var(--brand-leaf);
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.05rem;
+  font-style: italic;
+}
+
+.plant-section {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.section-title {
+  margin-bottom: 20px;
+  font-weight: 650;
+}
+
+.plant-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px 12px;
+  align-items: end;
+  margin-bottom: 40px;
+  padding: 20px;
+  text-align: left;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.form-field {
+  display: grid;
+  gap: 6px;
+}
+
+.form-field label {
+  color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.form-field input {
+  min-width: 0;
+  padding: 10px 12px;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.form-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.plant-form button {
+  min-height: 43px;
+  padding: 10px 18px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+.plant-form button:hover {
+  filter: brightness(0.92);
+  transform: translateY(-1px);
+}
+
+.plant-form button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
 }
 
 .plant-list {
-  max-width: 600px;
-  margin: 24px auto 0;
+  margin: 0;
   padding: 0;
   display: grid;
-  gap: 16px;
-  list-style: none;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 22px;
   text-align: left;
 }
 
 .plant-card {
-  padding: 16px 20px;
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  background: color-mix(in srgb, var(--brand-cream) 42%, #fff);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(31, 61, 43, 0.09);
+  transition: box-shadow 180ms ease, transform 180ms ease;
 }
 
-.plant-card h3 {
-  margin: 0 0 4px;
+.plant-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(var(--brand-gold), var(--brand-leaf));
+}
+
+.plant-card:hover {
+  box-shadow: 0 14px 34px rgba(31, 61, 43, 0.15);
+  transform: translateY(-3px);
+}
+
+.plant-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.plant-type {
+  display: inline-block;
+  margin-bottom: 18px;
+  padding: 4px 9px;
+  color: var(--brand-green);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.3;
+  background: rgba(107, 143, 113, 0.16);
+  border-radius: 999px;
+}
+
+.plant-status {
+  margin-bottom: 10px;
   color: var(--text-h);
+  font-size: 0.84rem;
 }
 
-@media (max-width: 600px) {
+.plant-note {
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .plant-form {
+    grid-template-columns: 1fr;
+  }
+
+  .plant-form button {
+    margin-top: 4px;
+  }
+}
+
+@media (max-width: 480px) {
   .plant-inventory {
-    padding: 20px;
+    padding: 24px 16px 36px;
+  }
+
+  .brand-header {
+    margin-bottom: 30px;
+  }
+
+  .plant-form,
+  .plant-card {
+    padding: 18px;
+  }
+
+  .plant-list {
+    gap: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plant-card,
+  .plant-form button {
+    transition: none;
   }
 }
