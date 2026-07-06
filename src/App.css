@@ -107,6 +107,38 @@
   outline-offset: 2px;
 }
 
+.plant-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.plant-filters button {
+  padding: 8px 14px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.plant-filters button:hover,
+.plant-filters button.active {
+  color: #fff;
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+}
+
+.plant-filters button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
 .plant-list {
   margin: 0;
   padding: 0;
@@ -202,7 +234,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .plant-card,
-  .plant-form button {
+  .plant-form button,
+  .plant-filters button {
     transition: none;
   }
 }

@@ -36,12 +36,19 @@ const initialPlants = [
   },
 ];
 
+const filterOptions = ['All', ...new Set(initialPlants.map((plant) => plant.type))];
+
 function App() {
   const [plants, setPlants] = useState(initialPlants);
+  const [activeFilter, setActiveFilter] = useState('All');
   const [name, setName] = useState('');
   const [type, setType] = useState('');
   const [location, setLocation] = useState('Plant Wall');
   const [note, setNote] = useState('');
+
+  const visiblePlants = activeFilter === 'All'
+    ? plants
+    : plants.filter((plant) => plant.type === activeFilter);
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -125,8 +132,21 @@ function App() {
 
           <button type="submit">Add plant</button>
         </form>
+        <div className="plant-filters" aria-label="Filter plants by type">
+          {filterOptions.map((filter) => (
+            <button
+              className={activeFilter === filter ? 'active' : ''}
+              type="button"
+              key={filter}
+              aria-pressed={activeFilter === filter}
+              onClick={() => setActiveFilter(filter)}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
         <div className="plant-list">
-          {plants.map((plant) => (
+          {visiblePlants.map((plant) => (
             <article className="plant-card" key={plant.name}>
               <h2>{plant.name}</h2>
               <p className="plant-type">{plant.type}</p>
