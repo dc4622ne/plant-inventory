@@ -104,7 +104,7 @@ const emptyPlant = {
   lifecycleStatus: 'active',
   name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
-  potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
+  potSize: '', thirstLevel: '', soilMix: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
   propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
   pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
 };
@@ -120,6 +120,13 @@ const photoTypes = [
 ];
 
 const attentionOptions = ['Low', 'Medium', 'High'];
+const thirstLevelOptions = ['Dry', 'Medium', 'Thirsty'];
+const soilMixOptions = [
+  'Base mix', 'Chunky aroid mix', 'Anthurium mix', 'Alocasia mix', 'Moisture mix',
+  'African violet mix', 'Lipstick plant mix', 'Dry mix', 'Christmas cactus mix',
+  'TC /Propagation mix', 'Carnivorous mix', 'Semi-hydro / LECA', 'Garden soil',
+  'Water propagation', 'Custom',
+];
 
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
@@ -166,6 +173,7 @@ const initialDropdownOptions = {
   status: ['Acclimating', 'Growing outdoors', 'New', 'Rooting', 'Watching for new growth'],
   location: ['Plant Wall', 'South Window', 'Kitchen', 'Basement Grow Light', 'TC / Acclimation Area', 'Propagation Area'],
   lightNeeds: ['Bright indirect light', 'Direct light', 'Grow light', 'Low light', 'Outdoor sun'],
+  soilMix: soilMixOptions,
 };
 
 const plantsStorageKey = 'plant-inventory-plants';
@@ -210,7 +218,10 @@ function loadDropdownOptions() {
   try {
     const parsedOptions = JSON.parse(savedOptions);
     return parsedOptions && typeof parsedOptions === 'object'
-      ? parsedOptions
+      ? Object.fromEntries(Object.entries(initialDropdownOptions).map(([fieldName, options]) => [
+        fieldName,
+        [...new Set([...(parsedOptions[fieldName] || []), ...options])],
+      ]))
       : initialDropdownOptions;
   } catch {
     return initialDropdownOptions;
@@ -272,7 +283,7 @@ function displayValue(value) {
 const missingFilterValue = '__missing__';
 const emptyPlantFilters = {
   genus: '', type: '', status: '', location: '',
-  medium: '', potSize: '', attention: '',
+  medium: '', potSize: '', attention: '', thirstLevel: '', soilMix: '',
 };
 
 function normalizedFilterValue(value) {
@@ -328,6 +339,47 @@ function getQuarantineStatus(plant, today = todayDate()) {
   };
 }
 
+function getPlantBadges(plant) {
+  const quarantine = getQuarantineStatus(plant);
+  const attention = normalizedFilterValue(plant.attention).toLowerCase();
+  const badges = [];
+
+  if (quarantine.isInNewPlantQuarantine) badges.push({ label: 'New', kind: 'new' });
+  if (normalizedFilterValue(plant.medium).toLowerCase() === 'leca') {
+    badges.push({ label: 'LECA', kind: 'leca' });
+  }
+  if (normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture') {
+    badges.push({ label: 'TC', kind: 'tc' });
+  }
+  if (quarantine.isInNewPlantQuarantine) {
+    badges.push({ label: 'Quarantine', kind: 'quarantine' });
+  }
+  if (quarantine.isInPestQuarantine) {
+    badges.push({ label: 'Pest quarantine', kind: 'pest-quarantine' });
+  }
+  if (attention === 'high' || attention === 'needs attention') {
+    badges.push({ label: 'Needs attention', kind: 'attention' });
+  }
+  if (attention === 'watch' || attention === 'watch list') {
+    badges.push({ label: 'Watch', kind: 'watch' });
+  }
+
+  return badges;
+}
+
+function PlantBadges({ plant }) {
+  const badges = getPlantBadges(plant);
+  if (!badges.length) return null;
+
+  return (
+    <div className="plant-badges" aria-label="Plant care badges">
+      {badges.map((badge) => (
+        <span className={`plant-badge badge-${badge.kind}`} key={badge.label}>{badge.label}</span>
+      ))}
+    </div>
+  );
+}
+
 const detailSections = [
   {
     title: 'Plant information',
@@ -340,6 +392,7 @@ const detailSections = [
     title: 'Care details',
     fields: [
       ['lightNeeds', 'Lighting'], ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+      ['thirstLevel', 'Thirst level'], ['soilMix', 'Soil mix / substrate mix'],
       ['watering', 'Watering notes'], ['lastWatered', 'Last watered'],
     ],
   },
@@ -378,7 +431,7 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
   const [newOptionText, setNewOptionText] = useState({
-    genus: '', type: '', status: '', location: '', lightNeeds: '',
+    genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '',
   });
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
@@ -404,7 +457,8 @@ function App() {
     ['genus', 'Genus'], ['type', 'Type / category'],
     ['status', 'Status'], ['location', 'Location'],
     ['medium', 'Growing medium'], ['potSize', 'Pot size'],
-    ['attention', 'Attention'],
+    ['attention', 'Attention'], ['thirstLevel', 'Thirst level'],
+    ['soilMix', 'Soil mix / substrate mix'],
   ];
   const getFilterOptions = (fieldName) => [
     ...new Set([
@@ -514,7 +568,7 @@ function App() {
 
     if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '' });
     setShowForm(shouldAddAnother);
     setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
     setIsEditing(false);
@@ -546,7 +600,7 @@ function App() {
 
   function cancelForm() {
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '' });
     setAddPlantMessage('');
     setShowForm(false);
     setIsEditing(false);
@@ -565,7 +619,7 @@ function App() {
       pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
       pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
     });
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '' });
     setAddPlantMessage('');
     setIsEditing(true);
   }
@@ -817,6 +871,7 @@ function App() {
               <p className={`lifecycle-badge lifecycle-${selectedPlant.lifecycleStatus || 'active'}`}>
                 {lifecycleLabel(selectedPlant.lifecycleStatus)}
               </p>
+              <PlantBadges plant={selectedPlant} />
             </div>
           </div>
           {selectedPlantQuarantine?.isInAnyQuarantine && (
@@ -1093,6 +1148,7 @@ function App() {
             {[
               ['genus', 'Genus'], ['type', 'Type / category'], ['status', 'Status'],
               ['location', 'Location'], ['lightNeeds', 'Light level'],
+              ['soilMix', 'Soil mix / substrate mix'],
             ].map(([fieldName, label]) => (
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
@@ -1123,6 +1179,14 @@ function App() {
               <label htmlFor="plant-attention">Attention</label>
               <select id="plant-attention" name="attention" value={newPlant.attention} onChange={handleInputChange}>
                 {attentionOptions.map((option) => <option key={option}>{option}</option>)}
+              </select>
+            </div>
+            <div className="form-field">
+              <label htmlFor="plant-thirstLevel">Thirst level</label>
+              <select id="plant-thirstLevel" name="thirstLevel" value={newPlant.thirstLevel}
+                onChange={handleInputChange}>
+                <option value="">Not set</option>
+                {thirstLevelOptions.map((option) => <option key={option}>{option}</option>)}
               </select>
             </div>
             <div className="form-field">
@@ -1273,6 +1337,7 @@ function App() {
                 <h2>{plant.name}</h2>
               </div>
               <p className="plant-type">{displayValue(plant.type)}</p>
+              <PlantBadges plant={plant} />
               <section className="card-section">
                 <dl className="plant-details">
                   <div><dt>Genus</dt><dd>{displayValue(plant.genus)}</dd></div>
