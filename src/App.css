@@ -163,6 +163,24 @@
   gap: 6px;
 }
 
+.tracker-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  font-weight: 750;
+}
+
+.tracker-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand-green);
+}
+
+.tracker-toggle small {
+  color: var(--text-muted);
+}
+
 .form-field label {
   color: var(--text-h);
   font-size: 0.78rem;
@@ -1061,6 +1079,10 @@
 .badge-quarantine, .badge-pest-quarantine { color: #715817; background: #f6edcf; border-color: #ddca89; }
 .badge-attention { color: #8a3328; background: #fae8e4; border-color: #e9b9ae; }
 .badge-watch { color: #79531b; background: #fff2d8; border-color: #e6c583; }
+.badge-leca, .badge-leca-stable { color: #356243; background: #e1f0e4; border-color: #a8cfb0; }
+.badge-leca-transitioning { color: #715817; background: #fff2d8; border-color: #e6c583; }
+.badge-leca-stress { color: #8a3328; background: #fae8e4; border-color: #e9b9ae; }
+.badge-leca-recovering { color: #3d5f72; background: #e5f1f5; border-color: #aed0dc; }
 
 .detail-heading .plant-badges {
   margin-top: 10px;

@@ -110,12 +110,15 @@ const emptyPlant = {
   pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
   tcStage: '', tcDeflaskDate: '', tcAcclimationStartDate: '', tcAcclimationEndDate: '',
   tcSetup: '', tcHumidityLevel: '', tcNotes: '',
+  trackLecaConversion: false, lecaStatus: '', lecaConversionStartDate: '', lecaRootStatus: '',
+  lecaReservoirSetup: '', lecaNutrientStatus: '', lecaFlushRhythm: '', lecaStressLevel: '', lecaNotes: '',
 };
 
 const activityTypes = [
   'Watered', 'Fertilized', 'Repotted', 'Planted', 'Pruned', 'Propagated',
   'Pest treatment', 'Changed location', 'Changed pot size', 'Health check', 'Quick check-in',
   'General note',
+  'LECA conversion', 'Reservoir refill', 'Full flush', 'Root check', 'Nutrient change',
 ];
 
 const checkInActivityTypes = ['Health check', 'Quick check-in'];
@@ -153,6 +156,14 @@ const acclimatingTcStages = [
   'Deflasked', 'Community cup', 'High humidity acclimation', 'Venting',
   'Transitioning to ambient',
 ];
+const lecaStatusOptions = ['Planning', 'Converted', 'Transitioning', 'Rooting', 'Stable', 'Struggling', 'Failed / reverted to soil'];
+const lecaRootStatusOptions = ['No new roots yet', 'Existing roots adapting', 'New water roots showing', 'Strong water roots', 'Root rot concern', 'Root trim done'];
+const lecaReservoirOptions = ['No reservoir yet', 'Low reservoir', 'Standard reservoir', 'Wick system', 'Cachepot setup', 'Self-watering pot', 'Other'];
+const lecaNutrientOptions = ['Plain water', 'Diluted nutrients', 'Full nutrients', 'Flush only', 'Paused nutrients'];
+const lecaFlushOptions = ['Weekly', 'Every 2 weeks', 'Monthly', 'As needed'];
+const lecaStressOptions = ['No stress', 'Mild droop', 'Leaf yellowing', 'Leaf drop', 'Severe stress', 'Recovering'];
+const lecaTransitionStatuses = ['Transitioning', 'Rooting'];
+const lecaStressLevels = ['Leaf yellowing', 'Leaf drop', 'Severe stress'];
 
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
@@ -208,6 +219,12 @@ const initialDropdownOptions = {
   tcStage: tcStageOptions,
   tcSetup: tcSetupOptions,
   tcHumidityLevel: tcHumidityOptions,
+  lecaStatus: lecaStatusOptions,
+  lecaRootStatus: lecaRootStatusOptions,
+  lecaReservoirSetup: lecaReservoirOptions,
+  lecaNutrientStatus: lecaNutrientOptions,
+  lecaFlushRhythm: lecaFlushOptions,
+  lecaStressLevel: lecaStressOptions,
 };
 
 const plantsStorageKey = 'plant-inventory-plants';
@@ -387,6 +404,7 @@ const emptyPlantFilters = {
   medium: '', potSize: '', attention: '', thirstLevel: '', soilMix: '',
   wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   tcStage: '',
+  lecaStatus: '', lecaStressLevel: '',
 };
 
 function normalizedFilterValue(value) {
@@ -400,6 +418,28 @@ function isTissueCulture(plant) {
 function hasTcTrackerData(plant) {
   return ['tcStage', 'tcDeflaskDate', 'tcAcclimationStartDate', 'tcAcclimationEndDate',
     'tcSetup', 'tcHumidityLevel', 'tcNotes'].some((fieldName) => normalizedFilterValue(plant[fieldName]));
+}
+
+function isLecaMedium(plant) {
+  return normalizedFilterValue(plant.medium).toLowerCase() === 'leca';
+}
+
+function isSemiHydro(plant) {
+  return normalizedFilterValue(plant.soilMix).toLowerCase() === 'semi-hydro / leca';
+}
+
+function hasLecaTrackerData(plant) {
+  return ['lecaStatus', 'lecaConversionStartDate', 'lecaRootStatus', 'lecaReservoirSetup',
+    'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes']
+    .some((fieldName) => normalizedFilterValue(plant[fieldName]));
+}
+
+function shouldShowLecaTracker(plant) {
+  return isLecaMedium(plant) || isSemiHydro(plant) || Boolean(plant.trackLecaConversion) || hasLecaTrackerData(plant);
+}
+
+function hasLecaStress(plant) {
+  return lecaStressLevels.includes(plant.lecaStressLevel) || plant.lecaRootStatus === 'Root rot concern';
 }
 
 function countPlantsByField(plants, fieldName, preferredLabels = []) {
@@ -451,6 +491,9 @@ function FilterDropdown({ fieldName, label, value, options, onChange }) {
         onChange={(event) => onChange(event.target.value)}>
         <option value="">All</option>
         {fieldName === 'tcStage' && <option value="__acclimating__">Acclimating (all stages)</option>}
+        {fieldName === 'lecaStatus' && <option value="__leca__">All LECA tracked plants</option>}
+        {fieldName === 'lecaStatus' && <option value="__transitioning__">Transitioning or rooting</option>}
+        {fieldName === 'lecaStressLevel' && <option value="__stress__">Stress concern</option>}
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}
@@ -530,9 +573,14 @@ function getPlantBadges(plant) {
   const badges = [];
 
   if (quarantine.isInNewPlantQuarantine) badges.push({ label: 'New', kind: 'new' });
-  if (normalizedFilterValue(plant.medium).toLowerCase() === 'leca') {
+  if (isLecaMedium(plant)) {
     badges.push({ label: 'LECA', kind: 'leca' });
   }
+  if (isSemiHydro(plant)) badges.push({ label: 'Semi-hydro', kind: 'leca' });
+  if (lecaTransitionStatuses.includes(plant.lecaStatus)) badges.push({ label: 'Transitioning', kind: 'leca-transitioning' });
+  if (plant.lecaStatus === 'Stable') badges.push({ label: 'Stable LECA', kind: 'leca-stable' });
+  if (hasLecaStress(plant)) badges.push({ label: 'LECA stress', kind: 'leca-stress' });
+  if (plant.lecaStressLevel === 'Recovering') badges.push({ label: 'Recovering', kind: 'leca-recovering' });
   if (isTissueCulture(plant)) {
     badges.push({ label: 'TC', kind: 'tc' });
   }
@@ -637,6 +685,8 @@ function App() {
     genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
     wateringRhythm: '', moisturePreference: '', careDifficulty: '',
     tcStage: '', tcSetup: '', tcHumidityLevel: '',
+    lecaStatus: '', lecaRootStatus: '', lecaReservoirSetup: '', lecaNutrientStatus: '',
+    lecaFlushRhythm: '', lecaStressLevel: '',
   });
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
@@ -673,6 +723,8 @@ function App() {
     'careNote', 'watering', 'pestNotes', 'growthNotes',
     'wateringRhythm', 'moisturePreference', 'careDifficulty',
     'tcStage', 'tcSetup', 'tcHumidityLevel', 'tcNotes',
+    'lecaStatus', 'lecaRootStatus', 'lecaReservoirSetup', 'lecaNutrientStatus',
+    'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes',
   ];
   const primaryFilterFields = [
     ['medium', 'Growing medium'], ['type', 'Type / category'], ['location', 'Location'],
@@ -684,6 +736,7 @@ function App() {
     ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
     ['careDifficulty', 'Care difficulty'],
     ['tcStage', 'TC stage'],
+    ['lecaStatus', 'LECA conversion status'], ['lecaStressLevel', 'LECA stress level'],
   ];
   const filterFields = [...primaryFilterFields, ...advancedFilterFields];
   const getFilterOptions = (fieldName) => [
@@ -709,6 +762,9 @@ function App() {
         if (fieldName === 'tcStage' && selectedFilter === '__acclimating__') {
           return acclimatingTcStages.includes(plantValue);
         }
+        if (fieldName === 'lecaStatus' && selectedFilter === '__leca__') return shouldShowLecaTracker(plant);
+        if (fieldName === 'lecaStatus' && selectedFilter === '__transitioning__') return lecaTransitionStatuses.includes(plantValue);
+        if (fieldName === 'lecaStressLevel' && selectedFilter === '__stress__') return hasLecaStress(plant);
         return plantValue === selectedFilter;
       });
       const matchesSearch = !normalizedSearch || searchableFields.some((fieldName) => (
@@ -769,6 +825,13 @@ function App() {
     { label: 'TC acclimating', count: activePlants.filter((plant) => isTissueCulture(plant) && acclimatingTcStages.includes(plant.tcStage)).length, lifecycle: 'active', filter: ['tcStage', '__acclimating__'] },
     { label: 'TC fully acclimated', count: activePlants.filter((plant) => isTissueCulture(plant) && plant.tcStage === 'Fully acclimated').length, lifecycle: 'active', filter: ['tcStage', 'Fully acclimated'] },
     { label: 'Failed/lost TC', count: activePlants.filter((plant) => isTissueCulture(plant) && plant.tcStage === 'Failed / lost').length, lifecycle: 'active', filter: ['tcStage', 'Failed / lost'] },
+  ];
+  const lecaMetrics = [
+    { label: 'LECA plants', count: activePlants.filter(shouldShowLecaTracker).length, lifecycle: 'active', filter: ['lecaStatus', '__leca__'] },
+    { label: 'LECA transitioning', count: activePlants.filter((plant) => lecaTransitionStatuses.includes(plant.lecaStatus)).length, lifecycle: 'active', filter: ['lecaStatus', '__transitioning__'] },
+    { label: 'Stable LECA plants', count: activePlants.filter((plant) => plant.lecaStatus === 'Stable').length, lifecycle: 'active', filter: ['lecaStatus', 'Stable'] },
+    { label: 'LECA stress', count: activePlants.filter(hasLecaStress).length, lifecycle: 'active', filter: ['lecaStressLevel', '__stress__'] },
+    { label: 'Recovering LECA plants', count: activePlants.filter((plant) => plant.lecaStressLevel === 'Recovering').length, lifecycle: 'active', filter: ['lecaStressLevel', 'Recovering'] },
   ];
   const today = todayDate();
   const sevenDaysFromToday = addDaysToDate(today, 7);
@@ -947,7 +1010,11 @@ function App() {
 
   const quickViews = [
     { id: 'all-active', label: 'All active plants', lifecycle: 'active' },
-    { id: 'leca', label: 'LECA plants', lifecycle: 'active', filter: ['medium', 'LECA'] },
+    { id: 'leca', label: 'LECA plants', lifecycle: 'active', filter: ['lecaStatus', '__leca__'] },
+    { id: 'leca-transitioning', label: 'LECA transitioning', lifecycle: 'active', filter: ['lecaStatus', '__transitioning__'] },
+    { id: 'leca-stable', label: 'Stable LECA', lifecycle: 'active', filter: ['lecaStatus', 'Stable'] },
+    { id: 'leca-stress', label: 'LECA stress', lifecycle: 'active', filter: ['lecaStressLevel', '__stress__'] },
+    { id: 'leca-recovering', label: 'Recovering LECA', lifecycle: 'active', filter: ['lecaStressLevel', 'Recovering'] },
     { id: 'tissue-cultures', label: 'Tissue cultures', lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
     { id: 'tc-acclimating', label: 'TC acclimating', lifecycle: 'active', filter: ['tcStage', '__acclimating__'] },
     { id: 'tc-acclimated', label: 'Fully acclimated TC', lifecycle: 'active', filter: ['tcStage', 'Fully acclimated'] },
@@ -1100,8 +1167,8 @@ function App() {
   }
 
   function handleInputChange(event) {
-    const { name, value } = event.target;
-    setNewPlant((currentPlant) => ({ ...currentPlant, [name]: value }));
+    const { name, value, type, checked } = event.target;
+    setNewPlant((currentPlant) => ({ ...currentPlant, [name]: type === 'checkbox' ? checked : value }));
   }
 
   function addDropdownOption(fieldName, formName = 'plant') {
@@ -1150,6 +1217,7 @@ function App() {
       tcDeflaskDate: dateInputValue(selectedPlant.tcDeflaskDate),
       tcAcclimationStartDate: dateInputValue(selectedPlant.tcAcclimationStartDate),
       tcAcclimationEndDate: dateInputValue(selectedPlant.tcAcclimationEndDate),
+      lecaConversionStartDate: dateInputValue(selectedPlant.lecaConversionStartDate),
     });
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
@@ -1491,6 +1559,23 @@ function App() {
                     ))}
                   </dl>
                 ) : <p className="tc-empty-message">No TC acclimation details added yet.</p>}
+              </section>
+            )}
+            {shouldShowLecaTracker(selectedPlant) && (
+              <section className="detail-section leca-detail-section">
+                <h3>LECA Conversion</h3>
+                {hasLecaTrackerData(selectedPlant) ? (
+                  <dl className="detail-list">
+                    {[
+                      ['lecaStatus', 'Conversion status'], ['lecaConversionStartDate', 'Conversion start date'],
+                      ['lecaRootStatus', 'Root status'], ['lecaReservoirSetup', 'Reservoir setup'],
+                      ['lecaNutrientStatus', 'Nutrient status'], ['lecaFlushRhythm', 'Flush / rinse rhythm'],
+                      ['lecaStressLevel', 'Stress level'], ['lecaNotes', 'Notes'],
+                    ].filter(([fieldName]) => selectedPlant[fieldName]).map(([fieldName, label]) => (
+                      <div key={fieldName}><dt>{label}</dt><dd>{selectedPlant[fieldName]}</dd></div>
+                    ))}
+                  </dl>
+                ) : <p className="tc-empty-message">No LECA conversion details added yet.</p>}
               </section>
             )}
           </div>
@@ -1855,6 +1940,49 @@ function App() {
                 </div>
               </fieldset>
             )}
+            <div className="form-field form-field-wide tracker-toggle">
+              <label htmlFor="plant-trackLecaConversion">
+                <input id="plant-trackLecaConversion" name="trackLecaConversion" type="checkbox"
+                  checked={Boolean(newPlant.trackLecaConversion)} onChange={handleInputChange} />
+                Track LECA conversion
+              </label>
+              <small>Turn this on for a planned conversion or any semi-hydro setup.</small>
+            </div>
+            {shouldShowLecaTracker(newPlant) && (
+              <fieldset className="tc-form-section leca-form-section">
+                <legend>LECA Conversion</legend>
+                <p>Optional details for transition progress, roots, reservoir habits, and outcomes.</p>
+                <div className="tc-form-grid">
+                  {[
+                    ['lecaStatus', 'LECA conversion status'], ['lecaRootStatus', 'Root status'],
+                    ['lecaReservoirSetup', 'Reservoir setup'], ['lecaNutrientStatus', 'Nutrient status'],
+                    ['lecaFlushRhythm', 'Flush / rinse rhythm'], ['lecaStressLevel', 'Stress level'],
+                  ].map(([fieldName, label]) => (
+                    <div className="form-field" key={fieldName}>
+                      <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                      <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]} onChange={handleInputChange}>
+                        <option value="">Not set</option>
+                        {dropdownOptions[fieldName].map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                      <div className="new-option-row">
+                        <input type="text" aria-label={`New ${label.toLowerCase()} option`} placeholder="Add new option"
+                          value={newOptionText[fieldName] || ''} onChange={(event) => setNewOptionText((currentText) => ({ ...currentText, [fieldName]: event.target.value }))} />
+                        <button type="button" onClick={() => addDropdownOption(fieldName)}>Add option</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="form-field">
+                    <label htmlFor="plant-lecaConversionStartDate">Conversion start date</label>
+                    <input id="plant-lecaConversionStartDate" name="lecaConversionStartDate" type="date"
+                      value={newPlant.lecaConversionStartDate} onChange={handleInputChange} />
+                  </div>
+                  <div className="form-field form-field-wide">
+                    <label htmlFor="plant-lecaNotes">LECA conversion notes</label>
+                    <textarea id="plant-lecaNotes" name="lecaNotes" value={newPlant.lecaNotes} onChange={handleInputChange} rows="3" />
+                  </div>
+                </div>
+              </fieldset>
+            )}
           </div>
           <div className="form-actions">
             <button type="submit">{isEditing ? 'Save changes' : 'Add Plant & Close'}</button>
@@ -1899,6 +2027,7 @@ function App() {
             ['care-priorities-heading', 'Care Priorities', 'Plants that may need your attention next.', carePriorityMetrics],
             ['quarantine-heading', 'Quarantine / New Plants', 'Keep arrivals and isolated plants easy to track.', quarantineMetrics],
             ['tc-metrics-heading', 'Tissue Culture Acclimation', 'Follow tissue cultures through acclimation.', tcMetrics],
+            ['leca-metrics-heading', 'LECA Conversion', 'Track transitions, stability, and recovery.', lecaMetrics],
           ].map(([headingId, title, description, metrics]) => (
             <section className="dashboard-section" aria-labelledby={headingId} key={headingId}>
               <div className="dashboard-section-heading">
