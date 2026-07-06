@@ -48,10 +48,22 @@
   border-radius: 14px;
 }
 
-.plant-form h3 {
+.plant-form > h2 {
   margin: 0 0 18px;
   color: var(--brand-green);
-  font-size: 1rem;
+  font-size: 1.25rem;
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.section-heading .section-title {
+  margin-bottom: 0;
 }
 
 .form-grid {
@@ -97,6 +109,12 @@
   resize: vertical;
 }
 
+.new-option-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus {
@@ -116,6 +134,41 @@
   border-radius: 8px;
   cursor: pointer;
   transition: filter 160ms ease, transform 160ms ease;
+}
+
+.plant-form .new-option-row button {
+  min-height: 0;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  background: var(--brand-leaf);
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.plant-form .secondary-button {
+  color: var(--brand-green);
+  background: transparent;
+  border: 1px solid var(--brand-green);
+}
+
+.add-plant-button {
+  padding: 10px 16px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.add-plant-button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
 }
 
 .plant-form button:hover {
@@ -439,6 +492,11 @@
 
   .plant-list {
     gap: 16px;
+  }
+
+  .section-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

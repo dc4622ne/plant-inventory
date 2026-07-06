@@ -103,7 +103,7 @@ const emptyPlant = {
   propagationStatus: '', pestNotes: '', growthNotes: '',
 };
 
-const dropdownOptions = {
+const initialDropdownOptions = {
   genus: ['Alocasia', 'Epipremnum', 'Monstera', 'Sweet Potato'],
   type: ['Garden', 'Houseplant', 'Propagation', 'Tissue Culture'],
   status: ['Acclimating', 'Growing outdoors', 'New', 'Rooting', 'Watching for new growth'],
@@ -120,16 +120,25 @@ function getPlantImage(name, type) {
   return '🪴';
 }
 
+function displayValue(value) {
+  return value || 'Not set';
+}
+
 function App() {
   const [plants, setPlants] = useState(initialPlants);
+  const [showForm, setShowForm] = useState(false);
+  const [dropdownOptions, setDropdownOptions] = useState(initialDropdownOptions);
+  const [newOptionText, setNewOptionText] = useState({
+    genus: '', type: '', status: '', location: '', lightNeeds: '',
+  });
   const [activeFilter, setActiveFilter] = useState('All');
   const [activeGenus, setActiveGenus] = useState('All Genus');
   const [searchText, setSearchText] = useState('');
   const [newPlant, setNewPlant] = useState(emptyPlant);
 
   const normalizedSearch = searchText.trim().toLowerCase();
-  const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type))];
-  const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus))];
+  const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
+  const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus).filter(Boolean))];
   const visiblePlants = plants.filter((plant) => {
     const matchesType = activeFilter === 'All' || plant.type === activeFilter;
     const matchesGenus = activeGenus === 'All Genus' || plant.genus === activeGenus;
@@ -149,11 +158,32 @@ function App() {
       },
     ]);
     setNewPlant(emptyPlant);
+    setShowForm(false);
   }
 
   function handleInputChange(event) {
     const { name, value } = event.target;
     setNewPlant((currentPlant) => ({ ...currentPlant, [name]: value }));
+  }
+
+  function addDropdownOption(fieldName) {
+    const option = newOptionText[fieldName].trim();
+    if (!option) return;
+
+    setDropdownOptions((currentOptions) => ({
+      ...currentOptions,
+      [fieldName]: currentOptions[fieldName].includes(option)
+        ? currentOptions[fieldName]
+        : [...currentOptions[fieldName], option],
+    }));
+    setNewPlant((currentPlant) => ({ ...currentPlant, [fieldName]: option }));
+    setNewOptionText((currentText) => ({ ...currentText, [fieldName]: '' }));
+  }
+
+  function cancelForm() {
+    setNewPlant(emptyPlant);
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
+    setShowForm(false);
   }
 
   return (
@@ -164,10 +194,10 @@ function App() {
         <p className="brand-tagline">From the city to the soil</p>
       </header>
 
-      <section className="plant-section" aria-labelledby="plant-list-heading">
-        <h2 className="section-title" id="plant-list-heading">My Plants</h2>
+      <section className="plant-section">
+        {showForm ? (
         <form className="plant-form" onSubmit={handleSubmit}>
-          <h3>Add New Plant</h3>
+          <h2>Add New Plant</h2>
           <div className="form-grid">
             {[
               ['name', 'Plant name'], ['source', 'Source'],
@@ -178,7 +208,7 @@ function App() {
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <input id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
-                  onChange={handleInputChange} required />
+                  onChange={handleInputChange} required={fieldName === 'name'} />
               </div>
             ))}
 
@@ -189,12 +219,25 @@ function App() {
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
-                  onChange={handleInputChange} required>
+                  onChange={handleInputChange}>
                   <option value="">Select {label.toLowerCase()}</option>
                   {dropdownOptions[fieldName].map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
+                <div className="new-option-row">
+                  <input
+                    type="text"
+                    aria-label={`New ${label.toLowerCase()} option`}
+                    placeholder="Add new option"
+                    value={newOptionText[fieldName]}
+                    onChange={(event) => setNewOptionText((currentText) => ({
+                      ...currentText,
+                      [fieldName]: event.target.value,
+                    }))}
+                  />
+                  <button type="button" onClick={() => addDropdownOption(fieldName)}>Add option</button>
+                </div>
               </div>
             ))}
 
@@ -207,7 +250,7 @@ function App() {
             <div className="form-field">
               <label htmlFor="plant-wishlistStatus">Collection</label>
               <input id="plant-wishlistStatus" name="wishlistStatus" value={newPlant.wishlistStatus}
-                onChange={handleInputChange} required />
+                onChange={handleInputChange} />
             </div>
             {[
               ['lastWatered', 'Last watered'], ['repotDate', 'Repotted'], ['acquiredDate', 'Acquired'],
@@ -215,7 +258,7 @@ function App() {
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <input id={`plant-${fieldName}`} name={fieldName} type="date" value={newPlant[fieldName]}
-                  onChange={handleInputChange} required />
+                  onChange={handleInputChange} />
               </div>
             ))}
             {[
@@ -224,12 +267,23 @@ function App() {
               <div className="form-field form-field-wide" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <textarea id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
-                  onChange={handleInputChange} rows="3" required />
+                  onChange={handleInputChange} rows="3" />
               </div>
             ))}
           </div>
-          <button type="submit">Add plant</button>
+          <div className="form-actions">
+            <button type="submit">Add plant</button>
+            <button className="secondary-button" type="button" onClick={cancelForm}>Cancel</button>
+          </div>
         </form>
+        ) : (
+        <>
+        <div className="section-heading">
+          <h2 className="section-title" id="plant-list-heading">My Plants</h2>
+          <button className="add-plant-button" type="button" onClick={() => setShowForm(true)}>
+            Add New Plant
+          </button>
+        </div>
         <div className="plant-filters" aria-label="Filter plants by type">
           {filterOptions.map((filter) => (
             <button
@@ -274,29 +328,29 @@ function App() {
                 </span>
                 <h2>{plant.name}</h2>
               </div>
-              <p className="plant-type">{plant.type}</p>
+              <p className="plant-type">{displayValue(plant.type)}</p>
               <section className="card-section">
                 <h3>Care</h3>
                 <dl className="plant-details">
-                  <div><dt>Light</dt><dd>{plant.lightNeeds}</dd></div>
-                  <div><dt>Medium</dt><dd>{plant.medium}</dd></div>
-                  <div><dt>Pot size</dt><dd>{plant.potSize}</dd></div>
-                  <div><dt>Watering</dt><dd>{plant.watering}</dd></div>
-                  <div><dt>Last watered</dt><dd>{plant.lastWatered}</dd></div>
-                  <div><dt>Repotted</dt><dd>{plant.repotDate}</dd></div>
+                  <div><dt>Light</dt><dd>{displayValue(plant.lightNeeds)}</dd></div>
+                  <div><dt>Medium</dt><dd>{displayValue(plant.medium)}</dd></div>
+                  <div><dt>Pot size</dt><dd>{displayValue(plant.potSize)}</dd></div>
+                  <div><dt>Watering</dt><dd>{displayValue(plant.watering)}</dd></div>
+                  <div><dt>Last watered</dt><dd>{displayValue(plant.lastWatered)}</dd></div>
+                  <div><dt>Repotted</dt><dd>{displayValue(plant.repotDate)}</dd></div>
                 </dl>
               </section>
               <section className="card-section">
                 <h3>Tracking</h3>
                 <dl className="plant-details">
-                  <div><dt>Source</dt><dd>{plant.source}</dd></div>
-                  <div><dt>Genus</dt><dd>{plant.genus}</dd></div>
-                  <div><dt>Location</dt><dd>{plant.location}</dd></div>
-                  <div><dt>Status</dt><dd>{plant.status}</dd></div>
-                  <div><dt>Collection</dt><dd>{plant.wishlistStatus}</dd></div>
-                  <div><dt>Propagation</dt><dd>{plant.propagationStatus}</dd></div>
-                  <div><dt>Acquired</dt><dd>{plant.acquiredDate}</dd></div>
-                  <div><dt>Price</dt><dd>{plant.purchasePrice}</dd></div>
+                  <div><dt>Source</dt><dd>{displayValue(plant.source)}</dd></div>
+                  <div><dt>Genus</dt><dd>{displayValue(plant.genus)}</dd></div>
+                  <div><dt>Location</dt><dd>{displayValue(plant.location)}</dd></div>
+                  <div><dt>Status</dt><dd>{displayValue(plant.status)}</dd></div>
+                  <div><dt>Collection</dt><dd>{displayValue(plant.wishlistStatus)}</dd></div>
+                  <div><dt>Propagation</dt><dd>{displayValue(plant.propagationStatus)}</dd></div>
+                  <div><dt>Acquired</dt><dd>{displayValue(plant.acquiredDate)}</dd></div>
+                  <div><dt>Price</dt><dd>{displayValue(plant.purchasePrice)}</dd></div>
                   <div className="attention-detail"><dt>Attention</dt><dd>
                     <span className={`attention-badge attention-${plant.attention.toLowerCase()}`}>
                       {plant.attention}
@@ -306,13 +360,15 @@ function App() {
               </section>
               <section className="card-section notes-section">
                 <h3>Notes</h3>
-                <p><strong>Care:</strong> {plant.careNote}</p>
-                <p><strong>Pests:</strong> {plant.pestNotes}</p>
-                <p><strong>Growth:</strong> {plant.growthNotes}</p>
+                <p><strong>Care:</strong> {displayValue(plant.careNote)}</p>
+                <p><strong>Pests:</strong> {displayValue(plant.pestNotes)}</p>
+                <p><strong>Growth:</strong> {displayValue(plant.growthNotes)}</p>
               </section>
             </article>
           )) : <p className="empty-message">No plants found.</p>}
         </div>
+        </>
+        )}
       </section>
     </main>
   );
