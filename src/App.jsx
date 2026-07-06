@@ -338,6 +338,47 @@ function normalizedFilterValue(value) {
   return String(value ?? '').trim();
 }
 
+function countPlantsByField(plants, fieldName, preferredLabels = []) {
+  const counts = new Map(preferredLabels.map((label) => [label, 0]));
+
+  plants.forEach((plant) => {
+    const label = normalizedFilterValue(plant[fieldName]) || 'Not set';
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((firstItem, secondItem) => (
+      secondItem.count - firstItem.count || firstItem.label.localeCompare(secondItem.label)
+    ));
+}
+
+const chartColors = ['#52765b', '#d39a42', '#789f80', '#a96d57', '#7b708d', '#b7a45d'];
+
+function prepareDonutRows(rows, maximumSlices = 6) {
+  if (rows.length <= maximumSlices) return rows;
+
+  const visibleRows = rows.slice(0, maximumSlices - 1);
+  const otherCount = rows.slice(maximumSlices - 1)
+    .reduce((total, row) => total + row.count, 0);
+  return [...visibleRows, { label: 'Other', count: otherCount, isOther: true }];
+}
+
+function getDonutBackground(rows) {
+  const countedRows = rows.filter((row) => row.count > 0);
+  const total = countedRows.reduce((sum, row) => sum + row.count, 0);
+  if (!total) return '#e8ece8';
+
+  let previousPercentage = 0;
+  const segments = countedRows.map((row) => {
+    const nextPercentage = previousPercentage + (row.count / total) * 100;
+    const segment = `${row.color} ${previousPercentage}% ${nextPercentage}%`;
+    previousPercentage = nextPercentage;
+    return segment;
+  });
+  return `conic-gradient(${segments.join(', ')})`;
+}
+
 function FilterDropdown({ fieldName, label, value, options, onChange }) {
   return (
     <div className="plant-filter">
@@ -620,6 +661,35 @@ function App() {
     { label: 'Fussy plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'fussy').length, lifecycle: 'active', filter: ['careDifficulty', 'Fussy'] },
     { label: 'Archived plants', count: lifecycleCounts.archived, lifecycle: 'archived' },
     { label: 'Graveyard plants', count: lifecycleCounts.graveyard, lifecycle: 'graveyard' },
+  ];
+  const dashboardCharts = [
+    {
+      title: 'Plants by type / category',
+      description: 'Active plants',
+      rows: prepareDonutRows(countPlantsByField(activePlants, 'type')),
+      fieldName: 'type',
+    },
+    {
+      title: 'Plants by growing medium',
+      description: 'Active plants',
+      rows: prepareDonutRows(countPlantsByField(activePlants, 'medium')),
+      fieldName: 'medium',
+    },
+    {
+      title: 'Plants by attention status',
+      description: 'Active plants',
+      rows: countPlantsByField(activePlants, 'attention', attentionOptions),
+      fieldName: 'attention',
+    },
+    {
+      title: 'Plants by lifecycle state',
+      description: 'All plants',
+      rows: [
+        { label: 'Active', count: lifecycleCounts.active, lifecycle: 'active' },
+        { label: 'Archived', count: lifecycleCounts.archived, lifecycle: 'archived' },
+        { label: 'Graveyard', count: lifecycleCounts.graveyard, lifecycle: 'graveyard' },
+      ],
+    },
   ];
 
   function openPlantList(metric = {}) {
@@ -1491,6 +1561,69 @@ function App() {
                 <small>View plants →</small>
               </button>
             ))}
+          </div>
+          <div className="dashboard-breakdown-heading">
+            <p className="detail-eyebrow">Plant insights</p>
+            <h3>Collection Breakdown</h3>
+            <p>Select a legend item to see those plants.</p>
+          </div>
+          <div className="dashboard-charts" aria-label="Collection breakdown charts">
+            {dashboardCharts.map((chart) => {
+              const total = chart.rows.reduce((sum, row) => sum + row.count, 0);
+              const coloredRows = chart.rows.map((row, index) => ({
+                ...row,
+                color: chartColors[index % chartColors.length],
+              }));
+
+              return (
+                <section className="dashboard-chart" key={chart.title}>
+                  <div className="dashboard-chart-heading">
+                    <h4>{chart.title}</h4>
+                    <span>{chart.description}</span>
+                  </div>
+                  {coloredRows.length ? (
+                    <div className="dashboard-chart-content">
+                      <div className="dashboard-donut"
+                        style={{ background: getDonutBackground(coloredRows) }}
+                        role="img" aria-label={`${chart.title}: ${total} plants total`}>
+                        <span><strong>{total}</strong>plants</span>
+                      </div>
+                      <div className="dashboard-chart-rows">
+                        {coloredRows.map((row) => {
+                      const filterValue = row.label === 'Not set' ? missingFilterValue : row.label;
+                      const chartTarget = row.lifecycle
+                        ? { lifecycle: row.lifecycle }
+                        : { lifecycle: 'active', filter: [chart.fieldName, filterValue] };
+
+                      if (row.isOther) {
+                        return (
+                          <div className="dashboard-chart-row dashboard-chart-row-static"
+                            key={row.label} title="Several smaller categories combined">
+                            <span className="dashboard-chart-key"
+                              style={{ backgroundColor: row.color }} aria-hidden="true" />
+                            <span className="dashboard-chart-label">{row.label}</span>
+                            <span className="dashboard-chart-count">{row.count}</span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <button className="dashboard-chart-row" type="button"
+                          key={row.label} onClick={() => openPlantList(chartTarget)}
+                          aria-label={`View ${row.count} ${row.label} plants`}>
+                          <span className="dashboard-chart-key"
+                            style={{ backgroundColor: row.color }} aria-hidden="true" />
+                          <span className="dashboard-chart-label">{row.label}</span>
+                          <span className="dashboard-chart-count">{row.count}</span>
+                        </button>
+                      );
+                        })}
+                      </div>
+                    </div>
+                  ) : <p className="dashboard-chart-empty">No active plant data yet.</p>}
+                </section>
+              );
+            })}
           </div>
         </section>
         ) : appView === 'settings' ? (
