@@ -773,6 +773,54 @@
   border-bottom: 1px solid var(--border);
 }
 
+.quick-check-in-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--accent-bg) 65%, #fff);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+}
+
+.quick-check-in-panel > div {
+  display: grid;
+  gap: 3px;
+}
+
+.quick-check-in-panel strong {
+  color: var(--brand-green);
+  font-size: 0.78rem;
+}
+
+.quick-check-in-panel span {
+  font-size: 0.86rem;
+}
+
+.quick-check-in-panel button {
+  padding: 10px 14px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.quick-check-in-panel button:hover { filter: brightness(0.92); }
+.quick-check-in-panel button:focus-visible { outline: 3px solid var(--accent-border); outline-offset: 2px; }
+
+.quick-check-message {
+  margin: 8px 4px 0;
+  color: var(--brand-green);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .quarantine-status {
   display: flex;
   justify-content: space-between;

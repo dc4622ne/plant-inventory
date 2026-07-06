@@ -112,8 +112,11 @@ const emptyPlant = {
 
 const activityTypes = [
   'Watered', 'Fertilized', 'Repotted', 'Planted', 'Pruned', 'Propagated',
-  'Pest treatment', 'Changed location', 'Changed pot size', 'Health check', 'General note',
+  'Pest treatment', 'Changed location', 'Changed pot size', 'Health check', 'Quick check-in',
+  'General note',
 ];
+
+const checkInActivityTypes = ['Health check', 'Quick check-in'];
 
 const photoTypes = [
   'Growth update', 'New leaf', 'Repot progress', 'Pest issue',
@@ -336,6 +339,21 @@ function addDaysToDate(dateValue, numberOfDays) {
   return date.toISOString().slice(0, 10);
 }
 
+function getLastCheckedDate(plant) {
+  return (plant.activityLog || [])
+    .filter((entry) => checkInActivityTypes.includes(entry.activityType))
+    .map((entry) => dateInputValue(entry.date))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || '';
+}
+
+function wasRecentlyChecked(plant, today = todayDate()) {
+  const lastChecked = getLastCheckedDate(plant);
+  const sevenDaysAgo = addDaysToDate(today, -6);
+  return Boolean(lastChecked) && lastChecked >= sevenDaysAgo && lastChecked <= today;
+}
+
 function getQuarantineStatus(plant, today = todayDate()) {
   const acquiredDate = dateInputValue(plant.acquiredDate);
   const newPlantQuarantineEnd = addDaysToDate(acquiredDate, 14);
@@ -481,6 +499,7 @@ function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [lifecycleView, setLifecycleView] = useState('active');
   const [quarantineFilter, setQuarantineFilter] = useState('');
+  const [recentlyCheckedFilter, setRecentlyCheckedFilter] = useState(false);
   const [addPlantMessage, setAddPlantMessage] = useState('');
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
@@ -488,6 +507,7 @@ function App() {
   const [newPhotoEntry, setNewPhotoEntry] = useState(emptyPhotoEntry);
   const [editingPhotoEntry, setEditingPhotoEntry] = useState(null);
   const [photoEntryDraft, setPhotoEntryDraft] = useState(emptyPhotoEntry);
+  const [quickCheckMessage, setQuickCheckMessage] = useState('');
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const searchableFields = [
@@ -532,8 +552,10 @@ function App() {
         || (quarantineFilter === 'current'
           ? quarantineStatus.isInAnyQuarantine
           : quarantineStatus.isAnyQuarantineEndingSoon);
+      const matchesRecentlyChecked = !recentlyCheckedFilter || wasRecentlyChecked(plant);
 
-      return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine;
+      return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine
+        && matchesRecentlyChecked;
     })
     .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
 
@@ -551,6 +573,7 @@ function App() {
   const selectedPlantQuarantine = selectedPlant ? getQuarantineStatus(selectedPlant) : null;
   const dashboardMetrics = [
     { label: 'Total active plants', count: activePlants.length, lifecycle: 'active' },
+    { label: 'Recently checked', count: activePlants.filter((plant) => wasRecentlyChecked(plant)).length, lifecycle: 'active', recentlyChecked: true },
     { label: 'Plants in LECA', count: activePlants.filter((plant) => normalizedFilterValue(plant.medium).toLowerCase() === 'leca').length, lifecycle: 'active', filter: ['medium', 'LECA'] },
     { label: 'Tissue cultures', count: activePlants.filter((plant) => normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture').length, lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
     { label: 'Plants in quarantine', count: activePlants.filter(isPlantInQuarantine).length, lifecycle: 'active', quarantine: 'current' },
@@ -570,6 +593,7 @@ function App() {
     setPlantFilters(nextFilters);
     setSearchText('');
     setQuarantineFilter(metric.quarantine || '');
+    setRecentlyCheckedFilter(Boolean(metric.recentlyChecked));
     setLifecycleView(metric.lifecycle || 'active');
     setAreMoreFiltersVisible(Boolean(
       metric.filter && advancedFilterFields.some(([fieldName]) => fieldName === metric.filter[0])
@@ -583,6 +607,7 @@ function App() {
     setShowForm(false);
     setIsEditing(false);
     setAddPlantMessage('');
+    setQuickCheckMessage('');
     setAppView('dashboard');
   }
 
@@ -590,6 +615,7 @@ function App() {
     setSearchText('');
     setPlantFilters({ ...emptyPlantFilters });
     setQuarantineFilter('');
+    setRecentlyCheckedFilter(false);
   }
 
   function handleSubmit(event) {
@@ -729,6 +755,27 @@ function App() {
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
     setNewLogEntry(emptyLogEntry());
+    setQuickCheckMessage('');
+  }
+
+  function addQuickCheckIn() {
+    const logEntry = {
+      activityType: 'Quick check-in',
+      date: todayDate(),
+      notes: '',
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: new Date().toISOString(),
+    };
+    const updatedPlant = {
+      ...selectedPlant,
+      activityLog: [...(selectedPlant.activityLog || []), logEntry],
+    };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(updatedPlant);
+    setQuickCheckMessage("Checked in today — you're all set.");
   }
 
   function startEditingLogEntry(entry) {
@@ -878,6 +925,7 @@ function App() {
               setSelectedPlant(null);
               setNewLogEntry(emptyLogEntry());
               setNewPhotoEntry(emptyPhotoEntry());
+              setQuickCheckMessage('');
               cancelEditingLogEntry();
               cancelEditingPhotoEntry();
             }}>
@@ -926,6 +974,14 @@ function App() {
               <PlantBadges plant={selectedPlant} />
             </div>
           </div>
+          <div className="quick-check-in-panel">
+            <div>
+              <strong>Last checked</strong>
+              <span>{displayValue(getLastCheckedDate(selectedPlant))}</span>
+            </div>
+            <button type="button" onClick={addQuickCheckIn}>✅ Quick Check-In</button>
+          </div>
+          {quickCheckMessage && <p className="quick-check-message" role="status">{quickCheckMessage}</p>}
           {selectedPlantQuarantine?.isInAnyQuarantine && (
             <aside className="quarantine-status" aria-label="Current quarantine status">
               <strong>Currently in quarantine</strong>
@@ -1330,6 +1386,12 @@ function App() {
               <button type="button" onClick={() => setQuarantineFilter('')}>Clear</button>
             </div>
           )}
+          {recentlyCheckedFilter && (
+            <div className="applied-dashboard-filter" role="status">
+              <span>Recently checked</span>
+              <button type="button" onClick={() => setRecentlyCheckedFilter(false)}>Clear</button>
+            </div>
+          )}
           <div className="plant-search">
             <label htmlFor="plant-search">Search plants</label>
             <input
@@ -1395,6 +1457,7 @@ function App() {
               onClick={() => {
                 setSelectedPlant(plant);
                 setNewLogEntry(emptyLogEntry());
+                setQuickCheckMessage('');
                 cancelEditingLogEntry();
               }}
               aria-label={`View details for ${plant.name}`}
