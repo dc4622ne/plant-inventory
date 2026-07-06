@@ -58,7 +58,7 @@ const initialPlants = [
     status: 'Growing outdoors',
     attention: 'Low',
     lastWatered: '2026-07-03',
-    repotDate: '2026-04-26',
+    plantedDate: '2026-04-26',
     watering: 'Water deeply whenever the top inch of soil begins to dry.',
     careNote: 'Keep evenly watered while vines establish.',
     lightNeeds: 'Outdoor sun',
@@ -98,7 +98,7 @@ const initialPlants = [
 
 const emptyPlant = {
   name: '', genus: '', type: '', source: '', location: '', status: '', attention: 'Medium',
-  lastWatered: '', repotDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
+  lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
   propagationStatus: '', pestNotes: '', growthNotes: '',
 };
@@ -121,7 +121,16 @@ function loadPlants() {
 
   try {
     const parsedPlants = JSON.parse(savedPlants);
-    return Array.isArray(parsedPlants) ? parsedPlants : initialPlants;
+    if (!Array.isArray(parsedPlants)) return initialPlants;
+
+    // Older garden plants used repotDate because plantedDate did not exist yet.
+    return parsedPlants.map((plant) => {
+      const hasOldGardenDate = plant.type === 'Garden'
+        && !plant.plantedDate
+        && dateInputValue(plant.repotDate);
+
+      return hasOldGardenDate ? { ...plant, plantedDate: plant.repotDate } : plant;
+    });
   } catch {
     return initialPlants;
   }
@@ -171,7 +180,7 @@ const detailSections = [
     title: 'Care details',
     fields: [
       ['lightNeeds', 'Lighting'], ['medium', 'Growing medium'], ['potSize', 'Pot size'],
-      ['watering', 'Watering notes'], ['lastWatered', 'Last watered'], ['repotDate', 'Repotted'],
+      ['watering', 'Watering notes'], ['lastWatered', 'Last watered'],
     ],
   },
   {
@@ -188,6 +197,18 @@ const detailSections = [
     ],
   },
 ];
+
+function getDetailSections(plant) {
+  const dateField = plant.type === 'Garden'
+    ? ['plantedDate', 'Planted date']
+    : ['repotDate', 'Repotted date'];
+
+  return detailSections.map((section) => {
+    if (section.title !== 'Care details' || !plant[dateField[0]]) return section;
+
+    return { ...section, fields: [...section.fields, dateField] };
+  });
+}
 
 function App() {
   const [plants, setPlants] = useState(loadPlants);
@@ -226,7 +247,7 @@ function App() {
 
     // Keep older text values unless the user chooses a replacement date.
     if (isEditing) {
-      ['lastWatered', 'repotDate', 'acquiredDate'].forEach((fieldName) => {
+      ['lastWatered', 'repotDate', 'plantedDate', 'acquiredDate'].forEach((fieldName) => {
         const previousValue = selectedPlant[fieldName];
         const isLegacyText = previousValue && !dateInputValue(previousValue);
 
@@ -283,6 +304,7 @@ function App() {
       ...selectedPlant,
       lastWatered: dateInputValue(selectedPlant.lastWatered),
       repotDate: dateInputValue(selectedPlant.repotDate),
+      plantedDate: dateInputValue(selectedPlant.plantedDate),
       acquiredDate: dateInputValue(selectedPlant.acquiredDate),
     });
     setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
@@ -319,7 +341,7 @@ function App() {
             </div>
           </div>
           <div className="detail-sections">
-            {detailSections.map((section) => (
+            {getDetailSections(selectedPlant).map((section) => (
               <section className="detail-section" key={section.title}>
                 <h3>{section.title}</h3>
                 <dl className="detail-list">
@@ -392,7 +414,11 @@ function App() {
                 onChange={handleInputChange} />
             </div>
             {[
-              ['lastWatered', 'Last watered'], ['repotDate', 'Repotted'], ['acquiredDate', 'Acquired'],
+              ['lastWatered', 'Last watered date'],
+              newPlant.type === 'Garden'
+                ? ['plantedDate', 'Planted date']
+                : ['repotDate', 'Repotted date'],
+              ['acquiredDate', 'Acquired date'],
             ].map(([fieldName, label]) => (
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
