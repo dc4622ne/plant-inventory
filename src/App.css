@@ -139,6 +139,38 @@
   outline-offset: 2px;
 }
 
+.plant-search {
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.plant-search label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.plant-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.plant-search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
 .plant-list {
   margin: 0;
   padding: 0;
@@ -201,6 +233,16 @@
 .plant-note {
   font-size: 0.84rem;
   line-height: 1.55;
+}
+
+.empty-message {
+  grid-column: 1 / -1;
+  padding: 32px;
+  color: var(--text-h);
+  text-align: center;
+  background: var(--social-bg);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
 }
 
 @media (max-width: 760px) {
