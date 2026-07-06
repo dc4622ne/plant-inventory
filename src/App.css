@@ -707,7 +707,10 @@
 
 .activity-form input,
 .activity-form select,
-.activity-form textarea {
+.activity-form textarea,
+.activity-edit-form input,
+.activity-edit-form select,
+.activity-edit-form textarea {
   box-sizing: border-box;
   width: 100%;
   padding: 10px 12px;
@@ -769,6 +772,54 @@
   font-size: 0.86rem;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.activity-entry-actions,
+.activity-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.activity-entry-actions button,
+.activity-edit-actions button {
+  padding: 7px 10px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: var(--social-bg);
+  border: 1px solid var(--brand-leaf);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.activity-entry-actions .activity-delete-button {
+  color: #8a3328;
+  background: #fff;
+  border-color: #b85c50;
+}
+
+.activity-edit-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.65fr);
+  gap: 14px;
+}
+
+.activity-edit-form .activity-edit-actions {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.activity-edit-actions button[type='submit'] {
+  color: #fff;
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+}
+
+.activity-edit-actions .activity-cancel-button {
+  background: #fff;
 }
 
 .activity-empty-message {
@@ -860,7 +911,12 @@
     grid-template-columns: 1fr;
   }
 
-  .activity-notes-field {
+  .activity-edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-notes-field,
+  .activity-edit-form .activity-edit-actions {
     grid-column: auto;
   }
 }

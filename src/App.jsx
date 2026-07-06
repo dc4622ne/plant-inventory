@@ -129,6 +129,25 @@ function emptyLogEntry() {
   return { activityType: 'Watered', date: todayDate(), notes: '' };
 }
 
+function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
+  const summaryUpdates = {};
+
+  [...new Set(activityTypesToUpdate)].forEach((activityType) => {
+    const summaryField = summaryFieldByActivity[activityType];
+    if (!summaryField) return;
+
+    const matchingDates = activityLog
+      .filter((entry) => entry.activityType === activityType)
+      .map((entry) => dateInputValue(entry.date))
+      .filter(Boolean)
+      .sort();
+
+    summaryUpdates[summaryField] = matchingDates.at(-1) || '';
+  });
+
+  return summaryUpdates;
+}
+
 const initialDropdownOptions = {
   genus: ['Alocasia', 'Epipremnum', 'Monstera', 'Sweet Potato'],
   type: ['Garden', 'Houseplant', 'Propagation', 'Tissue Culture'],
@@ -142,12 +161,13 @@ const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
 
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
+  const plantsWithActivityLogs = initialPlants.map((plant) => ({ ...plant, activityLog: [] }));
 
-  if (!savedPlants) return initialPlants.map((plant) => ({ ...plant, activityLog: [] }));
+  if (!savedPlants) return plantsWithActivityLogs;
 
   try {
     const parsedPlants = JSON.parse(savedPlants);
-    if (!Array.isArray(parsedPlants)) return initialPlants;
+    if (!Array.isArray(parsedPlants)) return plantsWithActivityLogs;
 
     // Older garden plants used repotDate because plantedDate did not exist yet.
     return parsedPlants.map((plant) => {
@@ -163,7 +183,7 @@ function loadPlants() {
       };
     });
   } catch {
-    return initialPlants;
+    return plantsWithActivityLogs;
   }
 }
 
@@ -263,6 +283,8 @@ function App() {
   const [lifecycleView, setLifecycleView] = useState('active');
   const [addPlantMessage, setAddPlantMessage] = useState('');
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
+  const [editingLogEntry, setEditingLogEntry] = useState(null);
+  const [logEntryDraft, setLogEntryDraft] = useState(emptyLogEntry);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
@@ -345,6 +367,7 @@ function App() {
   }
 
   function startEditing() {
+    cancelEditingLogEntry();
     setNewPlant({
       ...emptyPlant,
       ...selectedPlant,
@@ -399,22 +422,10 @@ function App() {
       notes: newLogEntry.notes.trim(),
     };
     const updatedActivityLog = [...(selectedPlant.activityLog || []), logEntry];
-    const summaryField = summaryFieldByActivity[logEntry.activityType];
-    const summaryUpdate = {};
-
-    if (summaryField) {
-      const matchingDates = updatedActivityLog
-        .filter((entry) => entry.activityType === logEntry.activityType)
-        .map((entry) => dateInputValue(entry.date))
-        .filter(Boolean);
-
-      // ISO date strings sort chronologically, so the last one is the newest event.
-      summaryUpdate[summaryField] = matchingDates.sort().at(-1);
-    }
 
     const updatedPlant = {
       ...selectedPlant,
-      ...summaryUpdate,
+      ...getActivitySummaryUpdates(updatedActivityLog, [logEntry.activityType]),
       activityLog: updatedActivityLog,
     };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
@@ -423,6 +434,65 @@ function App() {
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
     setNewLogEntry(emptyLogEntry());
+  }
+
+  function startEditingLogEntry(entry) {
+    setEditingLogEntry(entry);
+    setLogEntryDraft({
+      activityType: entry.activityType,
+      date: dateInputValue(entry.date),
+      notes: entry.notes || '',
+    });
+  }
+
+  function cancelEditingLogEntry() {
+    setEditingLogEntry(null);
+    setLogEntryDraft(emptyLogEntry());
+  }
+
+  function saveEditedLogEntry(event) {
+    event.preventDefault();
+
+    const updatedEntry = {
+      ...editingLogEntry,
+      ...logEntryDraft,
+      notes: logEntryDraft.notes.trim(),
+    };
+    const updatedActivityLog = selectedPlant.activityLog.map((entry) => (
+      entry === editingLogEntry ? updatedEntry : entry
+    ));
+    const affectedActivityTypes = [editingLogEntry.activityType, updatedEntry.activityType];
+    const updatedPlant = {
+      ...selectedPlant,
+      ...getActivitySummaryUpdates(updatedActivityLog, affectedActivityTypes),
+      activityLog: updatedActivityLog,
+    };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(updatedPlant);
+    cancelEditingLogEntry();
+  }
+
+  function deleteLogEntry(entryToDelete) {
+    const shouldDelete = window.confirm(
+      `Delete this ${entryToDelete.activityType.toLowerCase()} log entry?`,
+    );
+    if (!shouldDelete) return;
+
+    const updatedActivityLog = selectedPlant.activityLog.filter((entry) => entry !== entryToDelete);
+    const updatedPlant = {
+      ...selectedPlant,
+      ...getActivitySummaryUpdates(updatedActivityLog, [entryToDelete.activityType]),
+      activityLog: updatedActivityLog,
+    };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(updatedPlant);
+    if (editingLogEntry === entryToDelete) cancelEditingLogEntry();
   }
 
   return (
@@ -440,6 +510,7 @@ function App() {
             <button className="back-button" type="button" onClick={() => {
               setSelectedPlant(null);
               setNewLogEntry(emptyLogEntry());
+              cancelEditingLogEntry();
             }}>
               ← Back to Plant List
             </button>
@@ -542,11 +613,59 @@ function App() {
                   ))
                   .map((entry, entryIndex) => (
                     <li key={entry.id || `${entry.date}-${entry.activityType}-${entryIndex}`}>
-                      <div className="activity-entry-heading">
-                        <strong>{entry.activityType}</strong>
-                        <time dateTime={entry.date}>{entry.date}</time>
-                      </div>
-                      {entry.notes && <p>{entry.notes}</p>}
+                      {editingLogEntry === entry ? (
+                        <form className="activity-edit-form" onSubmit={saveEditedLogEntry}>
+                          <div className="form-field">
+                            <label htmlFor="edit-activity-type">Activity type</label>
+                            <select id="edit-activity-type" value={logEntryDraft.activityType}
+                              onChange={(event) => setLogEntryDraft((draft) => ({
+                                ...draft, activityType: event.target.value,
+                              }))}>
+                              {activityTypes.map((activityType) => (
+                                <option key={activityType}>{activityType}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="form-field">
+                            <label htmlFor="edit-activity-date">Date</label>
+                            <input id="edit-activity-date" type="date" required
+                              value={logEntryDraft.date}
+                              onChange={(event) => setLogEntryDraft((draft) => ({
+                                ...draft, date: event.target.value,
+                              }))} />
+                          </div>
+                          <div className="form-field activity-notes-field">
+                            <label htmlFor="edit-activity-notes">Notes (optional)</label>
+                            <textarea id="edit-activity-notes" rows="3"
+                              value={logEntryDraft.notes}
+                              onChange={(event) => setLogEntryDraft((draft) => ({
+                                ...draft, notes: event.target.value,
+                              }))} />
+                          </div>
+                          <div className="activity-edit-actions">
+                            <button type="submit">Save changes</button>
+                            <button className="activity-cancel-button" type="button"
+                              onClick={cancelEditingLogEntry}>Cancel</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="activity-entry-heading">
+                            <strong>{entry.activityType}</strong>
+                            <time dateTime={entry.date}>{entry.date}</time>
+                          </div>
+                          {entry.notes && <p>{entry.notes}</p>}
+                          <div className="activity-entry-actions">
+                            <button type="button" onClick={() => startEditingLogEntry(entry)}>
+                              ✏️ Edit
+                            </button>
+                            <button className="activity-delete-button" type="button"
+                              onClick={() => deleteLogEntry(entry)}>
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </li>
                   ))}
               </ol>
@@ -718,6 +837,7 @@ function App() {
               onClick={() => {
                 setSelectedPlant(plant);
                 setNewLogEntry(emptyLogEntry());
+                cancelEditingLogEntry();
               }}
               aria-label={`View details for ${plant.name}`}
             >
