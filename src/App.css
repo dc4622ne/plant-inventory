@@ -41,7 +41,7 @@
 
 .plant-form {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
   gap: 10px 12px;
   align-items: end;
   margin-bottom: 40px;
@@ -63,7 +63,8 @@
   font-weight: 650;
 }
 
-.form-field input {
+.form-field input,
+.form-field select {
   min-width: 0;
   padding: 10px 12px;
   color: var(--text-h);
@@ -76,7 +77,8 @@
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.form-field input:focus {
+.form-field input:focus,
+.form-field select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
