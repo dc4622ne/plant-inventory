@@ -453,6 +453,11 @@
   margin-bottom: 28px;
 }
 
+.plant-change-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .edit-plant-button {
   padding: 9px 16px;
   color: #fff;
@@ -463,6 +468,28 @@
   border: 0;
   border-radius: 8px;
   cursor: pointer;
+}
+
+.delete-plant-button {
+  padding: 9px 16px;
+  color: #8a3328;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 750;
+  background: #fff;
+  border: 1px solid #b85c50;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.delete-plant-button:hover {
+  color: #fff;
+  background: #8a3328;
+}
+
+.delete-plant-button:focus-visible {
+  outline: 3px solid #e9b9ae;
+  outline-offset: 2px;
 }
 
 .edit-plant-button:hover {
@@ -648,6 +675,12 @@
   }
 
   .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .detail-actions,
+  .plant-change-actions {
     align-items: stretch;
     flex-direction: column;
   }

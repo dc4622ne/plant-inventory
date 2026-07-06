@@ -311,6 +311,19 @@ function App() {
     setIsEditing(true);
   }
 
+  function deleteSelectedPlant() {
+    const shouldDelete = window.confirm(
+      `Are you sure you want to delete ${selectedPlant.name}?`,
+    );
+
+    if (!shouldDelete) return;
+
+    const updatedPlants = plants.filter((plant) => plant !== selectedPlant);
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(null);
+  }
+
   return (
     <main className="plant-inventory">
       <header className="brand-header">
@@ -326,9 +339,14 @@ function App() {
             <button className="back-button" type="button" onClick={() => setSelectedPlant(null)}>
               ← Back to Plant List
             </button>
-            <button className="edit-plant-button" type="button" onClick={startEditing}>
-              Edit Plant
-            </button>
+            <div className="plant-change-actions">
+              <button className="edit-plant-button" type="button" onClick={startEditing}>
+                Edit Plant
+              </button>
+              <button className="delete-plant-button" type="button" onClick={deleteSelectedPlant}>
+                Delete Plant
+              </button>
+            </div>
           </div>
           <div className="detail-heading">
             <span className="plant-image detail-image" role="img" aria-label={`${selectedPlant.name} placeholder`}>
