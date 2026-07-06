@@ -118,6 +118,8 @@ const photoTypes = [
   'Damage', 'Before/after', 'General photo',
 ];
 
+const attentionOptions = ['Low', 'Medium', 'High'];
+
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
   Repotted: 'repotDate',
@@ -266,6 +268,16 @@ function displayValue(value) {
   return value || 'Not set';
 }
 
+const missingFilterValue = '__missing__';
+const emptyPlantFilters = {
+  genus: '', type: '', status: '', location: '',
+  medium: '', potSize: '', attention: '',
+};
+
+function normalizedFilterValue(value) {
+  return String(value ?? '').trim();
+}
+
 function lifecycleLabel(lifecycleStatus) {
   return lifecycleStatus === 'archived'
     ? 'Archived'
@@ -325,8 +337,7 @@ function App() {
   const [newOptionText, setNewOptionText] = useState({
     genus: '', type: '', status: '', location: '', lightNeeds: '',
   });
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [activeGenus, setActiveGenus] = useState('All Genus');
+  const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
   const [newPlant, setNewPlant] = useState(emptyPlant);
   const [selectedPlant, setSelectedPlant] = useState(null);
@@ -341,18 +352,46 @@ function App() {
   const [photoEntryDraft, setPhotoEntryDraft] = useState(emptyPhotoEntry);
 
   const normalizedSearch = searchText.trim().toLowerCase();
-  const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
-  const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus).filter(Boolean))];
+  const searchableFields = [
+    'name', 'genus', 'type', 'status', 'location', 'lightNeeds',
+    'careNote', 'watering', 'pestNotes', 'growthNotes',
+  ];
+  const filterFields = [
+    ['genus', 'Genus'], ['type', 'Type / category'],
+    ['status', 'Status'], ['location', 'Location'],
+    ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+    ['attention', 'Attention'],
+  ];
+  const getFilterOptions = (fieldName) => [
+    ...new Set([
+      ...(dropdownOptions[fieldName] || []),
+      ...(fieldName === 'attention' ? attentionOptions : []),
+      ...plants.map((plant) => plant[fieldName]),
+    ].map(normalizedFilterValue).filter(Boolean)),
+  ].sort((firstOption, secondOption) => firstOption.localeCompare(secondOption));
   const visiblePlants = plants
     .filter((plant) => {
       const matchesLifecycle = (plant.lifecycleStatus || 'active') === lifecycleView;
-      const matchesType = activeFilter === 'All' || plant.type === activeFilter;
-      const matchesGenus = activeGenus === 'All Genus' || plant.genus === activeGenus;
-      const matchesSearch = plant.name.toLowerCase().includes(normalizedSearch);
+      const matchesFilters = filterFields.every(([fieldName]) => {
+        const selectedFilter = plantFilters[fieldName];
+        const plantValue = normalizedFilterValue(plant[fieldName]);
 
-      return matchesLifecycle && matchesType && matchesGenus && matchesSearch;
+        if (!selectedFilter) return true;
+        if (selectedFilter === missingFilterValue) return !plantValue;
+        return plantValue === selectedFilter;
+      });
+      const matchesSearch = !normalizedSearch || searchableFields.some((fieldName) => (
+        String(plant[fieldName] || '').toLowerCase().includes(normalizedSearch)
+      ));
+
+      return matchesLifecycle && matchesFilters && matchesSearch;
     })
     .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
+
+  function clearAllFilters() {
+    setSearchText('');
+    setPlantFilters({ ...emptyPlantFilters });
+  }
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -959,7 +998,7 @@ function App() {
             <div className="form-field">
               <label htmlFor="plant-attention">Attention</label>
               <select id="plant-attention" name="attention" value={newPlant.attention} onChange={handleInputChange}>
-                <option>Low</option><option>Medium</option><option>High</option>
+                {attentionOptions.map((option) => <option key={option}>{option}</option>)}
               </select>
             </div>
             <div className="form-field">
@@ -1019,48 +1058,44 @@ function App() {
             <button key={value} type="button" className={lifecycleView === value ? 'active' : ''}
               aria-pressed={lifecycleView === value} onClick={() => {
                 setLifecycleView(value);
-                setActiveFilter('All');
-                setActiveGenus('All Genus');
               }}>
               {label}
             </button>
           ))}
         </div>
-        <div className="plant-filters" aria-label="Filter plants by type">
-          {filterOptions.map((filter) => (
-            <button
-              className={activeFilter === filter ? 'active' : ''}
-              type="button"
-              key={filter}
-              aria-pressed={activeFilter === filter}
-              onClick={() => setActiveFilter(filter)}
-            >
-              {filter}
-            </button>
-          ))}
-        </div>
-        <div className="genus-filter">
-          <label htmlFor="genus-filter">Filter by genus</label>
-          <select
-            id="genus-filter"
-            value={activeGenus}
-            onChange={(event) => setActiveGenus(event.target.value)}
-          >
-            {genusOptions.map((genus) => (
-              <option key={genus} value={genus}>{genus}</option>
+        <div className="plant-search-tools">
+          <div className="plant-search">
+            <label htmlFor="plant-search">Search plants</label>
+            <input
+              id="plant-search"
+              type="search"
+              placeholder="Search plants..."
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+            />
+          </div>
+          <div className="plant-filter-dropdowns" aria-label="Filter plants">
+            {filterFields.map(([fieldName, label]) => (
+              <div className="plant-filter" key={fieldName}>
+                <label htmlFor={`${fieldName}-filter`}>{label}</label>
+                <select id={`${fieldName}-filter`} value={plantFilters[fieldName]}
+                  onChange={(event) => setPlantFilters((currentFilters) => ({
+                    ...currentFilters, [fieldName]: event.target.value,
+                  }))}>
+                  <option value="">All</option>
+                  {getFilterOptions(fieldName).map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                  <option value={missingFilterValue}>Not set</option>
+                </select>
+              </div>
             ))}
-          </select>
+            <button className="clear-filters-button" type="button" onClick={clearAllFilters}>
+              Clear All Filters
+            </button>
+          </div>
         </div>
-        <div className="plant-search">
-          <label htmlFor="plant-search">Search plants</label>
-          <input
-            id="plant-search"
-            type="search"
-            placeholder="Search plants..."
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-          />
-        </div>
+        <hr className="plant-list-divider" />
         <div className="plant-list">
           {visiblePlants.length > 0 ? visiblePlants.map((plant, plantIndex) => (
             <button
@@ -1088,7 +1123,7 @@ function App() {
               </section>
               <span className="view-details">View details →</span>
             </button>
-          )) : <p className="empty-message">No {lifecycleLabel(lifecycleView).toLowerCase()} plants found.</p>}
+          )) : <p className="empty-message">No plants found.</p>}
         </div>
         </>
         )}

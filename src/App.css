@@ -200,13 +200,6 @@
   outline-offset: 2px;
 }
 
-.plant-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 24px;
-}
-
 .lifecycle-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -239,43 +232,24 @@
   outline-offset: 2px;
 }
 
-.plant-filters button {
-  padding: 8px 14px;
-  color: var(--brand-green);
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 700;
-  background: var(--social-bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
-}
-
-.plant-filters button:hover,
-.plant-filters button.active {
-  color: #fff;
-  background: var(--brand-deep);
-  border-color: var(--brand-deep);
-}
-
-.plant-filters button:focus-visible {
-  outline: 3px solid var(--accent-border);
-  outline-offset: 2px;
+.plant-search-tools {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .plant-search {
-  margin-bottom: 24px;
   text-align: left;
 }
 
-.genus-filter {
-  max-width: 280px;
-  margin-bottom: 20px;
-  text-align: left;
+.plant-filter-dropdowns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.genus-filter label {
+.plant-filter label,
+.plant-search label {
   display: block;
   margin-bottom: 6px;
   color: var(--text-h);
@@ -283,7 +257,7 @@
   font-weight: 650;
 }
 
-.genus-filter select {
+.plant-filter select {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 36px 10px 12px;
@@ -296,17 +270,40 @@
   outline: none;
 }
 
-.genus-filter select:focus {
+.plant-filter select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
 
-.plant-search label {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--text-h);
-  font-size: 0.78rem;
-  font-weight: 650;
+.clear-filters-button {
+  align-self: end;
+  width: 100%;
+  min-height: 39px;
+  padding: 9px 14px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--brand-leaf);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.clear-filters-button:hover {
+  background: var(--accent-bg);
+}
+
+.clear-filters-button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.plant-list-divider {
+  height: 1px;
+  margin: 0 0 24px;
+  background: var(--border);
+  border: 0;
 }
 
 .plant-search input {
@@ -1036,6 +1033,10 @@
 }
 
 @media (max-width: 760px) {
+  .plant-filter-dropdowns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -1079,6 +1080,10 @@
 }
 
 @media (max-width: 480px) {
+  .plant-filter-dropdowns {
+    grid-template-columns: 1fr;
+  }
+
   .plant-inventory {
     padding: 24px 16px 36px;
   }
@@ -1124,8 +1129,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .plant-card,
-  .plant-form button,
-  .plant-filters button {
+  .plant-form button {
     transition: none;
   }
 }
