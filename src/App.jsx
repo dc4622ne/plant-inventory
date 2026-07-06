@@ -1,10 +1,10 @@
 import './App.css';
 
 const plants = [
-  { name: 'Monstera Albo', type: 'Houseplant' },
-  { name: 'Venom TC', type: 'Tissue Culture' },
-  { name: 'Sweet Potato Slips', type: 'Garden' },
-  { name: 'Pothos Cuttings', type: 'Propagation' },
+  { name: 'Monstera Albo', type: 'Houseplant', status: 'In LECA' },
+  { name: 'Venom TC', type: 'Tissue Culture', status: 'Acclimating' },
+  { name: 'Sweet Potato Slips', type: 'Garden', status: 'Outdoors' },
+  { name: 'Pothos Cuttings', type: 'Propagation', status: 'Propagating' },
 ];
 
 function App() {
@@ -19,6 +19,7 @@ function App() {
             <li className="plant-card" key={plant.name}>
               <h3>{plant.name}</h3>
               <p>Plant type: {plant.type}</p>
+              <p>Status: {plant.status}</p>
             </li>
           ))}
         </ul>
