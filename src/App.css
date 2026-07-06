@@ -682,6 +682,104 @@
   white-space: pre-wrap;
 }
 
+.activity-log {
+  margin-top: 34px;
+  padding-top: 30px;
+  border-top: 1px solid var(--border);
+}
+
+.activity-log > h3 {
+  margin: 0 0 18px;
+  color: var(--brand-green);
+  font-size: 1rem;
+}
+
+.activity-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.65fr);
+  gap: 14px;
+  margin-bottom: 26px;
+  padding: 18px;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.activity-form input,
+.activity-form select,
+.activity-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.activity-notes-field {
+  grid-column: 1 / -1;
+}
+
+.activity-form button {
+  justify-self: start;
+  padding: 10px 18px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.activity-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-list li {
+  padding: 15px 17px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--brand-leaf);
+  border-radius: 10px;
+}
+
+.activity-entry-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.activity-entry-heading time,
+.activity-empty-message {
+  color: var(--text-h);
+  font-size: 0.8rem;
+}
+
+.activity-list p {
+  margin: 8px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.activity-empty-message {
+  margin: 0;
+  padding: 20px;
+  text-align: center;
+  background: var(--social-bg);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
 .plant-status {
   margin-bottom: 10px;
   color: var(--text-h);
@@ -756,6 +854,14 @@
 
   .detail-sections {
     grid-template-columns: 1fr;
+  }
+
+  .activity-form {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-notes-field {
+    grid-column: auto;
   }
 }
 

@@ -105,8 +105,29 @@ const emptyPlant = {
   name: '', genus: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
-  propagationStatus: '', pestNotes: '', growthNotes: '',
+  propagationStatus: '', pestNotes: '', growthNotes: '', activityLog: [],
 };
+
+const activityTypes = [
+  'Watered', 'Fertilized', 'Repotted', 'Planted', 'Pruned', 'Propagated',
+  'Pest treatment', 'Changed location', 'Changed pot size', 'Health check', 'General note',
+];
+
+const summaryFieldByActivity = {
+  Watered: 'lastWatered',
+  Repotted: 'repotDate',
+  Planted: 'plantedDate',
+};
+
+function todayDate() {
+  const today = new Date();
+  const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
+
+function emptyLogEntry() {
+  return { activityType: 'Watered', date: todayDate(), notes: '' };
+}
 
 const initialDropdownOptions = {
   genus: ['Alocasia', 'Epipremnum', 'Monstera', 'Sweet Potato'],
@@ -122,7 +143,7 @@ const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
 
-  if (!savedPlants) return initialPlants;
+  if (!savedPlants) return initialPlants.map((plant) => ({ ...plant, activityLog: [] }));
 
   try {
     const parsedPlants = JSON.parse(savedPlants);
@@ -135,7 +156,11 @@ function loadPlants() {
         && dateInputValue(plant.repotDate);
 
       const migratedPlant = hasOldGardenDate ? { ...plant, plantedDate: plant.repotDate } : plant;
-      return { ...migratedPlant, lifecycleStatus: migratedPlant.lifecycleStatus || 'active' };
+      return {
+        ...migratedPlant,
+        lifecycleStatus: migratedPlant.lifecycleStatus || 'active',
+        activityLog: Array.isArray(migratedPlant.activityLog) ? migratedPlant.activityLog : [],
+      };
     });
   } catch {
     return initialPlants;
@@ -237,6 +262,7 @@ function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [lifecycleView, setLifecycleView] = useState('active');
   const [addPlantMessage, setAddPlantMessage] = useState('');
+  const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
@@ -363,6 +389,42 @@ function App() {
     setLifecycleView(nextStatus);
   }
 
+  function addLogEntry(event) {
+    event.preventDefault();
+
+    const logEntry = {
+      ...newLogEntry,
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: new Date().toISOString(),
+      notes: newLogEntry.notes.trim(),
+    };
+    const updatedActivityLog = [...(selectedPlant.activityLog || []), logEntry];
+    const summaryField = summaryFieldByActivity[logEntry.activityType];
+    const summaryUpdate = {};
+
+    if (summaryField) {
+      const matchingDates = updatedActivityLog
+        .filter((entry) => entry.activityType === logEntry.activityType)
+        .map((entry) => dateInputValue(entry.date))
+        .filter(Boolean);
+
+      // ISO date strings sort chronologically, so the last one is the newest event.
+      summaryUpdate[summaryField] = matchingDates.sort().at(-1);
+    }
+
+    const updatedPlant = {
+      ...selectedPlant,
+      ...summaryUpdate,
+      activityLog: updatedActivityLog,
+    };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(updatedPlant);
+    setNewLogEntry(emptyLogEntry());
+  }
+
   return (
     <main className="plant-inventory">
       <header className="brand-header">
@@ -375,7 +437,10 @@ function App() {
         {selectedPlant && !isEditing ? (
         <article className="plant-detail" aria-labelledby="plant-detail-heading">
           <div className="detail-actions">
-            <button className="back-button" type="button" onClick={() => setSelectedPlant(null)}>
+            <button className="back-button" type="button" onClick={() => {
+              setSelectedPlant(null);
+              setNewLogEntry(emptyLogEntry());
+            }}>
               ← Back to Plant List
             </button>
             <div className="plant-change-actions">
@@ -437,6 +502,58 @@ function App() {
               </section>
             ))}
           </div>
+          <section className="activity-log" aria-labelledby="activity-log-heading">
+            <h3 id="activity-log-heading">Activity Log</h3>
+            <form className="activity-form" onSubmit={addLogEntry}>
+              <div className="form-field">
+                <label htmlFor="activity-type">Activity type</label>
+                <select id="activity-type" value={newLogEntry.activityType}
+                  onChange={(event) => setNewLogEntry((entry) => ({
+                    ...entry, activityType: event.target.value,
+                  }))}>
+                  {activityTypes.map((activityType) => (
+                    <option key={activityType}>{activityType}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label htmlFor="activity-date">Date</label>
+                <input id="activity-date" type="date" required value={newLogEntry.date}
+                  onChange={(event) => setNewLogEntry((entry) => ({
+                    ...entry, date: event.target.value,
+                  }))} />
+              </div>
+              <div className="form-field activity-notes-field">
+                <label htmlFor="activity-notes">Notes (optional)</label>
+                <textarea id="activity-notes" rows="3" value={newLogEntry.notes}
+                  placeholder="Add details such as soil mix, treatment used, or a new location."
+                  onChange={(event) => setNewLogEntry((entry) => ({
+                    ...entry, notes: event.target.value,
+                  }))} />
+              </div>
+              <button type="submit">Add log entry</button>
+            </form>
+            {(selectedPlant.activityLog || []).length > 0 ? (
+              <ol className="activity-list">
+                {[...(selectedPlant.activityLog || [])]
+                  .sort((firstEntry, secondEntry) => (
+                    secondEntry.date.localeCompare(firstEntry.date)
+                    || (secondEntry.createdAt || '').localeCompare(firstEntry.createdAt || '')
+                  ))
+                  .map((entry, entryIndex) => (
+                    <li key={entry.id || `${entry.date}-${entry.activityType}-${entryIndex}`}>
+                      <div className="activity-entry-heading">
+                        <strong>{entry.activityType}</strong>
+                        <time dateTime={entry.date}>{entry.date}</time>
+                      </div>
+                      {entry.notes && <p>{entry.notes}</p>}
+                    </li>
+                  ))}
+              </ol>
+            ) : (
+              <p className="activity-empty-message">No activity logged yet.</p>
+            )}
+          </section>
         </article>
         ) : showForm || isEditing ? (
         <form className="plant-form" onSubmit={handleSubmit}>
@@ -598,7 +715,10 @@ function App() {
               className="plant-card"
               type="button"
               key={`${plant.name}-${plantIndex}`}
-              onClick={() => setSelectedPlant(plant)}
+              onClick={() => {
+                setSelectedPlant(plant);
+                setNewLogEntry(emptyLogEntry());
+              }}
               aria-label={`View details for ${plant.name}`}
             >
               <div className="plant-card-heading">
