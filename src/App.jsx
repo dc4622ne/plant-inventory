@@ -5,6 +5,7 @@ const initialPlants = [
   {
     name: 'Monstera Albo',
     type: 'Houseplant',
+    location: 'Plant Wall',
     status: 'Watching for new growth',
     watering: 'Keep the LECA reservoir topped up without submerging the roots.',
     careNote: 'Keep in bright indirect light and monitor LECA roots.',
@@ -12,6 +13,7 @@ const initialPlants = [
   {
     name: 'Venom TC',
     type: 'Tissue Culture',
+    location: 'TC / Acclimation Area',
     status: 'Acclimating',
     watering: 'Keep the growing medium lightly moist, but never waterlogged.',
     careNote: 'Keep humidity high and avoid disturbing the roots.',
@@ -19,6 +21,7 @@ const initialPlants = [
   {
     name: 'Sweet Potato Slips',
     type: 'Garden',
+    location: 'South Window',
     status: 'Growing outdoors',
     watering: 'Water deeply whenever the top inch of soil begins to dry.',
     careNote: 'Keep evenly watered while vines establish.',
@@ -26,6 +29,7 @@ const initialPlants = [
   {
     name: 'Pothos Cuttings',
     type: 'Propagation',
+    location: 'Propagation Area',
     status: 'Rooting',
     watering: 'Keep the nodes submerged and refresh the water regularly.',
     careNote: 'Change water regularly and pot up once roots are strong.',
@@ -36,6 +40,7 @@ function App() {
   const [plants, setPlants] = useState(initialPlants);
   const [name, setName] = useState('');
   const [type, setType] = useState('');
+  const [location, setLocation] = useState('Plant Wall');
   const [note, setNote] = useState('');
 
   function handleSubmit(event) {
@@ -46,6 +51,7 @@ function App() {
       {
         name,
         type,
+        location,
         status: 'New',
         watering: 'Check the growing medium and water when the plant needs it.',
         careNote: note,
@@ -53,6 +59,7 @@ function App() {
     ]);
     setName('');
     setType('');
+    setLocation('Plant Wall');
     setNote('');
   }
 
@@ -90,6 +97,22 @@ function App() {
           </div>
 
           <div className="form-field">
+            <label htmlFor="plant-location">Location</label>
+            <select
+              id="plant-location"
+              value={location}
+              onChange={(event) => setLocation(event.target.value)}
+            >
+              <option>Plant Wall</option>
+              <option>South Window</option>
+              <option>Kitchen</option>
+              <option>Basement Grow Light</option>
+              <option>TC / Acclimation Area</option>
+              <option>Propagation Area</option>
+            </select>
+          </div>
+
+          <div className="form-field">
             <label htmlFor="plant-note">Note</label>
             <input
               id="plant-note"
@@ -107,6 +130,7 @@ function App() {
             <article className="plant-card" key={plant.name}>
               <h2>{plant.name}</h2>
               <p className="plant-type">{plant.type}</p>
+              <p className="plant-status"><strong>Location:</strong> {plant.location}</p>
               <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
               <p className="plant-status"><strong>Watering:</strong> {plant.watering}</p>
               <p className="plant-note">{plant.careNote}</p>
