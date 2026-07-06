@@ -155,7 +155,9 @@
 }
 
 .add-plant-button {
-  padding: 10px 16px;
+  width: 43px;
+  height: 43px;
+  padding: 0;
   color: #fff;
   font: inherit;
   font-size: 0.84rem;
@@ -186,6 +188,38 @@
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 24px;
+}
+
+.lifecycle-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lifecycle-tabs button {
+  padding: 10px 16px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 750;
+  background: transparent;
+  border: 1px solid var(--brand-leaf);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.lifecycle-tabs button:hover,
+.lifecycle-tabs button.active {
+  color: #fff;
+  background: var(--brand-deep);
+}
+
+.lifecycle-tabs button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
 }
 
 .plant-filters button {
@@ -455,11 +489,20 @@
 
 .plant-change-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
 }
 
-.edit-plant-button {
-  padding: 9px 16px;
+.edit-plant-button,
+.archive-plant-button,
+.graveyard-plant-button,
+.restore-plant-button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  place-items: center;
   color: #fff;
   font: inherit;
   font-size: 0.8rem;
@@ -470,8 +513,26 @@
   cursor: pointer;
 }
 
+.archive-plant-button,
+.graveyard-plant-button,
+.restore-plant-button {
+  color: var(--brand-green);
+  background: #fff;
+  border: 1px solid var(--brand-leaf);
+}
+
+.archive-plant-button:hover,
+.graveyard-plant-button:hover,
+.restore-plant-button:hover {
+  background: var(--accent-bg);
+}
+
 .delete-plant-button {
-  padding: 9px 16px;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  place-items: center;
   color: #8a3328;
   font: inherit;
   font-size: 0.8rem;
@@ -501,6 +562,13 @@
   outline-offset: 2px;
 }
 
+.archive-plant-button:focus-visible,
+.graveyard-plant-button:focus-visible,
+.restore-plant-button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
 .back-button:hover {
   background: var(--accent-bg);
 }
@@ -526,6 +594,20 @@
 .detail-heading p:last-child {
   font-size: 0.9rem;
 }
+
+.lifecycle-badge {
+  display: inline-block;
+  margin-top: 9px;
+  padding: 4px 10px;
+  font-size: 0.72rem !important;
+  font-weight: 800;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.lifecycle-active { color: var(--brand-green); background: rgba(107, 143, 113, 0.16); }
+.lifecycle-archived { color: #715817; background: #f6edcf; }
+.lifecycle-graveyard { color: #5d5365; background: #eee9f1; }
 
 .detail-image {
   flex-basis: 64px;
@@ -679,10 +761,13 @@
     flex-direction: column;
   }
 
-  .detail-actions,
-  .plant-change-actions {
+  .detail-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .plant-change-actions {
+    justify-content: flex-start;
   }
 }
 

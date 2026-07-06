@@ -3,6 +3,7 @@ import './App.css';
 
 const initialPlants = [
   {
+    lifecycleStatus: 'active',
     name: 'Monstera Albo',
     genus: 'Monstera',
     image: '🪴',
@@ -26,6 +27,7 @@ const initialPlants = [
     growthNotes: 'Watching the newest node for an unfurling leaf.',
   },
   {
+    lifecycleStatus: 'active',
     name: 'Venom TC',
     genus: 'Alocasia',
     image: '🧪',
@@ -49,6 +51,7 @@ const initialPlants = [
     growthNotes: 'Watch for firm new roots before lowering humidity.',
   },
   {
+    lifecycleStatus: 'active',
     name: 'Sweet Potato Slips',
     genus: 'Sweet Potato',
     image: '🍠',
@@ -72,6 +75,7 @@ const initialPlants = [
     growthNotes: 'Vines are filling in; mound soil as they spread.',
   },
   {
+    lifecycleStatus: 'active',
     name: 'Pothos Cuttings',
     genus: 'Epipremnum',
     image: '🌱',
@@ -97,6 +101,7 @@ const initialPlants = [
 ];
 
 const emptyPlant = {
+  lifecycleStatus: 'active',
   name: '', genus: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
@@ -129,7 +134,8 @@ function loadPlants() {
         && !plant.plantedDate
         && dateInputValue(plant.repotDate);
 
-      return hasOldGardenDate ? { ...plant, plantedDate: plant.repotDate } : plant;
+      const migratedPlant = hasOldGardenDate ? { ...plant, plantedDate: plant.repotDate } : plant;
+      return { ...migratedPlant, lifecycleStatus: migratedPlant.lifecycleStatus || 'active' };
     });
   } catch {
     return initialPlants;
@@ -162,6 +168,12 @@ function getPlantImage(name, type) {
 
 function displayValue(value) {
   return value || 'Not set';
+}
+
+function lifecycleLabel(lifecycleStatus) {
+  return lifecycleStatus === 'archived'
+    ? 'Archived'
+    : lifecycleStatus === 'graveyard' ? 'Graveyard' : 'Active';
 }
 
 function dateInputValue(value) {
@@ -223,17 +235,19 @@ function App() {
   const [newPlant, setNewPlant] = useState(emptyPlant);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [lifecycleView, setLifecycleView] = useState('active');
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
   const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus).filter(Boolean))];
   const visiblePlants = plants
     .filter((plant) => {
+      const matchesLifecycle = (plant.lifecycleStatus || 'active') === lifecycleView;
       const matchesType = activeFilter === 'All' || plant.type === activeFilter;
       const matchesGenus = activeGenus === 'All Genus' || plant.genus === activeGenus;
       const matchesSearch = plant.name.toLowerCase().includes(normalizedSearch);
 
-      return matchesType && matchesGenus && matchesSearch;
+      return matchesLifecycle && matchesType && matchesGenus && matchesSearch;
     })
     .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
 
@@ -313,7 +327,7 @@ function App() {
 
   function deleteSelectedPlant() {
     const shouldDelete = window.confirm(
-      `Are you sure you want to delete ${selectedPlant.name}?`,
+      `Permanently delete ${selectedPlant.name}? This cannot be undone.`,
     );
 
     if (!shouldDelete) return;
@@ -322,6 +336,24 @@ function App() {
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
     setPlants(updatedPlants);
     setSelectedPlant(null);
+  }
+
+  function changeSelectedPlantLifecycle(nextStatus) {
+    const action = nextStatus === 'active'
+      ? 'restore'
+      : nextStatus === 'archived' ? 'archive' : 'move to the graveyard';
+    const shouldChange = window.confirm(
+      `Are you sure you want to ${action} ${selectedPlant.name}?`,
+    );
+
+    if (!shouldChange) return;
+
+    const updatedPlant = { ...selectedPlant, lifecycleStatus: nextStatus };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(nextStatus === 'active' ? updatedPlant : null);
+    setLifecycleView(nextStatus);
   }
 
   return (
@@ -340,11 +372,33 @@ function App() {
               ← Back to Plant List
             </button>
             <div className="plant-change-actions">
-              <button className="edit-plant-button" type="button" onClick={startEditing}>
-                Edit Plant
+              <button className="edit-plant-button" type="button" onClick={startEditing}
+                aria-label="Edit plant" title="Edit plant">
+                ✏️
               </button>
-              <button className="delete-plant-button" type="button" onClick={deleteSelectedPlant}>
-                Delete Plant
+              {(selectedPlant.lifecycleStatus || 'active') === 'active' ? (
+                <>
+                  <button className="archive-plant-button" type="button"
+                    aria-label="Archive plant" title="Archive plant"
+                    onClick={() => changeSelectedPlantLifecycle('archived')}>
+                    🗄️
+                  </button>
+                  <button className="graveyard-plant-button" type="button"
+                    aria-label="Move plant to graveyard" title="Move plant to graveyard"
+                    onClick={() => changeSelectedPlantLifecycle('graveyard')}>
+                    🪦
+                  </button>
+                </>
+              ) : (
+                <button className="restore-plant-button" type="button"
+                  aria-label="Restore plant" title="Restore plant"
+                  onClick={() => changeSelectedPlantLifecycle('active')}>
+                  ↩️
+                </button>
+              )}
+              <button className="delete-plant-button" type="button" onClick={deleteSelectedPlant}
+                aria-label="Permanently delete plant" title="Permanently delete plant">
+                🗑️
               </button>
             </div>
           </div>
@@ -356,6 +410,9 @@ function App() {
               <p className="detail-eyebrow">Plant details</p>
               <h2 id="plant-detail-heading">{selectedPlant.name}</h2>
               <p>{displayValue(selectedPlant.genus)} · {displayValue(selectedPlant.type)}</p>
+              <p className={`lifecycle-badge lifecycle-${selectedPlant.lifecycleStatus || 'active'}`}>
+                {lifecycleLabel(selectedPlant.lifecycleStatus)}
+              </p>
             </div>
           </div>
           <div className="detail-sections">
@@ -463,9 +520,24 @@ function App() {
         <>
         <div className="section-heading">
           <h2 className="section-title" id="plant-list-heading">My Plants</h2>
-          <button className="add-plant-button" type="button" onClick={() => setShowForm(true)}>
-            Add New Plant
+          <button className="add-plant-button" type="button" onClick={() => setShowForm(true)}
+            aria-label="Add new plant" title="Add new plant">
+            +
           </button>
+        </div>
+        <div className="lifecycle-tabs" aria-label="View plants by lifecycle status">
+          {[
+            ['active', 'Active Plants'], ['archived', 'Archived Plants'], ['graveyard', 'Graveyard Plants'],
+          ].map(([value, label]) => (
+            <button key={value} type="button" className={lifecycleView === value ? 'active' : ''}
+              aria-pressed={lifecycleView === value} onClick={() => {
+                setLifecycleView(value);
+                setActiveFilter('All');
+                setActiveGenus('All Genus');
+              }}>
+              {label}
+            </button>
+          ))}
         </div>
         <div className="plant-filters" aria-label="Filter plants by type">
           {filterOptions.map((filter) => (
@@ -527,7 +599,7 @@ function App() {
               </section>
               <span className="view-details">View details →</span>
             </button>
-          )) : <p className="empty-message">No plants found.</p>}
+          )) : <p className="empty-message">No {lifecycleLabel(lifecycleView).toLowerCase()} plants found.</p>}
         </div>
         </>
         )}
