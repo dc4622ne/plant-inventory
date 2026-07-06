@@ -9,6 +9,7 @@ const initialPlants = [
     source: 'Personal collection',
     location: 'Plant Wall',
     status: 'Watching for new growth',
+    attention: 'Medium',
     lastWatered: '2026-07-04',
     repotDate: '2026-05-18',
     watering: 'Keep the LECA reservoir topped up without submerging the roots.',
@@ -21,6 +22,7 @@ const initialPlants = [
     source: 'Palmstreet',
     location: 'TC / Acclimation Area',
     status: 'Acclimating',
+    attention: 'High',
     lastWatered: '2026-07-05',
     repotDate: 'Not yet repotted',
     watering: 'Keep the growing medium lightly moist, but never waterlogged.',
@@ -33,6 +35,7 @@ const initialPlants = [
     source: 'Garden start',
     location: 'South Window',
     status: 'Growing outdoors',
+    attention: 'Low',
     lastWatered: '2026-07-03',
     repotDate: '2026-04-26',
     watering: 'Water deeply whenever the top inch of soil begins to dry.',
@@ -45,6 +48,7 @@ const initialPlants = [
     source: 'Propagation',
     location: 'Propagation Area',
     status: 'Rooting',
+    attention: 'Medium',
     lastWatered: '2026-07-06',
     repotDate: 'Not yet repotted',
     watering: 'Keep the nodes submerged and refresh the water regularly.',
@@ -92,6 +96,7 @@ function App() {
         source: 'Personal collection',
         location,
         status: 'New',
+        attention: 'Medium',
         lastWatered: new Date().toISOString().slice(0, 10),
         repotDate: 'Not yet repotted',
         watering: 'Check the growing medium and water when the plant needs it.',
@@ -202,6 +207,12 @@ function App() {
               <p className="plant-status"><strong>Source:</strong> {plant.source}</p>
               <p className="plant-status"><strong>Location:</strong> {plant.location}</p>
               <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
+              <p className="plant-status plant-attention">
+                <strong>Attention:</strong>{' '}
+                <span className={`attention-badge attention-${plant.attention.toLowerCase()}`}>
+                  {plant.attention}
+                </span>
+              </p>
               <p className="plant-status"><strong>Last watered:</strong> {plant.lastWatered}</p>
               <p className="plant-status"><strong>Repotted:</strong> {plant.repotDate}</p>
               <p className="plant-status"><strong>Watering:</strong> {plant.watering}</p>

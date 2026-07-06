@@ -250,6 +250,40 @@
   font-size: 0.84rem;
 }
 
+.plant-attention {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attention-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.attention-high {
+  color: #8a3328;
+  background: #f8e1dc;
+  border-color: #e9b9ae;
+}
+
+.attention-medium {
+  color: #715817;
+  background: #f6edcf;
+  border-color: #ddca89;
+}
+
+.attention-low {
+  color: var(--brand-green);
+  background: rgba(107, 143, 113, 0.16);
+  border-color: rgba(107, 143, 113, 0.3);
+}
+
 .plant-note {
   font-size: 0.84rem;
   line-height: 1.55;
