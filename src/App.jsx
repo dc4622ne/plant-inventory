@@ -6,24 +6,28 @@ const initialPlants = [
     name: 'Monstera Albo',
     type: 'Houseplant',
     status: 'Watching for new growth',
+    watering: 'Keep the LECA reservoir topped up without submerging the roots.',
     careNote: 'Keep in bright indirect light and monitor LECA roots.',
   },
   {
     name: 'Venom TC',
     type: 'Tissue Culture',
     status: 'Acclimating',
+    watering: 'Keep the growing medium lightly moist, but never waterlogged.',
     careNote: 'Keep humidity high and avoid disturbing the roots.',
   },
   {
     name: 'Sweet Potato Slips',
     type: 'Garden',
     status: 'Growing outdoors',
+    watering: 'Water deeply whenever the top inch of soil begins to dry.',
     careNote: 'Keep evenly watered while vines establish.',
   },
   {
     name: 'Pothos Cuttings',
     type: 'Propagation',
     status: 'Rooting',
+    watering: 'Keep the nodes submerged and refresh the water regularly.',
     careNote: 'Change water regularly and pot up once roots are strong.',
   },
 ];
@@ -43,6 +47,7 @@ function App() {
         name,
         type,
         status: 'New',
+        watering: 'Check the growing medium and water when the plant needs it.',
         careNote: note,
       },
     ]);
@@ -103,6 +108,7 @@ function App() {
               <h2>{plant.name}</h2>
               <p className="plant-type">{plant.type}</p>
               <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
+              <p className="plant-status"><strong>Watering:</strong> {plant.watering}</p>
               <p className="plant-note">{plant.careNote}</p>
             </article>
           ))}
