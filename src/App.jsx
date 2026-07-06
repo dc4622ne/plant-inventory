@@ -4,6 +4,7 @@ import './App.css';
 const initialPlants = [
   {
     name: 'Monstera Albo',
+    genus: 'Monstera',
     image: '🪴',
     type: 'Houseplant',
     source: 'Personal collection',
@@ -14,9 +15,19 @@ const initialPlants = [
     repotDate: '2026-05-18',
     watering: 'Keep the LECA reservoir topped up without submerging the roots.',
     careNote: 'Keep in bright indirect light and monitor LECA roots.',
+    lightNeeds: 'Bright indirect light',
+    medium: 'LECA',
+    potSize: '6 inch',
+    acquiredDate: '2025-09-14',
+    purchasePrice: '$25',
+    wishlistStatus: 'Owned',
+    propagationStatus: 'Established',
+    pestNotes: 'Monitor for spider mites.',
+    growthNotes: 'Watching the newest node for an unfurling leaf.',
   },
   {
     name: 'Venom TC',
+    genus: 'Alocasia',
     image: '🧪',
     type: 'Tissue Culture',
     source: 'Palmstreet',
@@ -27,9 +38,19 @@ const initialPlants = [
     repotDate: 'Not yet repotted',
     watering: 'Keep the growing medium lightly moist, but never waterlogged.',
     careNote: 'Keep humidity high and avoid disturbing the roots.',
+    lightNeeds: 'Grow light',
+    medium: 'Tissue culture agar',
+    potSize: 'N/A',
+    acquiredDate: '2026-06-28',
+    purchasePrice: '$25',
+    wishlistStatus: 'Owned',
+    propagationStatus: 'Tissue culture',
+    pestNotes: 'No pests observed; keep the acclimation area clean.',
+    growthNotes: 'Watch for firm new roots before lowering humidity.',
   },
   {
     name: 'Sweet Potato Slips',
+    genus: 'Sweet Potato',
     image: '🍠',
     type: 'Garden',
     source: 'Garden start',
@@ -40,9 +61,19 @@ const initialPlants = [
     repotDate: '2026-04-26',
     watering: 'Water deeply whenever the top inch of soil begins to dry.',
     careNote: 'Keep evenly watered while vines establish.',
+    lightNeeds: 'Outdoor sun',
+    medium: 'Garden bed',
+    potSize: 'N/A',
+    acquiredDate: '2026-04-12',
+    purchasePrice: '$12',
+    wishlistStatus: 'Owned',
+    propagationStatus: 'Established',
+    pestNotes: 'Watch for flea beetles and chewed leaves.',
+    growthNotes: 'Vines are filling in; mound soil as they spread.',
   },
   {
     name: 'Pothos Cuttings',
+    genus: 'Epipremnum',
     image: '🌱',
     type: 'Propagation',
     source: 'Propagation',
@@ -53,6 +84,15 @@ const initialPlants = [
     repotDate: 'Not yet repotted',
     watering: 'Keep the nodes submerged and refresh the water regularly.',
     careNote: 'Change water regularly and pot up once roots are strong.',
+    lightNeeds: 'Bright indirect light',
+    medium: 'Water',
+    potSize: 'N/A',
+    acquiredDate: '2026-06-20',
+    purchasePrice: '$0',
+    wishlistStatus: 'Propagating',
+    propagationStatus: 'Water rooting',
+    pestNotes: 'No pests observed; inspect leaves during water changes.',
+    growthNotes: 'Several roots are forming; pot up when they reach 2–3 inches.',
   },
 ];
 
@@ -70,6 +110,7 @@ function getPlantImage(name, type) {
 function App() {
   const [plants, setPlants] = useState(initialPlants);
   const [activeFilter, setActiveFilter] = useState('All');
+  const [activeGenus, setActiveGenus] = useState('All Genus');
   const [searchText, setSearchText] = useState('');
   const [name, setName] = useState('');
   const [type, setType] = useState('');
@@ -77,11 +118,13 @@ function App() {
   const [note, setNote] = useState('');
 
   const normalizedSearch = searchText.trim().toLowerCase();
+  const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus))];
   const visiblePlants = plants.filter((plant) => {
     const matchesType = activeFilter === 'All' || plant.type === activeFilter;
+    const matchesGenus = activeGenus === 'All Genus' || plant.genus === activeGenus;
     const matchesSearch = plant.name.toLowerCase().includes(normalizedSearch);
 
-    return matchesType && matchesSearch;
+    return matchesType && matchesGenus && matchesSearch;
   });
 
   function handleSubmit(event) {
@@ -91,6 +134,7 @@ function App() {
       ...currentPlants,
       {
         name,
+        genus: 'Unknown',
         image: getPlantImage(name, type),
         type,
         source: 'Personal collection',
@@ -101,6 +145,15 @@ function App() {
         repotDate: 'Not yet repotted',
         watering: 'Check the growing medium and water when the plant needs it.',
         careNote: note,
+        lightNeeds: 'Bright indirect light',
+        medium: 'Soil',
+        potSize: '4 inch',
+        acquiredDate: new Date().toISOString().slice(0, 10),
+        purchasePrice: 'Unknown',
+        wishlistStatus: 'Owned',
+        propagationStatus: 'Not propagating',
+        pestNotes: 'No pests observed.',
+        growthNotes: 'New addition; watch for signs of settling in.',
       },
     ]);
     setName('');
@@ -184,6 +237,18 @@ function App() {
             </button>
           ))}
         </div>
+        <div className="genus-filter">
+          <label htmlFor="genus-filter">Filter by genus</label>
+          <select
+            id="genus-filter"
+            value={activeGenus}
+            onChange={(event) => setActiveGenus(event.target.value)}
+          >
+            {genusOptions.map((genus) => (
+              <option key={genus} value={genus}>{genus}</option>
+            ))}
+          </select>
+        </div>
         <div className="plant-search">
           <label htmlFor="plant-search">Search plants</label>
           <input
@@ -204,19 +269,41 @@ function App() {
                 <h2>{plant.name}</h2>
               </div>
               <p className="plant-type">{plant.type}</p>
-              <p className="plant-status"><strong>Source:</strong> {plant.source}</p>
-              <p className="plant-status"><strong>Location:</strong> {plant.location}</p>
-              <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
-              <p className="plant-status plant-attention">
-                <strong>Attention:</strong>{' '}
-                <span className={`attention-badge attention-${plant.attention.toLowerCase()}`}>
-                  {plant.attention}
-                </span>
-              </p>
-              <p className="plant-status"><strong>Last watered:</strong> {plant.lastWatered}</p>
-              <p className="plant-status"><strong>Repotted:</strong> {plant.repotDate}</p>
-              <p className="plant-status"><strong>Watering:</strong> {plant.watering}</p>
-              <p className="plant-note">{plant.careNote}</p>
+              <section className="card-section">
+                <h3>Care</h3>
+                <dl className="plant-details">
+                  <div><dt>Light</dt><dd>{plant.lightNeeds}</dd></div>
+                  <div><dt>Medium</dt><dd>{plant.medium}</dd></div>
+                  <div><dt>Pot size</dt><dd>{plant.potSize}</dd></div>
+                  <div><dt>Watering</dt><dd>{plant.watering}</dd></div>
+                  <div><dt>Last watered</dt><dd>{plant.lastWatered}</dd></div>
+                  <div><dt>Repotted</dt><dd>{plant.repotDate}</dd></div>
+                </dl>
+              </section>
+              <section className="card-section">
+                <h3>Tracking</h3>
+                <dl className="plant-details">
+                  <div><dt>Source</dt><dd>{plant.source}</dd></div>
+                  <div><dt>Genus</dt><dd>{plant.genus}</dd></div>
+                  <div><dt>Location</dt><dd>{plant.location}</dd></div>
+                  <div><dt>Status</dt><dd>{plant.status}</dd></div>
+                  <div><dt>Collection</dt><dd>{plant.wishlistStatus}</dd></div>
+                  <div><dt>Propagation</dt><dd>{plant.propagationStatus}</dd></div>
+                  <div><dt>Acquired</dt><dd>{plant.acquiredDate}</dd></div>
+                  <div><dt>Price</dt><dd>{plant.purchasePrice}</dd></div>
+                  <div className="attention-detail"><dt>Attention</dt><dd>
+                    <span className={`attention-badge attention-${plant.attention.toLowerCase()}`}>
+                      {plant.attention}
+                    </span>
+                  </dd></div>
+                </dl>
+              </section>
+              <section className="card-section notes-section">
+                <h3>Notes</h3>
+                <p><strong>Care:</strong> {plant.careNote}</p>
+                <p><strong>Pests:</strong> {plant.pestNotes}</p>
+                <p><strong>Growth:</strong> {plant.growthNotes}</p>
+              </section>
             </article>
           )) : <p className="empty-message">No plants found.</p>}
         </div>

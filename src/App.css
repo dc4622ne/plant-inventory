@@ -144,6 +144,38 @@
   text-align: left;
 }
 
+.genus-filter {
+  max-width: 280px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.genus-filter label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.genus-filter select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 36px 10px 12px;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+}
+
+.genus-filter select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
 .plant-search label {
   display: block;
   margin-bottom: 6px;
@@ -189,6 +221,63 @@
   border-radius: 16px;
   box-shadow: 0 8px 24px rgba(31, 61, 43, 0.09);
   transition: box-shadow 180ms ease, transform 180ms ease;
+}
+
+.card-section {
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+
+.card-section:first-of-type {
+  border-top: 0;
+}
+
+.card-section h3 {
+  margin: 0 0 12px;
+  color: var(--brand-green);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.plant-details {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.plant-details > div {
+  display: grid;
+  grid-template-columns: minmax(78px, 0.38fr) 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.plant-details dt {
+  color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.plant-details dd {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.attention-detail dd {
+  line-height: 1;
+}
+
+.notes-section p {
+  margin: 0 0 9px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.notes-section p:last-child {
+  margin-bottom: 0;
 }
 
 .plant-card::before {
