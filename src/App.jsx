@@ -11,7 +11,6 @@ function App() {
   return (
     <main className="plant-inventory">
       <h1>Welcome to Gibre’s Plant Tracker</h1>
-      <p style={{ fontSize: '24px', fontWeight: 'bold' }}>TEST: This is the current App.jsx file.</p>
 
       <section aria-labelledby="plant-list-heading">
         <h2 id="plant-list-heading">My Plants</h2>
