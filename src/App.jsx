@@ -302,6 +302,22 @@ function normalizedFilterValue(value) {
   return String(value ?? '').trim();
 }
 
+function FilterDropdown({ fieldName, label, value, options, onChange }) {
+  return (
+    <div className="plant-filter">
+      <label htmlFor={`${fieldName}-filter`}>{label}</label>
+      <select id={`${fieldName}-filter`} value={value}
+        onChange={(event) => onChange(event.target.value)}>
+        <option value="">All</option>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+        <option value={missingFilterValue}>Not set</option>
+      </select>
+    </div>
+  );
+}
+
 function lifecycleLabel(lifecycleStatus) {
   return lifecycleStatus === 'archived'
     ? 'Archived'
@@ -459,6 +475,7 @@ function App() {
   });
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
+  const [areMoreFiltersVisible, setAreMoreFiltersVisible] = useState(false);
   const [newPlant, setNewPlant] = useState(emptyPlant);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -478,15 +495,17 @@ function App() {
     'careNote', 'watering', 'pestNotes', 'growthNotes',
     'wateringRhythm', 'moisturePreference', 'careDifficulty',
   ];
-  const filterFields = [
-    ['genus', 'Genus'], ['type', 'Type / category'],
-    ['status', 'Status'], ['location', 'Location'],
-    ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+  const primaryFilterFields = [
+    ['medium', 'Growing medium'], ['type', 'Type / category'], ['location', 'Location'],
+  ];
+  const advancedFilterFields = [
+    ['genus', 'Genus'], ['status', 'Status'], ['potSize', 'Pot size'],
     ['attention', 'Attention'], ['thirstLevel', 'Thirst level'],
     ['soilMix', 'Soil mix / substrate mix'],
     ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
     ['careDifficulty', 'Care difficulty'],
   ];
+  const filterFields = [...primaryFilterFields, ...advancedFilterFields];
   const getFilterOptions = (fieldName) => [
     ...new Set([
       ...(dropdownOptions[fieldName] || []),
@@ -552,6 +571,9 @@ function App() {
     setSearchText('');
     setQuarantineFilter(metric.quarantine || '');
     setLifecycleView(metric.lifecycle || 'active');
+    setAreMoreFiltersVisible(Boolean(
+      metric.filter && advancedFilterFields.some(([fieldName]) => fieldName === metric.filter[0])
+    ));
     setSelectedPlant(null);
     setAppView('plants');
   }
@@ -1301,18 +1323,6 @@ function App() {
             +
           </button>
         </div>
-        <div className="lifecycle-tabs" aria-label="View plants by lifecycle status">
-          {[
-            ['active', 'Active Plants'], ['archived', 'Archived Plants'], ['graveyard', 'Graveyard Plants'],
-          ].map(([value, label]) => (
-            <button key={value} type="button" className={lifecycleView === value ? 'active' : ''}
-              aria-pressed={lifecycleView === value} onClick={() => {
-                setLifecycleView(value);
-              }}>
-              {label}
-            </button>
-          ))}
-        </div>
         <div className="plant-search-tools">
           {quarantineFilter && (
             <div className="applied-dashboard-filter" role="status">
@@ -1330,26 +1340,50 @@ function App() {
               onChange={(event) => setSearchText(event.target.value)}
             />
           </div>
-          <div className="plant-filter-dropdowns" aria-label="Filter plants">
-            {filterFields.map(([fieldName, label]) => (
-              <div className="plant-filter" key={fieldName}>
-                <label htmlFor={`${fieldName}-filter`}>{label}</label>
-                <select id={`${fieldName}-filter`} value={plantFilters[fieldName]}
-                  onChange={(event) => setPlantFilters((currentFilters) => ({
-                    ...currentFilters, [fieldName]: event.target.value,
-                  }))}>
-                  <option value="">All</option>
-                  {getFilterOptions(fieldName).map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                  <option value={missingFilterValue}>Not set</option>
-                </select>
-              </div>
-            ))}
-            <button className="clear-filters-button" type="button" onClick={clearAllFilters}>
-              Clear All Filters
-            </button>
+        </div>
+        <div className="plant-filter-panel" aria-label="Filter plants">
+          <div className="filter-panel-heading">
+            <h3>Filters</h3>
+            <div className="filter-actions">
+              <button className="more-filters-button" type="button"
+                aria-expanded={areMoreFiltersVisible} aria-controls="advanced-plant-filters"
+                onClick={() => setAreMoreFiltersVisible((isVisible) => !isVisible)}>
+                {areMoreFiltersVisible ? 'Hide Filters' : 'More Filters'}
+              </button>
+              <button className="clear-filters-button" type="button" onClick={clearAllFilters}>
+                Clear All Filters
+              </button>
+            </div>
           </div>
+          <div className="plant-filter-dropdowns primary-filters">
+            <div className="plant-filter">
+              <label htmlFor="lifecycle-filter">Plant view</label>
+              <select id="lifecycle-filter" value={lifecycleView}
+                onChange={(event) => setLifecycleView(event.target.value)}>
+                <option value="active">Active Plants</option>
+                <option value="archived">Archived Plants</option>
+                <option value="graveyard">Graveyard Plants</option>
+              </select>
+            </div>
+            {primaryFilterFields.map(([fieldName, label]) => (
+              <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
+                value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
+                onChange={(value) => setPlantFilters((currentFilters) => ({
+                  ...currentFilters, [fieldName]: value,
+                }))} />
+            ))}
+          </div>
+          {areMoreFiltersVisible && (
+            <div className="plant-filter-dropdowns advanced-filters" id="advanced-plant-filters">
+              {advancedFilterFields.map(([fieldName, label]) => (
+                <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
+                  value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
+                  onChange={(value) => setPlantFilters((currentFilters) => ({
+                    ...currentFilters, [fieldName]: value,
+                  }))} />
+              ))}
+            </div>
+          )}
         </div>
         <hr className="plant-list-divider" />
         <div className="plant-list">
