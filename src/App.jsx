@@ -9,6 +9,7 @@ const initialPlants = [
     location: 'Plant Wall',
     status: 'Watching for new growth',
     lastWatered: '2026-07-04',
+    repotDate: '2026-05-18',
     watering: 'Keep the LECA reservoir topped up without submerging the roots.',
     careNote: 'Keep in bright indirect light and monitor LECA roots.',
   },
@@ -19,6 +20,7 @@ const initialPlants = [
     location: 'TC / Acclimation Area',
     status: 'Acclimating',
     lastWatered: '2026-07-05',
+    repotDate: 'Not yet repotted',
     watering: 'Keep the growing medium lightly moist, but never waterlogged.',
     careNote: 'Keep humidity high and avoid disturbing the roots.',
   },
@@ -29,6 +31,7 @@ const initialPlants = [
     location: 'South Window',
     status: 'Growing outdoors',
     lastWatered: '2026-07-03',
+    repotDate: '2026-04-26',
     watering: 'Water deeply whenever the top inch of soil begins to dry.',
     careNote: 'Keep evenly watered while vines establish.',
   },
@@ -39,6 +42,7 @@ const initialPlants = [
     location: 'Propagation Area',
     status: 'Rooting',
     lastWatered: '2026-07-06',
+    repotDate: 'Not yet repotted',
     watering: 'Keep the nodes submerged and refresh the water regularly.',
     careNote: 'Change water regularly and pot up once roots are strong.',
   },
@@ -84,6 +88,7 @@ function App() {
         location,
         status: 'New',
         lastWatered: new Date().toISOString().slice(0, 10),
+        repotDate: 'Not yet repotted',
         watering: 'Check the growing medium and water when the plant needs it.',
         careNote: note,
       },
@@ -192,6 +197,7 @@ function App() {
               <p className="plant-status"><strong>Location:</strong> {plant.location}</p>
               <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
               <p className="plant-status"><strong>Last watered:</strong> {plant.lastWatered}</p>
+              <p className="plant-status"><strong>Repotted:</strong> {plant.repotDate}</p>
               <p className="plant-status"><strong>Watering:</strong> {plant.watering}</p>
               <p className="plant-note">{plant.careNote}</p>
             </article>
