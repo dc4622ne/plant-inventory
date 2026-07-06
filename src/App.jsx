@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import './App.css';
 
 const initialPlants = [
@@ -192,6 +192,39 @@ const initialDropdownOptions = {
 
 const plantsStorageKey = 'plant-inventory-plants';
 const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
+const appStoragePrefix = 'plant-inventory-';
+const backupFormatVersion = 1;
+
+function getAppStorageData() {
+  return Object.fromEntries(
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith(appStoragePrefix))
+      .map((key) => [key, localStorage.getItem(key)]),
+  );
+}
+
+function validateBackup(backup) {
+  const hasValidPlants = Array.isArray(backup?.plants)
+    && backup.plants.every((plant) => plant && typeof plant === 'object' && !Array.isArray(plant));
+  const hasValidOptions = backup?.dropdownOptions
+    && typeof backup.dropdownOptions === 'object'
+    && !Array.isArray(backup.dropdownOptions)
+    && Object.values(backup.dropdownOptions).every((options) => (
+      Array.isArray(options) && options.every((option) => typeof option === 'string')
+    ));
+  const hasValidStorage = backup?.storage
+    && typeof backup.storage === 'object'
+    && !Array.isArray(backup.storage)
+    && Object.entries(backup.storage).every(([key, value]) => (
+      key.startsWith(appStoragePrefix) && typeof value === 'string'
+    ));
+
+  return backup?.app === 'plant-inventory'
+    && backup.version === backupFormatVersion
+    && hasValidPlants
+    && hasValidOptions
+    && hasValidStorage;
+}
 
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
@@ -508,6 +541,9 @@ function App() {
   const [editingPhotoEntry, setEditingPhotoEntry] = useState(null);
   const [photoEntryDraft, setPhotoEntryDraft] = useState(emptyPhotoEntry);
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
+  const [backupMessage, setBackupMessage] = useState('');
+  const [backupMessageType, setBackupMessageType] = useState('success');
+  const importInputRef = useRef(null);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const searchableFields = [
@@ -616,6 +652,83 @@ function App() {
     setPlantFilters({ ...emptyPlantFilters });
     setQuarantineFilter('');
     setRecentlyCheckedFilter(false);
+  }
+
+  function exportData() {
+    const backup = {
+      app: 'plant-inventory',
+      version: backupFormatVersion,
+      exportedAt: new Date().toISOString(),
+      plants,
+      dropdownOptions,
+      storage: getAppStorageData(),
+    };
+    const date = new Date().toISOString().slice(0, 10);
+    const url = URL.createObjectURL(new Blob(
+      [JSON.stringify(backup, null, 2)],
+      { type: 'application/json' },
+    ));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `plant-inventory-backup-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setBackupMessageType('success');
+    setBackupMessage('Backup exported successfully.');
+  }
+
+  async function importData(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    let backup;
+    try {
+      backup = JSON.parse(await file.text());
+    } catch {
+      setBackupMessageType('error');
+      setBackupMessage('That file is not valid JSON. Please choose a backup exported from this app.');
+      return;
+    }
+
+    if (!validateBackup(backup)) {
+      setBackupMessageType('error');
+      setBackupMessage('That file is not a valid Plant Inventory backup. Your current data was not changed.');
+      return;
+    }
+
+    if (!window.confirm(
+      'Importing this backup will replace your current local Plant Inventory data. Continue?',
+    )) return;
+
+    const previousStorage = getAppStorageData();
+    try {
+      Object.keys(previousStorage).forEach((key) => localStorage.removeItem(key));
+      Object.entries(backup.storage).forEach(([key, value]) => localStorage.setItem(key, value));
+      // These named values are the source of truth, even if a future backup contains stale copies.
+      localStorage.setItem(plantsStorageKey, JSON.stringify(backup.plants));
+      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(backup.dropdownOptions));
+
+      setPlants(loadPlants());
+      setDropdownOptions(loadDropdownOptions());
+      setSelectedPlant(null);
+      setShowForm(false);
+      setIsEditing(false);
+      setAppView('dashboard');
+      clearAllFilters();
+      setLifecycleView('active');
+      setBackupMessageType('success');
+      setBackupMessage('Backup imported successfully. Your restored plants are ready.');
+    } catch {
+      Object.keys(getAppStorageData()).forEach((key) => localStorage.removeItem(key));
+      Object.entries(previousStorage).forEach(([key, value]) => localStorage.setItem(key, value));
+      setPlants(loadPlants());
+      setDropdownOptions(loadDropdownOptions());
+      setBackupMessageType('error');
+      setBackupMessage('The backup could not be imported. Your previous data has been restored.');
+    }
   }
 
   function handleSubmit(event) {
@@ -1366,6 +1479,25 @@ function App() {
               </button>
             ))}
           </div>
+          <section className="data-tools" aria-labelledby="data-tools-heading">
+            <div>
+              <h3 id="data-tools-heading">Backup &amp; Restore</h3>
+              <p>Save a copy of all your plant data, or restore a backup on this device.</p>
+            </div>
+            <div className="data-tool-actions">
+              <button type="button" onClick={exportData}>Export Data</button>
+              <button type="button" onClick={() => importInputRef.current?.click()}>Import Data</button>
+              <input ref={importInputRef} className="visually-hidden" type="file"
+                accept=".json,application/json" onChange={importData}
+                aria-label="Choose a Plant Inventory backup file" />
+            </div>
+            {backupMessage && (
+              <p className={`backup-message backup-message-${backupMessageType}`}
+                role={backupMessageType === 'error' ? 'alert' : 'status'}>
+                {backupMessage}
+              </p>
+            )}
+          </section>
         </section>
         ) : (
         <>
