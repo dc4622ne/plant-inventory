@@ -647,6 +647,15 @@ function App() {
     setAppView('dashboard');
   }
 
+  function openSettings() {
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setAddPlantMessage('');
+    setQuickCheckMessage('');
+    setAppView('settings');
+  }
+
   function clearAllFilters() {
     setSearchText('');
     setPlantFilters({ ...emptyPlantFilters });
@@ -1027,6 +1036,10 @@ function App() {
         <button type="button" className={appView === 'plants' ? 'active' : ''}
           aria-current={appView === 'plants' ? 'page' : undefined} onClick={() => openPlantList()}>
           Plant List
+        </button>
+        <button type="button" className={appView === 'settings' ? 'active' : ''}
+          aria-current={appView === 'settings' ? 'page' : undefined} onClick={openSettings}>
+          Settings
         </button>
       </nav>
 
@@ -1479,13 +1492,29 @@ function App() {
               </button>
             ))}
           </div>
-          <section className="data-tools" aria-labelledby="data-tools-heading">
-            <div>
-              <h3 id="data-tools-heading">Backup &amp; Restore</h3>
-              <p>Save a copy of all your plant data, or restore a backup on this device.</p>
-            </div>
-            <div className="data-tool-actions">
+        </section>
+        ) : appView === 'settings' ? (
+        <section className="settings-view" aria-labelledby="settings-heading">
+          <div className="settings-heading">
+            <p className="detail-eyebrow">App tools</p>
+            <h2 id="settings-heading">Settings</h2>
+            <p>Manage your backups and view app information.</p>
+          </div>
+
+          <section className="settings-card" aria-labelledby="data-tools-heading">
+            <h3 id="data-tools-heading">Data Backup</h3>
+            <div className="data-tool-row">
+              <div>
+                <h4>Export Data</h4>
+                <p>Export creates a backup JSON file containing your local app data.</p>
+              </div>
               <button type="button" onClick={exportData}>Export Data</button>
+            </div>
+            <div className="data-tool-row">
+              <div>
+                <h4>Import Data</h4>
+                <p>Import replaces current local app data with the selected backup.</p>
+              </div>
               <button type="button" onClick={() => importInputRef.current?.click()}>Import Data</button>
               <input ref={importInputRef} className="visually-hidden" type="file"
                 accept=".json,application/json" onChange={importData}
@@ -1497,6 +1526,17 @@ function App() {
                 {backupMessage}
               </p>
             )}
+          </section>
+
+          <section className="settings-card" aria-labelledby="app-info-heading">
+            <h3 id="app-info-heading">App Info</h3>
+            <dl className="app-info-list">
+              <div><dt>App name</dt><dd>Grow With Gibre Plant Tracker</dd></div>
+              <div><dt>Current storage type</dt><dd>Browser local storage</dd></div>
+            </dl>
+            <p className="storage-note">
+              Your data is stored locally in this browser unless you export or import a backup.
+            </p>
           </section>
         </section>
         ) : (
