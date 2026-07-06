@@ -6,6 +6,7 @@ const initialPlants = [
     name: 'Monstera Albo',
     image: '🪴',
     type: 'Houseplant',
+    source: 'Personal collection',
     location: 'Plant Wall',
     status: 'Watching for new growth',
     lastWatered: '2026-07-04',
@@ -17,6 +18,7 @@ const initialPlants = [
     name: 'Venom TC',
     image: '🧪',
     type: 'Tissue Culture',
+    source: 'Palmstreet',
     location: 'TC / Acclimation Area',
     status: 'Acclimating',
     lastWatered: '2026-07-05',
@@ -28,6 +30,7 @@ const initialPlants = [
     name: 'Sweet Potato Slips',
     image: '🍠',
     type: 'Garden',
+    source: 'Garden start',
     location: 'South Window',
     status: 'Growing outdoors',
     lastWatered: '2026-07-03',
@@ -39,6 +42,7 @@ const initialPlants = [
     name: 'Pothos Cuttings',
     image: '🌱',
     type: 'Propagation',
+    source: 'Propagation',
     location: 'Propagation Area',
     status: 'Rooting',
     lastWatered: '2026-07-06',
@@ -85,6 +89,7 @@ function App() {
         name,
         image: getPlantImage(name, type),
         type,
+        source: 'Personal collection',
         location,
         status: 'New',
         lastWatered: new Date().toISOString().slice(0, 10),
@@ -194,6 +199,7 @@ function App() {
                 <h2>{plant.name}</h2>
               </div>
               <p className="plant-type">{plant.type}</p>
+              <p className="plant-status"><strong>Source:</strong> {plant.source}</p>
               <p className="plant-status"><strong>Location:</strong> {plant.location}</p>
               <p className="plant-status"><strong>Status:</strong> {plant.status}</p>
               <p className="plant-status"><strong>Last watered:</strong> {plant.lastWatered}</p>
