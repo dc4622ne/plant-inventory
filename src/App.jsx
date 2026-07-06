@@ -102,15 +102,20 @@ const initialPlants = [
 
 const emptyPlant = {
   lifecycleStatus: 'active',
-  name: '', genus: '', type: '', source: '', location: '', status: '', attention: 'Medium',
+  name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
-  propagationStatus: '', pestNotes: '', growthNotes: '', activityLog: [],
+  propagationStatus: '', pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
 };
 
 const activityTypes = [
   'Watered', 'Fertilized', 'Repotted', 'Planted', 'Pruned', 'Propagated',
   'Pest treatment', 'Changed location', 'Changed pot size', 'Health check', 'General note',
+];
+
+const photoTypes = [
+  'Growth update', 'New leaf', 'Repot progress', 'Pest issue',
+  'Damage', 'Before/after', 'General photo',
 ];
 
 const summaryFieldByActivity = {
@@ -127,6 +132,10 @@ function todayDate() {
 
 function emptyLogEntry() {
   return { activityType: 'Watered', date: todayDate(), notes: '' };
+}
+
+function emptyPhotoEntry() {
+  return { photoUrl: '', date: todayDate(), caption: '', photoType: 'General photo' };
 }
 
 function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
@@ -161,13 +170,15 @@ const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
 
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
-  const plantsWithActivityLogs = initialPlants.map((plant) => ({ ...plant, activityLog: [] }));
+  const plantsWithLogs = initialPlants.map((plant) => ({
+    ...plant, activityLog: [], photoLog: [],
+  }));
 
-  if (!savedPlants) return plantsWithActivityLogs;
+  if (!savedPlants) return plantsWithLogs;
 
   try {
     const parsedPlants = JSON.parse(savedPlants);
-    if (!Array.isArray(parsedPlants)) return plantsWithActivityLogs;
+    if (!Array.isArray(parsedPlants)) return plantsWithLogs;
 
     // Older garden plants used repotDate because plantedDate did not exist yet.
     return parsedPlants.map((plant) => {
@@ -180,10 +191,11 @@ function loadPlants() {
         ...migratedPlant,
         lifecycleStatus: migratedPlant.lifecycleStatus || 'active',
         activityLog: Array.isArray(migratedPlant.activityLog) ? migratedPlant.activityLog : [],
+        photoLog: Array.isArray(migratedPlant.photoLog) ? migratedPlant.photoLog : [],
       };
     });
   } catch {
-    return plantsWithActivityLogs;
+    return plantsWithLogs;
   }
 }
 
@@ -209,6 +221,45 @@ function getPlantImage(name, type) {
   if (plantDetails.includes('propagation') || plantDetails.includes('cutting')) return '🌱';
   if (plantDetails.includes('sweet potato') || plantDetails.includes('garden')) return '🍠';
   return '🪴';
+}
+
+function PlantImage({ plant, detail = false }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = plant.imageUrl?.trim();
+  const className = `plant-image${detail ? ' detail-image' : ''}`;
+
+  if (imageUrl && !imageFailed) {
+    return (
+      <span className={className}>
+        <img
+          src={imageUrl}
+          alt={`${plant.name} plant`}
+          onError={() => setImageFailed(true)}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className={className} role="img" aria-label={`${plant.name} placeholder`}>
+      {plant.image || getPlantImage(plant.name, plant.type)}
+    </span>
+  );
+}
+
+function PhotoLogImage({ entry, plantName }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  return (
+    <div className="photo-log-image">
+      {!imageFailed ? (
+        <img src={entry.photoUrl} alt={`${plantName}: ${entry.photoType}`}
+          onError={() => setImageFailed(true)} />
+      ) : (
+        <span role="img" aria-label="Photo unavailable">🌿</span>
+      )}
+    </div>
+  );
 }
 
 function displayValue(value) {
@@ -285,6 +336,9 @@ function App() {
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
   const [logEntryDraft, setLogEntryDraft] = useState(emptyLogEntry);
+  const [newPhotoEntry, setNewPhotoEntry] = useState(emptyPhotoEntry);
+  const [editingPhotoEntry, setEditingPhotoEntry] = useState(null);
+  const [photoEntryDraft, setPhotoEntryDraft] = useState(emptyPhotoEntry);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type).filter(Boolean))];
@@ -368,6 +422,7 @@ function App() {
 
   function startEditing() {
     cancelEditingLogEntry();
+    cancelEditingPhotoEntry();
     setNewPlant({
       ...emptyPlant,
       ...selectedPlant,
@@ -495,6 +550,67 @@ function App() {
     if (editingLogEntry === entryToDelete) cancelEditingLogEntry();
   }
 
+  function savePhotoLog(photoLog) {
+    const updatedPlant = { ...selectedPlant, photoLog };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(updatedPlant);
+  }
+
+  function addPhotoEntry(event) {
+    event.preventDefault();
+    const photoEntry = {
+      ...newPhotoEntry,
+      photoUrl: newPhotoEntry.photoUrl.trim(),
+      caption: newPhotoEntry.caption.trim(),
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    savePhotoLog([...(selectedPlant.photoLog || []), photoEntry]);
+    setNewPhotoEntry(emptyPhotoEntry());
+  }
+
+  function startEditingPhotoEntry(entry) {
+    setEditingPhotoEntry(entry);
+    setPhotoEntryDraft({
+      photoUrl: entry.photoUrl || '',
+      date: dateInputValue(entry.date),
+      caption: entry.caption || '',
+      photoType: entry.photoType || 'General photo',
+    });
+  }
+
+  function cancelEditingPhotoEntry() {
+    setEditingPhotoEntry(null);
+    setPhotoEntryDraft(emptyPhotoEntry());
+  }
+
+  function saveEditedPhotoEntry(event) {
+    event.preventDefault();
+    const updatedEntry = {
+      ...editingPhotoEntry,
+      ...photoEntryDraft,
+      photoUrl: photoEntryDraft.photoUrl.trim(),
+      caption: photoEntryDraft.caption.trim(),
+    };
+    const updatedPhotoLog = (selectedPlant.photoLog || []).map((entry) => (
+      entry === editingPhotoEntry ? updatedEntry : entry
+    ));
+
+    savePhotoLog(updatedPhotoLog);
+    cancelEditingPhotoEntry();
+  }
+
+  function deletePhotoEntry(entryToDelete) {
+    if (!window.confirm('Delete this photo log entry?')) return;
+
+    savePhotoLog((selectedPlant.photoLog || []).filter((entry) => entry !== entryToDelete));
+    if (editingPhotoEntry === entryToDelete) cancelEditingPhotoEntry();
+  }
+
   return (
     <main className="plant-inventory">
       <header className="brand-header">
@@ -510,7 +626,9 @@ function App() {
             <button className="back-button" type="button" onClick={() => {
               setSelectedPlant(null);
               setNewLogEntry(emptyLogEntry());
+              setNewPhotoEntry(emptyPhotoEntry());
               cancelEditingLogEntry();
+              cancelEditingPhotoEntry();
             }}>
               ← Back to Plant List
             </button>
@@ -546,9 +664,7 @@ function App() {
             </div>
           </div>
           <div className="detail-heading">
-            <span className="plant-image detail-image" role="img" aria-label={`${selectedPlant.name} placeholder`}>
-              {selectedPlant.image || getPlantImage(selectedPlant.name, selectedPlant.type)}
-            </span>
+            <PlantImage key={selectedPlant.imageUrl || 'placeholder'} plant={selectedPlant} detail />
             <div>
               <p className="detail-eyebrow">Plant details</p>
               <h2 id="plant-detail-heading">{selectedPlant.name}</h2>
@@ -573,6 +689,121 @@ function App() {
               </section>
             ))}
           </div>
+          <section className="photo-log" aria-labelledby="photo-log-heading">
+            <h3 id="photo-log-heading">Photo Log</h3>
+            <form className="photo-form" onSubmit={addPhotoEntry}>
+              <div className="form-field photo-url-field">
+                <label htmlFor="photo-url">Photo URL</label>
+                <input id="photo-url" type="url" required value={newPhotoEntry.photoUrl}
+                  placeholder="https://example.com/plant-photo.jpg"
+                  onChange={(event) => setNewPhotoEntry((entry) => ({
+                    ...entry, photoUrl: event.target.value,
+                  }))} />
+              </div>
+              <div className="form-field">
+                <label htmlFor="photo-date">Date</label>
+                <input id="photo-date" type="date" required value={newPhotoEntry.date}
+                  onChange={(event) => setNewPhotoEntry((entry) => ({
+                    ...entry, date: event.target.value,
+                  }))} />
+              </div>
+              <div className="form-field">
+                <label htmlFor="photo-type">Photo type</label>
+                <select id="photo-type" value={newPhotoEntry.photoType}
+                  onChange={(event) => setNewPhotoEntry((entry) => ({
+                    ...entry, photoType: event.target.value,
+                  }))}>
+                  {photoTypes.map((photoType) => <option key={photoType}>{photoType}</option>)}
+                </select>
+              </div>
+              <div className="form-field photo-caption-field">
+                <label htmlFor="photo-caption">Caption or notes (optional)</label>
+                <textarea id="photo-caption" rows="3" value={newPhotoEntry.caption}
+                  placeholder="What changed since the last photo?"
+                  onChange={(event) => setNewPhotoEntry((entry) => ({
+                    ...entry, caption: event.target.value,
+                  }))} />
+              </div>
+              <button type="submit">Add photo</button>
+            </form>
+            {(selectedPlant.photoLog || []).length > 0 ? (
+              <ol className="photo-list">
+                {[...(selectedPlant.photoLog || [])]
+                  .sort((firstEntry, secondEntry) => (
+                    secondEntry.date.localeCompare(firstEntry.date)
+                    || (secondEntry.createdAt || '').localeCompare(firstEntry.createdAt || '')
+                  ))
+                  .map((entry, entryIndex) => (
+                    <li key={entry.id || `${entry.date}-${entry.photoUrl}-${entryIndex}`}>
+                      {editingPhotoEntry === entry ? (
+                        <form className="photo-edit-form" onSubmit={saveEditedPhotoEntry}>
+                          <div className="form-field photo-url-field">
+                            <label htmlFor="edit-photo-url">Photo URL</label>
+                            <input id="edit-photo-url" type="url" required
+                              value={photoEntryDraft.photoUrl}
+                              onChange={(event) => setPhotoEntryDraft((draft) => ({
+                                ...draft, photoUrl: event.target.value,
+                              }))} />
+                          </div>
+                          <div className="form-field">
+                            <label htmlFor="edit-photo-date">Date</label>
+                            <input id="edit-photo-date" type="date" required
+                              value={photoEntryDraft.date}
+                              onChange={(event) => setPhotoEntryDraft((draft) => ({
+                                ...draft, date: event.target.value,
+                              }))} />
+                          </div>
+                          <div className="form-field">
+                            <label htmlFor="edit-photo-type">Photo type</label>
+                            <select id="edit-photo-type" value={photoEntryDraft.photoType}
+                              onChange={(event) => setPhotoEntryDraft((draft) => ({
+                                ...draft, photoType: event.target.value,
+                              }))}>
+                              {photoTypes.map((photoType) => <option key={photoType}>{photoType}</option>)}
+                            </select>
+                          </div>
+                          <div className="form-field photo-caption-field">
+                            <label htmlFor="edit-photo-caption">Caption or notes (optional)</label>
+                            <textarea id="edit-photo-caption" rows="3"
+                              value={photoEntryDraft.caption}
+                              onChange={(event) => setPhotoEntryDraft((draft) => ({
+                                ...draft, caption: event.target.value,
+                              }))} />
+                          </div>
+                          <div className="photo-entry-actions">
+                            <button type="submit">Save changes</button>
+                            <button type="button" onClick={cancelEditingPhotoEntry}>Cancel</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <PhotoLogImage key={entry.photoUrl} entry={entry}
+                            plantName={selectedPlant.name} />
+                          <div className="photo-entry-content">
+                            <div className="photo-entry-heading">
+                              <strong>{entry.photoType}</strong>
+                              <time dateTime={entry.date}>{entry.date}</time>
+                            </div>
+                            {entry.caption && <p>{entry.caption}</p>}
+                            <div className="photo-entry-actions">
+                              <button type="button" onClick={() => startEditingPhotoEntry(entry)}>
+                                ✏️ Edit
+                              </button>
+                              <button className="photo-delete-button" type="button"
+                                onClick={() => deletePhotoEntry(entry)}>
+                                🗑️ Delete
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  ))}
+              </ol>
+            ) : (
+              <p className="activity-empty-message">No photos logged yet.</p>
+            )}
+          </section>
           <section className="activity-log" aria-labelledby="activity-log-heading">
             <h3 id="activity-log-heading">Activity Log</h3>
             <form className="activity-form" onSubmit={addLogEntry}>
@@ -682,7 +913,7 @@ function App() {
           )}
           <div className="form-grid">
             {[
-              ['name', 'Plant name'], ['source', 'Source'],
+              ['name', 'Plant name'], ['imageUrl', 'Image URL (optional)'], ['source', 'Source'],
               ['medium', 'Growing medium'], ['potSize', 'Pot size'],
               ['watering', 'Watering notes'], ['propagationStatus', 'Propagation'],
               ['purchasePrice', 'Purchase price'],
@@ -690,6 +921,8 @@ function App() {
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <input id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                  type={fieldName === 'imageUrl' ? 'url' : 'text'}
+                  placeholder={fieldName === 'imageUrl' ? 'https://example.com/plant.jpg' : undefined}
                   onChange={handleInputChange} required={fieldName === 'name'} />
               </div>
             ))}
@@ -842,9 +1075,7 @@ function App() {
               aria-label={`View details for ${plant.name}`}
             >
               <div className="plant-card-heading">
-                <span className="plant-image" role="img" aria-label={`${plant.name} placeholder`}>
-                  {plant.image}
-                </span>
+                <PlantImage key={plant.imageUrl || 'placeholder'} plant={plant} />
                 <h2>{plant.name}</h2>
               </div>
               <p className="plant-type">{displayValue(plant.type)}</p>
