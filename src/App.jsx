@@ -111,6 +111,37 @@ const initialDropdownOptions = {
   lightNeeds: ['Bright indirect light', 'Direct light', 'Grow light', 'Low light', 'Outdoor sun'],
 };
 
+const plantsStorageKey = 'plant-inventory-plants';
+const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
+
+function loadPlants() {
+  const savedPlants = localStorage.getItem(plantsStorageKey);
+
+  if (!savedPlants) return initialPlants;
+
+  try {
+    const parsedPlants = JSON.parse(savedPlants);
+    return Array.isArray(parsedPlants) ? parsedPlants : initialPlants;
+  } catch {
+    return initialPlants;
+  }
+}
+
+function loadDropdownOptions() {
+  const savedOptions = localStorage.getItem(dropdownOptionsStorageKey);
+
+  if (!savedOptions) return initialDropdownOptions;
+
+  try {
+    const parsedOptions = JSON.parse(savedOptions);
+    return parsedOptions && typeof parsedOptions === 'object'
+      ? parsedOptions
+      : initialDropdownOptions;
+  } catch {
+    return initialDropdownOptions;
+  }
+}
+
 function getPlantImage(name, type) {
   const plantDetails = `${name} ${type}`.toLowerCase();
 
@@ -125,9 +156,9 @@ function displayValue(value) {
 }
 
 function App() {
-  const [plants, setPlants] = useState(initialPlants);
+  const [plants, setPlants] = useState(loadPlants);
   const [showForm, setShowForm] = useState(false);
-  const [dropdownOptions, setDropdownOptions] = useState(initialDropdownOptions);
+  const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
   const [newOptionText, setNewOptionText] = useState({
     genus: '', type: '', status: '', location: '', lightNeeds: '',
   });
@@ -150,13 +181,18 @@ function App() {
   function handleSubmit(event) {
     event.preventDefault();
 
-    setPlants((currentPlants) => [
-      ...currentPlants,
-      {
-        ...newPlant,
-        image: getPlantImage(newPlant.name, newPlant.type),
-      },
-    ]);
+    setPlants((currentPlants) => {
+      const updatedPlants = [
+        ...currentPlants,
+        {
+          ...newPlant,
+          image: getPlantImage(newPlant.name, newPlant.type),
+        },
+      ];
+
+      localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+      return updatedPlants;
+    });
     setNewPlant(emptyPlant);
     setShowForm(false);
   }
@@ -170,12 +206,17 @@ function App() {
     const option = newOptionText[fieldName].trim();
     if (!option) return;
 
-    setDropdownOptions((currentOptions) => ({
-      ...currentOptions,
-      [fieldName]: currentOptions[fieldName].includes(option)
-        ? currentOptions[fieldName]
-        : [...currentOptions[fieldName], option],
-    }));
+    setDropdownOptions((currentOptions) => {
+      const updatedOptions = {
+        ...currentOptions,
+        [fieldName]: currentOptions[fieldName].includes(option)
+          ? currentOptions[fieldName]
+          : [...currentOptions[fieldName], option],
+      };
+
+      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedOptions));
+      return updatedOptions;
+    });
     setNewPlant((currentPlant) => ({ ...currentPlant, [fieldName]: option }));
     setNewOptionText((currentText) => ({ ...currentText, [fieldName]: '' }));
   }
