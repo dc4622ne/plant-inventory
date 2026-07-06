@@ -181,6 +181,8 @@ function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
 const initialDropdownOptions = {
   genus: ['Alocasia', 'Epipremnum', 'Monstera', 'Sweet Potato'],
   type: ['Garden', 'Houseplant', 'Propagation', 'Tissue Culture'],
+  source: ['Palmstreet', 'Etsy', 'Local nursery', 'Giveaway', 'Friend', 'Personal collection', 'Garden start', 'Propagation'],
+  desiredStatus: ['Wishlist', 'Ordered', 'Shipped', 'Arrived', 'Converted', 'Passed', 'Cancelled'],
   status: ['Acclimating', 'Growing outdoors', 'New', 'Rooting', 'Watching for new growth'],
   location: ['Plant Wall', 'South Window', 'Kitchen', 'Basement Grow Light', 'TC / Acclimation Area', 'Propagation Area'],
   lightNeeds: ['Bright indirect light', 'Direct light', 'Grow light', 'Low light', 'Outdoor sun'],
@@ -192,6 +194,7 @@ const initialDropdownOptions = {
 
 const plantsStorageKey = 'plant-inventory-plants';
 const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
+const wishlistStorageKey = 'plant-inventory-wishlist';
 const appStoragePrefix = 'plant-inventory-';
 const backupFormatVersion = 1;
 
@@ -218,11 +221,16 @@ function validateBackup(backup) {
     && Object.entries(backup.storage).every(([key, value]) => (
       key.startsWith(appStoragePrefix) && typeof value === 'string'
     ));
+  const hasValidWishlist = backup?.wishlistItems === undefined || (
+    Array.isArray(backup.wishlistItems)
+    && backup.wishlistItems.every((item) => item && typeof item === 'object' && !Array.isArray(item))
+  );
 
   return backup?.app === 'plant-inventory'
     && backup.version === backupFormatVersion
     && hasValidPlants
     && hasValidOptions
+    && hasValidWishlist
     && hasValidStorage;
 }
 
@@ -259,20 +267,48 @@ function loadPlants() {
 
 function loadDropdownOptions() {
   const savedOptions = localStorage.getItem(dropdownOptionsStorageKey);
-
-  if (!savedOptions) return initialDropdownOptions;
+  let loadedOptions = initialDropdownOptions;
 
   try {
-    const parsedOptions = JSON.parse(savedOptions);
-    return parsedOptions && typeof parsedOptions === 'object'
+    const parsedOptions = savedOptions ? JSON.parse(savedOptions) : null;
+    loadedOptions = parsedOptions && typeof parsedOptions === 'object'
       ? Object.fromEntries(Object.entries(initialDropdownOptions).map(([fieldName, options]) => [
         fieldName,
         [...new Set([...(parsedOptions[fieldName] || []), ...options])],
       ]))
       : initialDropdownOptions;
   } catch {
-    return initialDropdownOptions;
+    loadedOptions = initialDropdownOptions;
   }
+
+  // Preserve source values entered before Source became a reusable dropdown.
+  const savedPlantSources = loadPlants().map((plant) => plant.source).filter(Boolean);
+  return {
+    ...loadedOptions,
+    source: [...new Set([...loadedOptions.source, ...savedPlantSources])],
+  };
+}
+
+const emptyWishlistItem = {
+  id: '', name: '', genus: '', type: '', desiredStatus: 'Wishlist', source: '', price: '',
+  orderDate: '', shipDate: '', expectedArrivalDate: '', actualArrivalDate: '',
+  tracking: '', notes: '', imageUrl: '', converted: false, convertedPlantId: '',
+};
+const emptyWishlistFilters = { desiredStatus: '', source: '', type: '' };
+
+function loadWishlistItems() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(wishlistStorageKey) || '[]');
+    return Array.isArray(saved) ? saved.map((item) => ({ ...emptyWishlistItem, ...item })) : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatPrice(value) {
+  if (value === '' || value === null || value === undefined) return '';
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' }) : value;
 }
 
 function getPlantImage(name, type) {
@@ -562,7 +598,7 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
   const [newOptionText, setNewOptionText] = useState({
-    genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '',
+    genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
     wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   });
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
@@ -586,6 +622,12 @@ function App() {
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
   const [backupMessageType, setBackupMessageType] = useState('success');
+  const [wishlistItems, setWishlistItems] = useState(loadWishlistItems);
+  const [wishlistDraft, setWishlistDraft] = useState(emptyWishlistItem);
+  const [editingWishlistId, setEditingWishlistId] = useState('');
+  const [showWishlistForm, setShowWishlistForm] = useState(false);
+  const [wishlistSearch, setWishlistSearch] = useState('');
+  const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
   const importInputRef = useRef(null);
 
   const normalizedSearch = searchText.trim().toLowerCase();
@@ -680,6 +722,25 @@ function App() {
     { label: 'Coming out of quarantine soon', count: activePlants.filter(isPlantLeavingQuarantineSoon).length, lifecycle: 'active', quarantine: 'soon' },
     { label: 'Pest quarantine', count: activePlants.filter((plant) => getQuarantineStatus(plant).isInPestQuarantine).length, lifecycle: 'active', quarantine: 'pest' },
   ];
+  const today = todayDate();
+  const sevenDaysFromToday = addDaysToDate(today, 7);
+  const wishlistMetrics = [
+    { label: 'Wishlist', count: wishlistItems.filter((item) => item.desiredStatus === 'Wishlist').length, filter: 'Wishlist' },
+    { label: 'Ordered', count: wishlistItems.filter((item) => item.desiredStatus === 'Ordered').length, filter: 'Ordered' },
+    { label: 'Shipped', count: wishlistItems.filter((item) => item.desiredStatus === 'Shipped').length, filter: 'Shipped' },
+    { label: 'Arriving soon', count: wishlistItems.filter((item) => {
+      const date = dateInputValue(item.expectedArrivalDate);
+      return !item.converted && Boolean(date) && date >= today && date <= sevenDaysFromToday;
+    }).length, arrivingSoon: true },
+  ];
+  const wishlistFilterOptions = (field) => [...new Set(wishlistItems.map((item) => item[field]).filter(Boolean))].sort();
+  const visibleWishlistItems = wishlistItems.filter((item) => {
+    const matchesSearch = !wishlistSearch.trim() || item.name.toLowerCase().includes(wishlistSearch.trim().toLowerCase());
+    const matchesFilters = Object.entries(wishlistFilters).every(([field, value]) => !value || item[field] === value);
+    const date = dateInputValue(item.expectedArrivalDate);
+    const matchesSoon = !wishlistFilters.arrivingSoon || (!item.converted && date && date >= today && date <= sevenDaysFromToday);
+    return matchesSearch && matchesFilters && matchesSoon;
+  });
   const dashboardCharts = [
     {
       title: 'Plants by type / category',
@@ -754,6 +815,78 @@ function App() {
     setAppView('settings');
   }
 
+  function openWishlist(metric = {}) {
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setWishlistSearch('');
+    setWishlistFilters(metric.arrivingSoon
+      ? { ...emptyWishlistFilters, arrivingSoon: true }
+      : { ...emptyWishlistFilters, desiredStatus: metric.filter || '' });
+    setAppView('wishlist');
+  }
+
+  function saveWishlist(nextItems) {
+    localStorage.setItem(wishlistStorageKey, JSON.stringify(nextItems));
+    setWishlistItems(nextItems);
+  }
+
+  function submitWishlistItem(event) {
+    event.preventDefault();
+    const item = {
+      ...wishlistDraft,
+      id: editingWishlistId || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: wishlistDraft.name.trim(),
+    };
+    saveWishlist(editingWishlistId
+      ? wishlistItems.map((current) => current.id === editingWishlistId ? item : current)
+      : [...wishlistItems, item]);
+    setWishlistDraft(emptyWishlistItem);
+    setEditingWishlistId('');
+    setShowWishlistForm(false);
+  }
+
+  function editWishlistItem(item) {
+    setWishlistDraft({ ...emptyWishlistItem, ...item });
+    setEditingWishlistId(item.id);
+    setShowWishlistForm(true);
+  }
+
+  function deleteWishlistItem(item) {
+    if (!window.confirm(`Delete ${item.name} from Wishlist / Purchases?`)) return;
+    saveWishlist(wishlistItems.filter((current) => current.id !== item.id));
+  }
+
+  function convertWishlistItem(item) {
+    if (item.converted) return;
+    const plantId = `wishlist-${item.id}`;
+    if (plants.some((plant) => plant.id === plantId)) {
+      saveWishlist(wishlistItems.map((current) => current.id === item.id
+        ? { ...current, converted: true, convertedPlantId: plantId, desiredStatus: 'Converted' }
+        : current));
+      return;
+    }
+    const newInventoryPlant = {
+      ...emptyPlant,
+      id: plantId,
+      name: item.name,
+      genus: item.genus,
+      type: item.type,
+      source: item.source,
+      acquiredDate: item.actualArrivalDate || item.expectedArrivalDate,
+      imageUrl: item.imageUrl,
+      careNote: item.notes,
+      purchasePrice: item.price,
+      image: getPlantImage(item.name, item.type),
+    };
+    const updatedPlants = [...plants, newInventoryPlant];
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    saveWishlist(wishlistItems.map((current) => current.id === item.id
+      ? { ...current, converted: true, convertedPlantId: plantId, desiredStatus: 'Converted' }
+      : current));
+  }
+
   function clearAllFilters() {
     setSearchText('');
     setPlantFilters({ ...emptyPlantFilters });
@@ -805,6 +938,7 @@ function App() {
       exportedAt: new Date().toISOString(),
       plants,
       dropdownOptions,
+      wishlistItems,
       storage: getAppStorageData(),
     };
     const date = new Date().toISOString().slice(0, 10);
@@ -854,9 +988,13 @@ function App() {
       // These named values are the source of truth, even if a future backup contains stale copies.
       localStorage.setItem(plantsStorageKey, JSON.stringify(backup.plants));
       localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(backup.dropdownOptions));
+      if (Array.isArray(backup.wishlistItems)) {
+        localStorage.setItem(wishlistStorageKey, JSON.stringify(backup.wishlistItems));
+      }
 
       setPlants(loadPlants());
       setDropdownOptions(loadDropdownOptions());
+      setWishlistItems(loadWishlistItems());
       setSelectedPlant(null);
       setShowForm(false);
       setIsEditing(false);
@@ -870,6 +1008,7 @@ function App() {
       Object.entries(previousStorage).forEach(([key, value]) => localStorage.setItem(key, value));
       setPlants(loadPlants());
       setDropdownOptions(loadDropdownOptions());
+      setWishlistItems(loadWishlistItems());
       setBackupMessageType('error');
       setBackupMessage('The backup could not be imported. Your previous data has been restored.');
     }
@@ -903,7 +1042,7 @@ function App() {
 
     if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
+    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
     setShowForm(shouldAddAnother);
     setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
     setIsEditing(false);
@@ -914,7 +1053,7 @@ function App() {
     setNewPlant((currentPlant) => ({ ...currentPlant, [name]: value }));
   }
 
-  function addDropdownOption(fieldName) {
+  function addDropdownOption(fieldName, formName = 'plant') {
     const option = newOptionText[fieldName].trim();
     if (!option) return;
 
@@ -929,13 +1068,17 @@ function App() {
       localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedOptions));
       return updatedOptions;
     });
-    setNewPlant((currentPlant) => ({ ...currentPlant, [fieldName]: option }));
+    if (formName === 'wishlist') {
+      setWishlistDraft((currentItem) => ({ ...currentItem, [fieldName]: option }));
+    } else {
+      setNewPlant((currentPlant) => ({ ...currentPlant, [fieldName]: option }));
+    }
     setNewOptionText((currentText) => ({ ...currentText, [fieldName]: '' }));
   }
 
   function cancelForm() {
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
+    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
     setAddPlantMessage('');
     setShowForm(false);
     setIsEditing(false);
@@ -954,7 +1097,7 @@ function App() {
       pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
       pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
     });
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
+    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
     setAddPlantMessage('');
     setIsEditing(true);
   }
@@ -1171,6 +1314,10 @@ function App() {
         <button type="button" className={appView === 'plants' ? 'active' : ''}
           aria-current={appView === 'plants' ? 'page' : undefined} onClick={() => openPlantList()}>
           Plant List
+        </button>
+        <button type="button" className={appView === 'wishlist' ? 'active' : ''}
+          aria-current={appView === 'wishlist' ? 'page' : undefined} onClick={() => openWishlist()}>
+          Wishlist
         </button>
         <button type="button" className={appView === 'settings' ? 'active' : ''}
           aria-current={appView === 'settings' ? 'page' : undefined} onClick={openSettings}>
@@ -1500,7 +1647,7 @@ function App() {
           )}
           <div className="form-grid">
             {[
-              ['name', 'Plant name'], ['imageUrl', 'Image URL (optional)'], ['source', 'Source'],
+              ['name', 'Plant name'], ['imageUrl', 'Image URL (optional)'],
               ['medium', 'Growing medium'], ['potSize', 'Pot size'],
               ['watering', 'Watering notes'], ['propagationStatus', 'Propagation'],
               ['purchasePrice', 'Purchase price'],
@@ -1515,7 +1662,7 @@ function App() {
             ))}
 
             {[
-              ['genus', 'Genus'], ['type', 'Type / category'], ['status', 'Status'],
+              ['genus', 'Genus'], ['type', 'Type / category'], ['source', 'Source'], ['status', 'Status'],
               ['location', 'Location'], ['lightNeeds', 'Light level'],
               ['soilMix', 'Soil mix / substrate mix'], ['wateringRhythm', 'Watering rhythm'],
               ['moisturePreference', 'Moisture preference'], ['careDifficulty', 'Care difficulty'],
@@ -1651,6 +1798,20 @@ function App() {
               </div>
             </section>
           ))}
+          <section className="dashboard-section" aria-labelledby="wishlist-metrics-heading">
+            <div className="dashboard-section-heading">
+              <h3 id="wishlist-metrics-heading">Wishlist / Purchases</h3>
+              <p>Ideas, orders, and plants on their way.</p>
+            </div>
+            <div className="dashboard-metrics">
+              {wishlistMetrics.map((metric) => (
+                <button className="dashboard-metric-card" type="button" key={metric.label}
+                  onClick={() => openWishlist(metric)}>
+                  <strong>{metric.count}</strong><span>{metric.label}</span><small>View purchases →</small>
+                </button>
+              ))}
+            </div>
+          </section>
           <section className="dashboard-section" aria-labelledby="collection-breakdown-heading">
             <div className="dashboard-section-heading">
               <p className="detail-eyebrow">Plant insights</p>
@@ -1716,6 +1877,91 @@ function App() {
             })}
             </div>
           </section>
+        </section>
+        ) : appView === 'wishlist' ? (
+        <section className="wishlist-view" aria-labelledby="wishlist-heading">
+          <div className="section-heading">
+            <div>
+              <p className="detail-eyebrow">Before the plant shelf</p>
+              <h2 className="section-title" id="wishlist-heading">Wishlist / Purchases</h2>
+            </div>
+            <button className="add-plant-button" type="button" onClick={() => {
+              setWishlistDraft(emptyWishlistItem); setEditingWishlistId(''); setShowWishlistForm(true);
+            }} aria-label="Add wishlist or purchase item" title="Add item">+</button>
+          </div>
+          {showWishlistForm ? (
+            <form className="plant-form wishlist-form" onSubmit={submitWishlistItem}>
+              <div className="form-heading">
+                <div><p className="detail-eyebrow">Wishlist / purchase</p><h2>{editingWishlistId ? 'Edit item' : 'Add item'}</h2></div>
+              </div>
+              <div className="form-grid">
+                <div className="form-field"><label htmlFor="wish-name">Plant name *</label>
+                  <input id="wish-name" name="name" required value={wishlistDraft.name} onChange={(e) => setWishlistDraft({ ...wishlistDraft, name: e.target.value })} /></div>
+                {[["price", "Price"], ["tracking", "Tracking number or link"], ["imageUrl", "Image URL"]].map(([field, label]) => (
+                  <div className="form-field" key={field}><label htmlFor={`wish-${field}`}>{label}</label>
+                    <input id={`wish-${field}`} type={field === 'price' ? 'number' : field === 'imageUrl' ? 'url' : 'text'} step={field === 'price' ? '0.01' : undefined}
+                      value={wishlistDraft[field]} onChange={(e) => setWishlistDraft({ ...wishlistDraft, [field]: e.target.value })} /></div>
+                ))}
+                {[["genus", "Genus"], ["type", "Type / category"], ["desiredStatus", "Desired status"], ["source", "Source / seller"]].map(([field, label]) => (
+                  <div className="form-field" key={field}>
+                    <label htmlFor={`wish-${field}`}>{label}</label>
+                    <select id={`wish-${field}`} value={wishlistDraft[field]}
+                      onChange={(e) => setWishlistDraft({ ...wishlistDraft, [field]: e.target.value })}>
+                      <option value="">Select {label.toLowerCase()}</option>
+                      {dropdownOptions[field].map((option) => <option value={option} key={option}>{option}</option>)}
+                    </select>
+                    <div className="new-option-row">
+                      <input type="text" aria-label={`New ${label.toLowerCase()} option`}
+                        placeholder="Add new option" value={newOptionText[field]}
+                        onChange={(event) => setNewOptionText((currentText) => ({ ...currentText, [field]: event.target.value }))} />
+                      <button type="button" onClick={() => addDropdownOption(field, 'wishlist')}>Add option</button>
+                    </div>
+                  </div>
+                ))}
+                {[["orderDate", "Order date"], ["shipDate", "Ship date"], ["expectedArrivalDate", "Expected arrival date"], ["actualArrivalDate", "Actual arrival date"]].map(([field, label]) => (
+                  <div className="form-field" key={field}><label htmlFor={`wish-${field}`}>{label}</label>
+                    <input id={`wish-${field}`} type="date" value={wishlistDraft[field]}
+                      onChange={(e) => setWishlistDraft({ ...wishlistDraft, [field]: e.target.value })} /></div>
+                ))}
+                <div className="form-field form-field-wide"><label htmlFor="wish-notes">Notes</label>
+                  <textarea id="wish-notes" rows="3" value={wishlistDraft.notes} onChange={(e) => setWishlistDraft({ ...wishlistDraft, notes: e.target.value })} /></div>
+              </div>
+              <div className="form-actions"><button type="submit">{editingWishlistId ? 'Save changes' : 'Add item'}</button>
+                <button className="secondary-button" type="button" onClick={() => { setShowWishlistForm(false); setEditingWishlistId(''); setWishlistDraft(emptyWishlistItem); }}>Cancel</button></div>
+            </form>
+          ) : (
+            <>
+              <div className="wishlist-tools">
+                <div className="plant-search"><label htmlFor="wishlist-search">Search by plant name</label>
+                  <input id="wishlist-search" type="search" placeholder="Search wishlist..." value={wishlistSearch} onChange={(e) => setWishlistSearch(e.target.value)} /></div>
+                {[["desiredStatus", "Status"], ["source", "Source / seller"], ["type", "Type / category"]].map(([field, label]) => (
+                  <div className="plant-filter" key={field}><label htmlFor={`wishlist-filter-${field}`}>{label}</label>
+                    <select id={`wishlist-filter-${field}`} value={wishlistFilters[field] || ''} onChange={(e) => setWishlistFilters({ ...wishlistFilters, arrivingSoon: false, [field]: e.target.value })}>
+                      <option value="">All</option>{wishlistFilterOptions(field).map((value) => <option key={value}>{value}</option>)}
+                    </select></div>
+                ))}
+                <button className="clear-filters-button" type="button" onClick={() => { setWishlistSearch(''); setWishlistFilters(emptyWishlistFilters); }}>Clear filters</button>
+              </div>
+              {wishlistFilters.arrivingSoon && <p className="applied-dashboard-filter">Showing arrivals expected in the next 7 days.</p>}
+              <div className="wishlist-list">
+                {visibleWishlistItems.length ? visibleWishlistItems.map((item) => (
+                  <article className="wishlist-card" key={item.id}>
+                    {item.imageUrl ? <img src={item.imageUrl} alt={`${item.name} plant`} /> : <div className="wishlist-placeholder" aria-hidden="true">🌱</div>}
+                    <div className="wishlist-card-body"><div className="wishlist-card-heading"><div><span className="wishlist-status">{item.desiredStatus || 'Wishlist'}</span><h3>{item.name}</h3></div>
+                      <div className="wishlist-card-actions">
+                        <button type="button" onClick={() => editWishlistItem(item)}
+                          aria-label={`Edit ${item.name}`} title="Edit">✏️</button>
+                        <button className="delete-plant-button" type="button" onClick={() => deleteWishlistItem(item)}
+                          aria-label={`Delete ${item.name}`} title="Delete">🗑️</button>
+                      </div></div>
+                      <dl className="wishlist-summary"><div><dt>Source</dt><dd>{displayValue(item.source)}</dd></div><div><dt>Expected</dt><dd>{displayValue(item.expectedArrivalDate)}</dd></div>{item.price !== '' && <div><dt>Price</dt><dd>{formatPrice(item.price)}</dd></div>}</dl>
+                      <button type="button" className="convert-button" disabled={item.converted} onClick={() => convertWishlistItem(item)}>{item.converted ? 'Added to Plant Inventory' : 'Add to Plant Inventory'}</button>
+                    </div>
+                  </article>
+                )) : <p className="empty-message">No wishlist or purchase items found.</p>}
+              </div>
+            </>
+          )}
         </section>
         ) : appView === 'settings' ? (
         <section className="settings-view" aria-labelledby="settings-heading">
