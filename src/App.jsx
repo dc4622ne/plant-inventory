@@ -574,6 +574,8 @@ function App() {
   const [lifecycleView, setLifecycleView] = useState('active');
   const [quarantineFilter, setQuarantineFilter] = useState('');
   const [recentlyCheckedFilter, setRecentlyCheckedFilter] = useState(false);
+  const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
+  const [activeQuickView, setActiveQuickView] = useState('all-active');
   const [addPlantMessage, setAddPlantMessage] = useState('');
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
@@ -635,9 +637,14 @@ function App() {
         || (quarantineFilter === 'new' && quarantineStatus.isInNewPlantQuarantine)
         || (quarantineFilter === 'pest' && quarantineStatus.isInPestQuarantine);
       const matchesRecentlyChecked = !recentlyCheckedFilter || wasRecentlyChecked(plant);
+      const fourteenDaysAgo = addDaysToDate(todayDate(), -13);
+      const acquiredDate = dateInputValue(plant.acquiredDate);
+      const matchesRecentlyAcquired = !recentlyAcquiredFilter || (
+        Boolean(acquiredDate) && acquiredDate >= fourteenDaysAgo && acquiredDate <= todayDate()
+      );
 
       return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine
-        && matchesRecentlyChecked;
+        && matchesRecentlyChecked && matchesRecentlyAcquired;
     })
     .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
 
@@ -706,12 +713,22 @@ function App() {
   function openPlantList(metric = {}) {
     const nextFilters = { ...emptyPlantFilters };
     if (metric.filter) nextFilters[metric.filter[0]] = metric.filter[1];
+    const nextLifecycle = metric.lifecycle === 'all' ? 'all' : (metric.lifecycle || 'active');
+    const matchingQuickView = quickViews.find((quickView) => (
+      quickView.lifecycle === nextLifecycle
+      && (quickView.quarantine || '') === (metric.quarantine || '')
+      && Boolean(quickView.recentlyChecked) === Boolean(metric.recentlyChecked)
+      && !quickView.recentlyAcquired
+      && JSON.stringify(quickView.filter || null) === JSON.stringify(metric.filter || null)
+    ));
 
     setPlantFilters(nextFilters);
     setSearchText('');
     setQuarantineFilter(metric.quarantine || '');
     setRecentlyCheckedFilter(Boolean(metric.recentlyChecked));
-    setLifecycleView(metric.lifecycle === 'all' ? 'all' : (metric.lifecycle || 'active'));
+    setRecentlyAcquiredFilter(false);
+    setActiveQuickView(matchingQuickView?.id || '');
+    setLifecycleView(nextLifecycle);
     setAreMoreFiltersVisible(Boolean(
       metric.filter && advancedFilterFields.some(([fieldName]) => fieldName === metric.filter[0])
     ));
@@ -742,6 +759,43 @@ function App() {
     setPlantFilters({ ...emptyPlantFilters });
     setQuarantineFilter('');
     setRecentlyCheckedFilter(false);
+    setRecentlyAcquiredFilter(false);
+    setLifecycleView('active');
+    setActiveQuickView('all-active');
+  }
+
+  const quickViews = [
+    { id: 'all-active', label: 'All active plants', lifecycle: 'active' },
+    { id: 'leca', label: 'LECA plants', lifecycle: 'active', filter: ['medium', 'LECA'] },
+    { id: 'tissue-cultures', label: 'Tissue cultures', lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
+    { id: 'new', label: 'New plants', lifecycle: 'active', recentlyAcquired: true },
+    { id: 'quarantine', label: 'In quarantine', lifecycle: 'active', quarantine: 'current' },
+    { id: 'pest-quarantine', label: 'Pest quarantine', lifecycle: 'active', quarantine: 'pest' },
+    { id: 'attention', label: 'Needs attention', lifecycle: 'active', filter: ['attention', 'High'] },
+    { id: 'watch-list', label: 'Watch list', lifecycle: 'active', filter: ['attention', 'Watch list'] },
+    { id: 'rehab', label: 'Rehab plants', lifecycle: 'active', filter: ['careDifficulty', 'Rehab / watch closely'] },
+    { id: 'fussy', label: 'Fussy plants', lifecycle: 'active', filter: ['careDifficulty', 'Fussy'] },
+    { id: 'keep-moist', label: 'Keep moist plants', lifecycle: 'active', filter: ['wateringRhythm', 'Keep moist'] },
+    { id: 'recently-checked', label: 'Recently checked', lifecycle: 'active', recentlyChecked: true },
+    { id: 'archived', label: 'Archived plants', lifecycle: 'archived' },
+    { id: 'graveyard', label: 'Graveyard plants', lifecycle: 'graveyard' },
+  ];
+
+  function applyQuickView(quickView) {
+    const nextFilters = { ...emptyPlantFilters };
+    if (quickView.filter) nextFilters[quickView.filter[0]] = quickView.filter[1];
+
+    setSearchText('');
+    setPlantFilters(nextFilters);
+    setLifecycleView(quickView.lifecycle);
+    setQuarantineFilter(quickView.quarantine || '');
+    setRecentlyCheckedFilter(Boolean(quickView.recentlyChecked));
+    setRecentlyAcquiredFilter(Boolean(quickView.recentlyAcquired));
+    setAreMoreFiltersVisible(Boolean(
+      quickView.filter
+      && advancedFilterFields.some(([fieldName]) => fieldName === quickView.filter[0])
+    ));
+    setActiveQuickView(quickView.id);
   }
 
   function exportData() {
@@ -1721,6 +1775,19 @@ function App() {
             +
           </button>
         </div>
+        <section className="quick-views" aria-labelledby="quick-views-heading">
+          <h3 id="quick-views-heading">Quick Views</h3>
+          <div className="quick-view-list">
+            {quickViews.map((quickView) => (
+              <button key={quickView.id} type="button"
+                className={activeQuickView === quickView.id ? 'quick-view-active' : ''}
+                aria-pressed={activeQuickView === quickView.id}
+                onClick={() => applyQuickView(quickView)}>
+                {quickView.label}
+              </button>
+            ))}
+          </div>
+        </section>
         <div className="plant-search-tools">
           {quarantineFilter && (
             <div className="applied-dashboard-filter" role="status">
@@ -1730,13 +1797,19 @@ function App() {
                 new: 'New plants',
                 pest: 'Pest quarantine',
               })[quarantineFilter]}</span>
-              <button type="button" onClick={() => setQuarantineFilter('')}>Clear</button>
+              <button type="button" onClick={() => {
+                setQuarantineFilter('');
+                setActiveQuickView('');
+              }}>Clear</button>
             </div>
           )}
           {recentlyCheckedFilter && (
             <div className="applied-dashboard-filter" role="status">
               <span>Recently checked</span>
-              <button type="button" onClick={() => setRecentlyCheckedFilter(false)}>Clear</button>
+              <button type="button" onClick={() => {
+                setRecentlyCheckedFilter(false);
+                setActiveQuickView('');
+              }}>Clear</button>
             </div>
           )}
           <div className="plant-search">
@@ -1746,7 +1819,10 @@ function App() {
               type="search"
               placeholder="Search plants..."
               value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
+              onChange={(event) => {
+                setSearchText(event.target.value);
+                setActiveQuickView('');
+              }}
             />
           </div>
         </div>
@@ -1768,7 +1844,10 @@ function App() {
             <div className="plant-filter">
               <label htmlFor="lifecycle-filter">Plant view</label>
               <select id="lifecycle-filter" value={lifecycleView}
-                onChange={(event) => setLifecycleView(event.target.value)}>
+                onChange={(event) => {
+                  setLifecycleView(event.target.value);
+                  setActiveQuickView('');
+                }}>
                 <option value="all">All Plants</option>
                 <option value="active">Active Plants</option>
                 <option value="archived">Archived Plants</option>
@@ -1778,9 +1857,12 @@ function App() {
             {primaryFilterFields.map(([fieldName, label]) => (
               <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
                 value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
-                onChange={(value) => setPlantFilters((currentFilters) => ({
-                  ...currentFilters, [fieldName]: value,
-                }))} />
+                onChange={(value) => {
+                  setPlantFilters((currentFilters) => ({
+                    ...currentFilters, [fieldName]: value,
+                  }));
+                  setActiveQuickView('');
+                }} />
             ))}
           </div>
           {areMoreFiltersVisible && (
@@ -1788,9 +1870,12 @@ function App() {
               {advancedFilterFields.map(([fieldName, label]) => (
                 <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
                   value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
-                  onChange={(value) => setPlantFilters((currentFilters) => ({
-                    ...currentFilters, [fieldName]: value,
-                  }))} />
+                  onChange={(value) => {
+                    setPlantFilters((currentFilters) => ({
+                      ...currentFilters, [fieldName]: value,
+                    }));
+                    setActiveQuickView('');
+                  }} />
               ))}
             </div>
           )}

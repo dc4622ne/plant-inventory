@@ -642,6 +642,54 @@
   margin-bottom: 20px;
 }
 
+.quick-views {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  text-align: left;
+  background: color-mix(in srgb, var(--brand-cream) 34%, #fff);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.quick-views h3 {
+  margin: 0 0 10px;
+  color: var(--brand-green);
+  font-size: 0.9rem;
+}
+
+.quick-view-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-view-list button {
+  padding: 7px 11px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid var(--brand-leaf);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.quick-view-list button:hover {
+  background: var(--accent-bg);
+}
+
+.quick-view-list button.quick-view-active {
+  color: #fff;
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+}
+
+.quick-view-list button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
 .plant-search {
   text-align: left;
 }
