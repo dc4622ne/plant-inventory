@@ -104,6 +104,7 @@ const emptyPlant = {
   lifecycleStatus: 'active',
   name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
+  wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   potSize: '', thirstLevel: '', soilMix: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
   propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
   pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
@@ -127,6 +128,13 @@ const soilMixOptions = [
   'TC /Propagation mix', 'Carnivorous mix', 'Semi-hydro / LECA', 'Garden soil',
   'Water propagation', 'Custom',
 ];
+const wateringRhythmOptions = [
+  'Dry out fully', 'Mostly dry', 'Slightly moist', 'Keep moist',
+  'Reservoir / semi-hydro', 'Propagation water', 'Outdoor seasonal',
+];
+const moisturePreferenceOptions = ['Dry', 'Moderate', 'Moist', 'Wet / boggy'];
+const careDifficultyOptions = ['Easy', 'Moderate', 'Fussy', 'Rehab / watch closely'];
+const careRhythmFields = ['wateringRhythm', 'moisturePreference', 'careDifficulty'];
 
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
@@ -174,6 +182,9 @@ const initialDropdownOptions = {
   location: ['Plant Wall', 'South Window', 'Kitchen', 'Basement Grow Light', 'TC / Acclimation Area', 'Propagation Area'],
   lightNeeds: ['Bright indirect light', 'Direct light', 'Grow light', 'Low light', 'Outdoor sun'],
   soilMix: soilMixOptions,
+  wateringRhythm: wateringRhythmOptions,
+  moisturePreference: moisturePreferenceOptions,
+  careDifficulty: careDifficultyOptions,
 };
 
 const plantsStorageKey = 'plant-inventory-plants';
@@ -284,6 +295,7 @@ const missingFilterValue = '__missing__';
 const emptyPlantFilters = {
   genus: '', type: '', status: '', location: '',
   medium: '', potSize: '', attention: '', thirstLevel: '', soilMix: '',
+  wateringRhythm: '', moisturePreference: '', careDifficulty: '',
 };
 
 function normalizedFilterValue(value) {
@@ -363,6 +375,15 @@ function getPlantBadges(plant) {
   if (attention === 'watch' || attention === 'watch list') {
     badges.push({ label: 'Watch', kind: 'watch' });
   }
+  if (normalizedFilterValue(plant.wateringRhythm).toLowerCase() === 'keep moist') {
+    badges.push({ label: 'Keep moist', kind: 'keep-moist' });
+  }
+  if (normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'rehab / watch closely') {
+    badges.push({ label: 'Rehab', kind: 'rehab' });
+  }
+  if (normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'fussy') {
+    badges.push({ label: 'Fussy', kind: 'fussy' });
+  }
 
   return badges;
 }
@@ -392,6 +413,8 @@ const detailSections = [
     title: 'Care details',
     fields: [
       ['lightNeeds', 'Lighting'], ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+      ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
+      ['careDifficulty', 'Care difficulty'],
       ['thirstLevel', 'Thirst level'], ['soilMix', 'Soil mix / substrate mix'],
       ['watering', 'Watering notes'], ['lastWatered', 'Last watered'],
     ],
@@ -432,6 +455,7 @@ function App() {
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
   const [newOptionText, setNewOptionText] = useState({
     genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '',
+    wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   });
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
@@ -452,6 +476,7 @@ function App() {
   const searchableFields = [
     'name', 'genus', 'type', 'status', 'location', 'lightNeeds',
     'careNote', 'watering', 'pestNotes', 'growthNotes',
+    'wateringRhythm', 'moisturePreference', 'careDifficulty',
   ];
   const filterFields = [
     ['genus', 'Genus'], ['type', 'Type / category'],
@@ -459,6 +484,8 @@ function App() {
     ['medium', 'Growing medium'], ['potSize', 'Pot size'],
     ['attention', 'Attention'], ['thirstLevel', 'Thirst level'],
     ['soilMix', 'Soil mix / substrate mix'],
+    ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
+    ['careDifficulty', 'Care difficulty'],
   ];
   const getFilterOptions = (fieldName) => [
     ...new Set([
@@ -510,6 +537,9 @@ function App() {
     { label: 'Plants in quarantine', count: activePlants.filter(isPlantInQuarantine).length, lifecycle: 'active', quarantine: 'current' },
     { label: 'Coming out of quarantine soon', count: activePlants.filter(isPlantLeavingQuarantineSoon).length, lifecycle: 'active', quarantine: 'soon' },
     { label: 'Plants needing attention', count: activePlants.filter((plant) => normalizedFilterValue(plant.attention).toLowerCase() === 'high').length, lifecycle: 'active', filter: ['attention', 'High'] },
+    { label: 'Keep moist plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.wateringRhythm).toLowerCase() === 'keep moist').length, lifecycle: 'active', filter: ['wateringRhythm', 'Keep moist'] },
+    { label: 'Rehab / watch closely plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'rehab / watch closely').length, lifecycle: 'active', filter: ['careDifficulty', 'Rehab / watch closely'] },
+    { label: 'Fussy plants', count: activePlants.filter((plant) => normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'fussy').length, lifecycle: 'active', filter: ['careDifficulty', 'Fussy'] },
     { label: 'Archived plants', count: lifecycleCounts.archived, lifecycle: 'archived' },
     { label: 'Graveyard plants', count: lifecycleCounts.graveyard, lifecycle: 'graveyard' },
   ];
@@ -568,7 +598,7 @@ function App() {
 
     if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '' });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
     setShowForm(shouldAddAnother);
     setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
     setIsEditing(false);
@@ -600,7 +630,7 @@ function App() {
 
   function cancelForm() {
     setNewPlant(emptyPlant);
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '' });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
     setAddPlantMessage('');
     setShowForm(false);
     setIsEditing(false);
@@ -619,7 +649,7 @@ function App() {
       pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
       pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
     });
-    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '' });
+    setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '' });
     setAddPlantMessage('');
     setIsEditing(true);
   }
@@ -1148,13 +1178,16 @@ function App() {
             {[
               ['genus', 'Genus'], ['type', 'Type / category'], ['status', 'Status'],
               ['location', 'Location'], ['lightNeeds', 'Light level'],
-              ['soilMix', 'Soil mix / substrate mix'],
+              ['soilMix', 'Soil mix / substrate mix'], ['wateringRhythm', 'Watering rhythm'],
+              ['moisturePreference', 'Moisture preference'], ['careDifficulty', 'Care difficulty'],
             ].map(([fieldName, label]) => (
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
                   onChange={handleInputChange}>
-                  <option value="">Select {label.toLowerCase()}</option>
+                  <option value="">
+                    {careRhythmFields.includes(fieldName) ? 'Not set' : `Select ${label.toLowerCase()}`}
+                  </option>
                   {dropdownOptions[fieldName].map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
