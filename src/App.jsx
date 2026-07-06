@@ -105,7 +105,8 @@ const emptyPlant = {
   name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
-  propagationStatus: '', pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
+  propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
+  pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
 };
 
 const activityTypes = [
@@ -288,6 +289,45 @@ function dateInputValue(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : '';
 }
 
+function addDaysToDate(dateValue, numberOfDays) {
+  if (!dateInputValue(dateValue)) return '';
+
+  const date = new Date(`${dateValue}T12:00:00`);
+  date.setDate(date.getDate() + numberOfDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function getQuarantineStatus(plant, today = todayDate()) {
+  const acquiredDate = dateInputValue(plant.acquiredDate);
+  const newPlantQuarantineEnd = addDaysToDate(acquiredDate, 14);
+  const pestQuarantineStart = dateInputValue(plant.pestQuarantineStartDate);
+  const pestQuarantineEnd = dateInputValue(plant.pestQuarantineEndDate);
+  const sevenDaysFromToday = addDaysToDate(today, 7);
+
+  const isInNewPlantQuarantine = Boolean(acquiredDate)
+    && acquiredDate <= today
+    && newPlantQuarantineEnd >= today;
+  const isInPestQuarantine = Boolean(pestQuarantineStart)
+    && pestQuarantineStart <= today
+    && (!pestQuarantineEnd || pestQuarantineEnd >= today);
+  const isNewPlantQuarantineEndingSoon = Boolean(newPlantQuarantineEnd)
+    && newPlantQuarantineEnd >= today
+    && newPlantQuarantineEnd <= sevenDaysFromToday;
+  const isPestQuarantineEndingSoon = Boolean(pestQuarantineStart)
+    && pestQuarantineStart <= today
+    && pestQuarantineEnd >= today
+    && pestQuarantineEnd <= sevenDaysFromToday;
+
+  return {
+    isInNewPlantQuarantine,
+    isInPestQuarantine,
+    isInAnyQuarantine: isInNewPlantQuarantine || isInPestQuarantine,
+    isAnyQuarantineEndingSoon: isNewPlantQuarantineEndingSoon || isPestQuarantineEndingSoon,
+    newPlantQuarantineEnd,
+    pestQuarantineEnd,
+  };
+}
+
 const detailSections = [
   {
     title: 'Plant information',
@@ -308,6 +348,8 @@ const detailSections = [
     fields: [
       ['acquiredDate', 'Acquired'], ['purchasePrice', 'Purchase price'],
       ['wishlistStatus', 'Collection'], ['propagationStatus', 'Propagation'],
+      ['pestQuarantineStartDate', 'Pest quarantine start'],
+      ['pestQuarantineEndDate', 'Pest quarantine end'],
     ],
   },
   {
@@ -332,6 +374,7 @@ function getDetailSections(plant) {
 
 function App() {
   const [plants, setPlants] = useState(loadPlants);
+  const [appView, setAppView] = useState('dashboard');
   const [showForm, setShowForm] = useState(false);
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
   const [newOptionText, setNewOptionText] = useState({
@@ -343,6 +386,7 @@ function App() {
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [lifecycleView, setLifecycleView] = useState('active');
+  const [quarantineFilter, setQuarantineFilter] = useState('');
   const [addPlantMessage, setAddPlantMessage] = useState('');
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
@@ -383,14 +427,63 @@ function App() {
       const matchesSearch = !normalizedSearch || searchableFields.some((fieldName) => (
         String(plant[fieldName] || '').toLowerCase().includes(normalizedSearch)
       ));
+      const quarantineStatus = getQuarantineStatus(plant);
+      const matchesQuarantine = !quarantineFilter
+        || (quarantineFilter === 'current'
+          ? quarantineStatus.isInAnyQuarantine
+          : quarantineStatus.isAnyQuarantineEndingSoon);
 
-      return matchesLifecycle && matchesFilters && matchesSearch;
+      return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine;
     })
     .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
+
+  const countPlants = (matchesPlant) => plants.filter(matchesPlant).length;
+  const lifecycleCounts = {
+    active: countPlants((plant) => (plant.lifecycleStatus || 'active') === 'active'),
+    archived: countPlants((plant) => plant.lifecycleStatus === 'archived'),
+    graveyard: countPlants((plant) => plant.lifecycleStatus === 'graveyard'),
+  };
+  const activePlants = plants.filter((plant) => (plant.lifecycleStatus || 'active') === 'active');
+  const isPlantInQuarantine = (plant) => getQuarantineStatus(plant).isInAnyQuarantine;
+  const isPlantLeavingQuarantineSoon = (plant) => (
+    getQuarantineStatus(plant).isAnyQuarantineEndingSoon
+  );
+  const selectedPlantQuarantine = selectedPlant ? getQuarantineStatus(selectedPlant) : null;
+  const dashboardMetrics = [
+    { label: 'Total active plants', count: activePlants.length, lifecycle: 'active' },
+    { label: 'Plants in LECA', count: activePlants.filter((plant) => normalizedFilterValue(plant.medium).toLowerCase() === 'leca').length, lifecycle: 'active', filter: ['medium', 'LECA'] },
+    { label: 'Tissue cultures', count: activePlants.filter((plant) => normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture').length, lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
+    { label: 'Plants in quarantine', count: activePlants.filter(isPlantInQuarantine).length, lifecycle: 'active', quarantine: 'current' },
+    { label: 'Coming out of quarantine soon', count: activePlants.filter(isPlantLeavingQuarantineSoon).length, lifecycle: 'active', quarantine: 'soon' },
+    { label: 'Plants needing attention', count: activePlants.filter((plant) => normalizedFilterValue(plant.attention).toLowerCase() === 'high').length, lifecycle: 'active', filter: ['attention', 'High'] },
+    { label: 'Archived plants', count: lifecycleCounts.archived, lifecycle: 'archived' },
+    { label: 'Graveyard plants', count: lifecycleCounts.graveyard, lifecycle: 'graveyard' },
+  ];
+
+  function openPlantList(metric = {}) {
+    const nextFilters = { ...emptyPlantFilters };
+    if (metric.filter) nextFilters[metric.filter[0]] = metric.filter[1];
+
+    setPlantFilters(nextFilters);
+    setSearchText('');
+    setQuarantineFilter(metric.quarantine || '');
+    setLifecycleView(metric.lifecycle || 'active');
+    setSelectedPlant(null);
+    setAppView('plants');
+  }
+
+  function openDashboard() {
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setAddPlantMessage('');
+    setAppView('dashboard');
+  }
 
   function clearAllFilters() {
     setSearchText('');
     setPlantFilters({ ...emptyPlantFilters });
+    setQuarantineFilter('');
   }
 
   function handleSubmit(event) {
@@ -405,7 +498,7 @@ function App() {
 
     // Keep older text values unless the user chooses a replacement date.
     if (isEditing) {
-      ['lastWatered', 'repotDate', 'plantedDate', 'acquiredDate'].forEach((fieldName) => {
+      ['lastWatered', 'repotDate', 'plantedDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate'].forEach((fieldName) => {
         const previousValue = selectedPlant[fieldName];
         const isLegacyText = previousValue && !dateInputValue(previousValue);
 
@@ -469,6 +562,8 @@ function App() {
       repotDate: dateInputValue(selectedPlant.repotDate),
       plantedDate: dateInputValue(selectedPlant.plantedDate),
       acquiredDate: dateInputValue(selectedPlant.acquiredDate),
+      pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
+      pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
     });
     setNewOptionText({ genus: '', type: '', status: '', location: '', lightNeeds: '' });
     setAddPlantMessage('');
@@ -658,6 +753,17 @@ function App() {
         <p className="brand-tagline">From the city to the soil</p>
       </header>
 
+      <nav className="app-navigation" aria-label="Main navigation">
+        <button type="button" className={appView === 'dashboard' ? 'active' : ''}
+          aria-current={appView === 'dashboard' ? 'page' : undefined} onClick={openDashboard}>
+          Dashboard
+        </button>
+        <button type="button" className={appView === 'plants' ? 'active' : ''}
+          aria-current={appView === 'plants' ? 'page' : undefined} onClick={() => openPlantList()}>
+          Plant List
+        </button>
+      </nav>
+
       <section className="plant-section">
         {selectedPlant && !isEditing ? (
         <article className="plant-detail" aria-labelledby="plant-detail-heading">
@@ -713,6 +819,24 @@ function App() {
               </p>
             </div>
           </div>
+          {selectedPlantQuarantine?.isInAnyQuarantine && (
+            <aside className="quarantine-status" aria-label="Current quarantine status">
+              <strong>Currently in quarantine</strong>
+              <div>
+                {selectedPlantQuarantine.isInNewPlantQuarantine && (
+                  <span>New plant quarantine through {selectedPlantQuarantine.newPlantQuarantineEnd}</span>
+                )}
+                {selectedPlantQuarantine.isInPestQuarantine && (
+                  <span>
+                    Pest quarantine
+                    {selectedPlantQuarantine.pestQuarantineEnd
+                      ? ` through ${selectedPlantQuarantine.pestQuarantineEnd}`
+                      : ' — no end date set'}
+                  </span>
+                )}
+              </div>
+            </aside>
+          )}
           <div className="detail-sections">
             {getDetailSections(selectedPlant).map((section) => (
               <section className="detail-section" key={section.title}>
@@ -1012,6 +1136,8 @@ function App() {
                 ? ['plantedDate', 'Planted date']
                 : ['repotDate', 'Repotted date'],
               ['acquiredDate', 'Acquired date'],
+              ['pestQuarantineStartDate', 'Pest quarantine start date'],
+              ['pestQuarantineEndDate', 'Pest quarantine end date'],
             ].map(([fieldName, label]) => (
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
@@ -1040,9 +1166,36 @@ function App() {
           </div>
         </form>
         ) : (
+        appView === 'dashboard' ? (
+        <section className="dashboard-home" aria-labelledby="dashboard-heading">
+          <div className="dashboard-heading">
+            <div>
+              <p className="detail-eyebrow">Collection overview</p>
+              <h2 id="dashboard-heading">Dashboard</h2>
+              <p>Choose a metric to open the matching plants.</p>
+            </div>
+            <button className="dashboard-add-button" type="button" onClick={() => {
+              setAddPlantMessage('');
+              setShowForm(true);
+            }}>
+              + Add New Plant
+            </button>
+          </div>
+          <div className="dashboard-metrics">
+            {dashboardMetrics.map((metric) => (
+              <button className="dashboard-metric-card" type="button" key={metric.label}
+                onClick={() => openPlantList(metric)}>
+                <strong>{metric.count}</strong>
+                <span>{metric.label}</span>
+                <small>View plants →</small>
+              </button>
+            ))}
+          </div>
+        </section>
+        ) : (
         <>
         <div className="section-heading">
-          <h2 className="section-title" id="plant-list-heading">My Plants</h2>
+          <h2 className="section-title" id="plant-list-heading">Plant List</h2>
           <button className="add-plant-button" type="button" onClick={() => {
             setAddPlantMessage('');
             setShowForm(true);
@@ -1064,6 +1217,12 @@ function App() {
           ))}
         </div>
         <div className="plant-search-tools">
+          {quarantineFilter && (
+            <div className="applied-dashboard-filter" role="status">
+              <span>{quarantineFilter === 'current' ? 'Plants in quarantine' : 'Coming out of quarantine soon'}</span>
+              <button type="button" onClick={() => setQuarantineFilter('')}>Clear</button>
+            </div>
+          )}
           <div className="plant-search">
             <label htmlFor="plant-search">Search plants</label>
             <input
@@ -1126,6 +1285,7 @@ function App() {
           )) : <p className="empty-message">No plants found.</p>}
         </div>
         </>
+        )
         )}
       </section>
     </main>
