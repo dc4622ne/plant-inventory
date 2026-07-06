@@ -40,16 +40,29 @@
 }
 
 .plant-form {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
-  gap: 10px 12px;
-  align-items: end;
   margin-bottom: 40px;
   padding: 20px;
   text-align: left;
   background: var(--social-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
+}
+
+.plant-form h3 {
+  margin: 0 0 18px;
+  color: var(--brand-green);
+  font-size: 1rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.form-field-wide {
+  grid-column: span 3;
 }
 
 .form-field {
@@ -64,7 +77,10 @@
 }
 
 .form-field input,
-.form-field select {
+.form-field select,
+.form-field textarea {
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   padding: 10px 12px;
   color: var(--text-h);
@@ -77,8 +93,13 @@
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.form-field textarea {
+  resize: vertical;
+}
+
 .form-field input:focus,
-.form-field select:focus {
+.form-field select:focus,
+.form-field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
@@ -389,8 +410,12 @@
 }
 
 @media (max-width: 760px) {
-  .plant-form {
+  .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .form-field-wide {
+    grid-column: auto;
   }
 
   .plant-form button {

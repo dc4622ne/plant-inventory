@@ -96,7 +96,20 @@ const initialPlants = [
   },
 ];
 
-const filterOptions = ['All', ...new Set(initialPlants.map((plant) => plant.type))];
+const emptyPlant = {
+  name: '', genus: '', type: '', source: '', location: '', status: '', attention: 'Medium',
+  lastWatered: '', repotDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
+  potSize: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
+  propagationStatus: '', pestNotes: '', growthNotes: '',
+};
+
+const dropdownOptions = {
+  genus: ['Alocasia', 'Epipremnum', 'Monstera', 'Sweet Potato'],
+  type: ['Garden', 'Houseplant', 'Propagation', 'Tissue Culture'],
+  status: ['Acclimating', 'Growing outdoors', 'New', 'Rooting', 'Watching for new growth'],
+  location: ['Plant Wall', 'South Window', 'Kitchen', 'Basement Grow Light', 'TC / Acclimation Area', 'Propagation Area'],
+  lightNeeds: ['Bright indirect light', 'Direct light', 'Grow light', 'Low light', 'Outdoor sun'],
+};
 
 function getPlantImage(name, type) {
   const plantDetails = `${name} ${type}`.toLowerCase();
@@ -112,12 +125,10 @@ function App() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [activeGenus, setActiveGenus] = useState('All Genus');
   const [searchText, setSearchText] = useState('');
-  const [name, setName] = useState('');
-  const [type, setType] = useState('');
-  const [location, setLocation] = useState('Plant Wall');
-  const [note, setNote] = useState('');
+  const [newPlant, setNewPlant] = useState(emptyPlant);
 
   const normalizedSearch = searchText.trim().toLowerCase();
+  const filterOptions = ['All', ...new Set(plants.map((plant) => plant.type))];
   const genusOptions = ['All Genus', ...new Set(plants.map((plant) => plant.genus))];
   const visiblePlants = plants.filter((plant) => {
     const matchesType = activeFilter === 'All' || plant.type === activeFilter;
@@ -133,33 +144,16 @@ function App() {
     setPlants((currentPlants) => [
       ...currentPlants,
       {
-        name,
-        genus: 'Unknown',
-        image: getPlantImage(name, type),
-        type,
-        source: 'Personal collection',
-        location,
-        status: 'New',
-        attention: 'Medium',
-        lastWatered: new Date().toISOString().slice(0, 10),
-        repotDate: 'Not yet repotted',
-        watering: 'Check the growing medium and water when the plant needs it.',
-        careNote: note,
-        lightNeeds: 'Bright indirect light',
-        medium: 'Soil',
-        potSize: '4 inch',
-        acquiredDate: new Date().toISOString().slice(0, 10),
-        purchasePrice: 'Unknown',
-        wishlistStatus: 'Owned',
-        propagationStatus: 'Not propagating',
-        pestNotes: 'No pests observed.',
-        growthNotes: 'New addition; watch for signs of settling in.',
+        ...newPlant,
+        image: getPlantImage(newPlant.name, newPlant.type),
       },
     ]);
-    setName('');
-    setType('');
-    setLocation('Plant Wall');
-    setNote('');
+    setNewPlant(emptyPlant);
+  }
+
+  function handleInputChange(event) {
+    const { name, value } = event.target;
+    setNewPlant((currentPlant) => ({ ...currentPlant, [name]: value }));
   }
 
   return (
@@ -173,55 +167,67 @@ function App() {
       <section className="plant-section" aria-labelledby="plant-list-heading">
         <h2 className="section-title" id="plant-list-heading">My Plants</h2>
         <form className="plant-form" onSubmit={handleSubmit}>
-          <div className="form-field">
-            <label htmlFor="plant-name">Plant name</label>
-            <input
-              id="plant-name"
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </div>
+          <h3>Add New Plant</h3>
+          <div className="form-grid">
+            {[
+              ['name', 'Plant name'], ['source', 'Source'],
+              ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+              ['watering', 'Watering notes'], ['propagationStatus', 'Propagation'],
+              ['purchasePrice', 'Purchase price'],
+            ].map(([fieldName, label]) => (
+              <div className="form-field" key={fieldName}>
+                <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                <input id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                  onChange={handleInputChange} required />
+              </div>
+            ))}
 
-          <div className="form-field">
-            <label htmlFor="plant-type">Type</label>
-            <input
-              id="plant-type"
-              type="text"
-              value={type}
-              onChange={(event) => setType(event.target.value)}
-              required
-            />
-          </div>
+            {[
+              ['genus', 'Genus'], ['type', 'Type / category'], ['status', 'Status'],
+              ['location', 'Location'], ['lightNeeds', 'Light level'],
+            ].map(([fieldName, label]) => (
+              <div className="form-field" key={fieldName}>
+                <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                  onChange={handleInputChange} required>
+                  <option value="">Select {label.toLowerCase()}</option>
+                  {dropdownOptions[fieldName].map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
 
-          <div className="form-field">
-            <label htmlFor="plant-location">Location</label>
-            <select
-              id="plant-location"
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-            >
-              <option>Plant Wall</option>
-              <option>South Window</option>
-              <option>Kitchen</option>
-              <option>Basement Grow Light</option>
-              <option>TC / Acclimation Area</option>
-              <option>Propagation Area</option>
-            </select>
+            <div className="form-field">
+              <label htmlFor="plant-attention">Attention</label>
+              <select id="plant-attention" name="attention" value={newPlant.attention} onChange={handleInputChange}>
+                <option>Low</option><option>Medium</option><option>High</option>
+              </select>
+            </div>
+            <div className="form-field">
+              <label htmlFor="plant-wishlistStatus">Collection</label>
+              <input id="plant-wishlistStatus" name="wishlistStatus" value={newPlant.wishlistStatus}
+                onChange={handleInputChange} required />
+            </div>
+            {[
+              ['lastWatered', 'Last watered'], ['repotDate', 'Repotted'], ['acquiredDate', 'Acquired'],
+            ].map(([fieldName, label]) => (
+              <div className="form-field" key={fieldName}>
+                <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                <input id={`plant-${fieldName}`} name={fieldName} type="date" value={newPlant[fieldName]}
+                  onChange={handleInputChange} required />
+              </div>
+            ))}
+            {[
+              ['careNote', 'Care notes'], ['pestNotes', 'Pest notes'], ['growthNotes', 'Growth notes'],
+            ].map(([fieldName, label]) => (
+              <div className="form-field form-field-wide" key={fieldName}>
+                <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                <textarea id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                  onChange={handleInputChange} rows="3" required />
+              </div>
+            ))}
           </div>
-
-          <div className="form-field">
-            <label htmlFor="plant-note">Note</label>
-            <input
-              id="plant-note"
-              type="text"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              required
-            />
-          </div>
-
           <button type="submit">Add plant</button>
         </form>
         <div className="plant-filters" aria-label="Filter plants by type">
