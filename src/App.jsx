@@ -230,8 +230,14 @@ const initialDropdownOptions = {
 const plantsStorageKey = 'plant-inventory-plants';
 const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
 const wishlistStorageKey = 'plant-inventory-wishlist';
+const plantViewModeStorageKey = 'plant-inventory-view-mode';
 const appStoragePrefix = 'plant-inventory-';
 const backupFormatVersion = 1;
+
+function loadPlantViewMode() {
+  const savedViewMode = localStorage.getItem(plantViewModeStorageKey);
+  return ['cards', 'gallery', 'compact'].includes(savedViewMode) ? savedViewMode : 'cards';
+}
 
 function getAppStorageData() {
   return Object.fromEntries(
@@ -699,6 +705,7 @@ function App() {
   const [recentlyCheckedFilter, setRecentlyCheckedFilter] = useState(false);
   const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
   const [activeQuickView, setActiveQuickView] = useState('all-active');
+  const [plantViewMode, setPlantViewMode] = useState(loadPlantViewMode);
   const [addPlantMessage, setAddPlantMessage] = useState('');
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
@@ -722,6 +729,18 @@ function App() {
   const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft);
   const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft);
   const hasUnsavedFormChanges = plantFormDirty || wishlistFormDirty || gardenFormDirty;
+
+  function changePlantViewMode(nextViewMode) {
+    setPlantViewMode(nextViewMode);
+    localStorage.setItem(plantViewModeStorageKey, nextViewMode);
+  }
+
+  function openPlantDetails(plant) {
+    setSelectedPlant(plant);
+    setNewLogEntry(emptyLogEntry());
+    setQuickCheckMessage('');
+    cancelEditingLogEntry();
+  }
 
   useEffect(() => {
     if (!hasUnsavedFormChanges) return undefined;
@@ -2408,6 +2427,23 @@ function App() {
               }}
             />
           </div>
+          <div className="view-mode-control" role="group" aria-label="Plant display layout">
+            <span>View</span>
+            <div className="view-mode-buttons">
+              {[
+                ['cards', 'Cards'],
+                ['gallery', 'Gallery'],
+                ['compact', 'Compact List'],
+              ].map(([viewMode, label]) => (
+                <button key={viewMode} type="button"
+                  className={plantViewMode === viewMode ? 'view-mode-active' : ''}
+                  aria-pressed={plantViewMode === viewMode}
+                  onClick={() => changePlantViewMode(viewMode)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="plant-filter-panel" aria-label="Filter plants">
           <div className="filter-panel-heading">
@@ -2464,18 +2500,13 @@ function App() {
           )}
         </div>
         <hr className="plant-list-divider" />
-        <div className="plant-list">
-          {visiblePlants.length > 0 ? visiblePlants.map((plant, plantIndex) => (
+        <div className={`plant-list plant-list-${plantViewMode}`}>
+          {visiblePlants.length > 0 && plantViewMode === 'cards' && visiblePlants.map((plant, plantIndex) => (
             <button
               className="plant-card"
               type="button"
               key={`${plant.name}-${plantIndex}`}
-              onClick={() => {
-                setSelectedPlant(plant);
-                setNewLogEntry(emptyLogEntry());
-                setQuickCheckMessage('');
-                cancelEditingLogEntry();
-              }}
+              onClick={() => openPlantDetails(plant)}
               aria-label={`View details for ${plant.name}`}
             >
               <div className="plant-card-heading">
@@ -2493,7 +2524,35 @@ function App() {
               </section>
               <span className="view-details">View details →</span>
             </button>
-          )) : <p className="empty-message">No plants found.</p>}
+          ))}
+          {visiblePlants.length > 0 && plantViewMode === 'gallery' && visiblePlants.map((plant, plantIndex) => (
+            <button className="gallery-card" type="button" key={`${plant.name}-${plantIndex}`}
+              onClick={() => openPlantDetails(plant)} aria-label={`View details for ${plant.name}`}>
+              <div className="gallery-image"><PlantImage key={plant.imageUrl || 'placeholder'} plant={plant} /></div>
+              <div className="gallery-card-content">
+                <h2>{plant.name}</h2>
+                <p>{displayValue(plant.genus)} · {displayValue(plant.type)}</p>
+                <PlantBadges plant={plant} />
+              </div>
+            </button>
+          ))}
+          {visiblePlants.length > 0 && plantViewMode === 'compact' && visiblePlants.map((plant, plantIndex) => (
+            <button className="compact-plant-row" type="button" key={`${plant.name}-${plantIndex}`}
+              onClick={() => openPlantDetails(plant)} aria-label={`View details for ${plant.name}`}>
+              <PlantImage key={plant.imageUrl || 'placeholder'} plant={plant} />
+              <span className="compact-plant-identity">
+                <strong>{plant.name}</strong>
+                <small>{displayValue(plant.genus)}</small>
+              </span>
+              <span className="compact-field"><small>Type</small>{displayValue(plant.type)}</span>
+              <span className="compact-field"><small>Medium</small>{displayValue(plant.medium)}</span>
+              <span className="compact-field"><small>Location</small>{displayValue(plant.location)}</span>
+              <span className="compact-field"><small>Attention</small>{displayValue(plant.attention)}</span>
+              <PlantBadges plant={plant} />
+              <span className="compact-row-arrow" aria-hidden="true">→</span>
+            </button>
+          ))}
+          {visiblePlants.length === 0 && <p className="empty-message">No plants found.</p>}
         </div>
         </>
         )
