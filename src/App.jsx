@@ -2508,8 +2508,14 @@ function App() {
           <div className="settings-heading">
             <p className="detail-eyebrow">App tools</p>
             <h2 id="settings-heading">Settings</h2>
-            <p>Manage your backups and view app information.</p>
+            <p>Manage your backups, cloud sync setup, and app information.</p>
           </div>
+
+          <section className="settings-card" aria-labelledby="cloud-sync-heading">
+            <h3 id="cloud-sync-heading">Cloud Sync</h3>
+            <p>Cloud sync is not connected yet.</p>
+            <p>Local browser storage is still being used.</p>
+          </section>
 
           <section className="settings-card" aria-labelledby="data-tools-heading">
             <h3 id="data-tools-heading">Data Backup</h3>
