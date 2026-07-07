@@ -1,5 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
+import Garden from './Garden';
+import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 
 const initialPlants = [
   {
@@ -61,7 +63,6 @@ const initialPlants = [
     status: 'Growing outdoors',
     attention: 'Low',
     lastWatered: '2026-07-03',
-    plantedDate: '2026-04-26',
     watering: 'Water deeply whenever the top inch of soil begins to dry.',
     careNote: 'Keep evenly watered while vines establish.',
     lightNeeds: 'Outdoor sun',
@@ -103,7 +104,7 @@ const initialPlants = [
 const emptyPlant = {
   lifecycleStatus: 'active',
   name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
-  lastWatered: '', repotDate: '', plantedDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
+  lastWatered: '', repotDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   potSize: '', thirstLevel: '', soilMix: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
   propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
@@ -168,7 +169,6 @@ const lecaStressLevels = ['Leaf yellowing', 'Leaf drop', 'Severe stress'];
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
   Repotted: 'repotDate',
-  Planted: 'plantedDate',
 };
 
 function todayDate() {
@@ -260,12 +260,17 @@ function validateBackup(backup) {
     Array.isArray(backup.wishlistItems)
     && backup.wishlistItems.every((item) => item && typeof item === 'object' && !Array.isArray(item))
   );
+  const hasValidGarden = backup?.gardenBeds === undefined || (
+    Array.isArray(backup.gardenBeds)
+    && backup.gardenBeds.every((bed) => bed && typeof bed === 'object' && !Array.isArray(bed))
+  );
 
   return backup?.app === 'plant-inventory'
     && backup.version === backupFormatVersion
     && hasValidPlants
     && hasValidOptions
     && hasValidWishlist
+    && hasValidGarden
     && hasValidStorage;
 }
 
@@ -281,18 +286,12 @@ function loadPlants() {
     const parsedPlants = JSON.parse(savedPlants);
     if (!Array.isArray(parsedPlants)) return plantsWithLogs;
 
-    // Older garden plants used repotDate because plantedDate did not exist yet.
     return parsedPlants.map((plant) => {
-      const hasOldGardenDate = plant.type === 'Garden'
-        && !plant.plantedDate
-        && dateInputValue(plant.repotDate);
-
-      const migratedPlant = hasOldGardenDate ? { ...plant, plantedDate: plant.repotDate } : plant;
       return {
-        ...migratedPlant,
-        lifecycleStatus: migratedPlant.lifecycleStatus || 'active',
-        activityLog: Array.isArray(migratedPlant.activityLog) ? migratedPlant.activityLog : [],
-        photoLog: Array.isArray(migratedPlant.photoLog) ? migratedPlant.photoLog : [],
+        ...plant,
+        lifecycleStatus: plant.lifecycleStatus || 'active',
+        activityLog: Array.isArray(plant.activityLog) ? plant.activityLog : [],
+        photoLog: Array.isArray(plant.photoLog) ? plant.photoLog : [],
       };
     });
   } catch {
@@ -665,9 +664,7 @@ const detailSections = [
 ];
 
 function getDetailSections(plant) {
-  const dateField = plant.type === 'Garden'
-    ? ['plantedDate', 'Planted date']
-    : ['repotDate', 'Repotted date'];
+  const dateField = ['repotDate', 'Repotted date'];
 
   return detailSections.map((section) => {
     if (section.title !== 'Care details' || !plant[dateField[0]]) return section;
@@ -678,8 +675,11 @@ function getDetailSections(plant) {
 
 function App() {
   const [plants, setPlants] = useState(loadPlants);
+  const [gardenBeds, setGardenBeds] = useState(loadGardenBeds);
+  const [gardenFilter, setGardenFilter] = useState({});
   const [appView, setAppView] = useState('dashboard');
   const [showForm, setShowForm] = useState(false);
+  const [plantFormBaseline, setPlantFormBaseline] = useState(JSON.stringify(emptyPlant));
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
   const [newOptionText, setNewOptionText] = useState({
     genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
@@ -713,9 +713,44 @@ function App() {
   const [wishlistDraft, setWishlistDraft] = useState(emptyWishlistItem);
   const [editingWishlistId, setEditingWishlistId] = useState('');
   const [showWishlistForm, setShowWishlistForm] = useState(false);
+  const [wishlistFormBaseline, setWishlistFormBaseline] = useState(JSON.stringify(emptyWishlistItem));
+  const [gardenFormDirty, setGardenFormDirty] = useState(false);
   const [wishlistSearch, setWishlistSearch] = useState('');
   const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
   const importInputRef = useRef(null);
+  const hasNewOptionDraft = Object.values(newOptionText).some((value) => value.trim());
+  const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft);
+  const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft);
+  const hasUnsavedFormChanges = plantFormDirty || wishlistFormDirty || gardenFormDirty;
+
+  useEffect(() => {
+    if (!hasUnsavedFormChanges) return undefined;
+    const warnBeforeUnload = (event) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [hasUnsavedFormChanges]);
+
+  function confirmDiscardChanges(isDirty = hasUnsavedFormChanges) {
+    return !isDirty || window.confirm('You have unsaved changes. Discard them and continue?');
+  }
+
+  function resetMajorFormDrafts() {
+    setNewPlant(emptyPlant);
+    setPlantFormBaseline(JSON.stringify(emptyPlant));
+    setShowForm(false);
+    setIsEditing(false);
+    setWishlistDraft(emptyWishlistItem);
+    setWishlistFormBaseline(JSON.stringify(emptyWishlistItem));
+    setEditingWishlistId('');
+    setShowWishlistForm(false);
+    setNewOptionText({
+      genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
+      wateringRhythm: '', moisturePreference: '', careDifficulty: '',
+      tcStage: '', tcSetup: '', tcHumidityLevel: '',
+      lecaStatus: '', lecaRootStatus: '', lecaReservoirSetup: '', lecaNutrientStatus: '',
+      lecaFlushRhythm: '', lecaStressLevel: '',
+    });
+  }
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const searchableFields = [
@@ -844,6 +879,7 @@ function App() {
       return !item.converted && Boolean(date) && date >= today && date <= sevenDaysFromToday;
     }).length, arrivingSoon: true },
   ];
+  const gardenMetrics = getGardenMetrics(gardenBeds);
   const wishlistFilterOptions = (field) => [...new Set(wishlistItems.map((item) => item[field]).filter(Boolean))].sort();
   const visibleWishlistItems = wishlistItems.filter((item) => {
     const matchesSearch = !wishlistSearch.trim() || item.name.toLowerCase().includes(wishlistSearch.trim().toLowerCase());
@@ -883,6 +919,8 @@ function App() {
   ];
 
   function openPlantList(metric = {}) {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
     const nextFilters = { ...emptyPlantFilters };
     if (metric.filter) nextFilters[metric.filter[0]] = metric.filter[1];
     const nextLifecycle = metric.lifecycle === 'all' ? 'all' : (metric.lifecycle || 'active');
@@ -909,6 +947,8 @@ function App() {
   }
 
   function openDashboard() {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
     setSelectedPlant(null);
     setShowForm(false);
     setIsEditing(false);
@@ -918,6 +958,8 @@ function App() {
   }
 
   function openSettings() {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
     setSelectedPlant(null);
     setShowForm(false);
     setIsEditing(false);
@@ -927,6 +969,8 @@ function App() {
   }
 
   function openWishlist(metric = {}) {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
     setSelectedPlant(null);
     setShowForm(false);
     setIsEditing(false);
@@ -935,6 +979,16 @@ function App() {
       ? { ...emptyWishlistFilters, arrivingSoon: true }
       : { ...emptyWishlistFilters, desiredStatus: metric.filter || '' });
     setAppView('wishlist');
+  }
+
+  function openGarden(filter = {}) {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setGardenFilter(filter);
+    setAppView('garden');
   }
 
   function saveWishlist(nextItems) {
@@ -953,12 +1007,14 @@ function App() {
       ? wishlistItems.map((current) => current.id === editingWishlistId ? item : current)
       : [...wishlistItems, item]);
     setWishlistDraft(emptyWishlistItem);
+    setWishlistFormBaseline(JSON.stringify(emptyWishlistItem));
     setEditingWishlistId('');
     setShowWishlistForm(false);
   }
 
   function editWishlistItem(item) {
     setWishlistDraft({ ...emptyWishlistItem, ...item });
+    setWishlistFormBaseline(JSON.stringify({ ...emptyWishlistItem, ...item }));
     setEditingWishlistId(item.id);
     setShowWishlistForm(true);
   }
@@ -1057,6 +1113,7 @@ function App() {
       plants,
       dropdownOptions,
       wishlistItems,
+      gardenBeds,
       storage: getAppStorageData(),
     };
     const date = new Date().toISOString().slice(0, 10);
@@ -1109,10 +1166,14 @@ function App() {
       if (Array.isArray(backup.wishlistItems)) {
         localStorage.setItem(wishlistStorageKey, JSON.stringify(backup.wishlistItems));
       }
+      if (Array.isArray(backup.gardenBeds)) {
+        localStorage.setItem(gardenStorageKey, JSON.stringify(backup.gardenBeds));
+      }
 
       setPlants(loadPlants());
       setDropdownOptions(loadDropdownOptions());
       setWishlistItems(loadWishlistItems());
+      setGardenBeds(loadGardenBeds());
       setSelectedPlant(null);
       setShowForm(false);
       setIsEditing(false);
@@ -1127,6 +1188,7 @@ function App() {
       setPlants(loadPlants());
       setDropdownOptions(loadDropdownOptions());
       setWishlistItems(loadWishlistItems());
+      setGardenBeds(loadGardenBeds());
       setBackupMessageType('error');
       setBackupMessage('The backup could not be imported. Your previous data has been restored.');
     }
@@ -1144,7 +1206,7 @@ function App() {
 
     // Keep older text values unless the user chooses a replacement date.
     if (isEditing) {
-      ['lastWatered', 'repotDate', 'plantedDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate'].forEach((fieldName) => {
+      ['lastWatered', 'repotDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate'].forEach((fieldName) => {
         const previousValue = selectedPlant[fieldName];
         const isLegacyText = previousValue && !dateInputValue(previousValue);
 
@@ -1160,6 +1222,7 @@ function App() {
 
     if (isEditing) setSelectedPlant(savedPlant);
     setNewPlant(emptyPlant);
+    setPlantFormBaseline(JSON.stringify(emptyPlant));
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setShowForm(shouldAddAnother);
     setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
@@ -1195,7 +1258,9 @@ function App() {
   }
 
   function cancelForm() {
+    if (!confirmDiscardChanges(plantFormDirty)) return;
     setNewPlant(emptyPlant);
+    setPlantFormBaseline(JSON.stringify(emptyPlant));
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setShowForm(false);
@@ -1205,12 +1270,11 @@ function App() {
   function startEditing() {
     cancelEditingLogEntry();
     cancelEditingPhotoEntry();
-    setNewPlant({
+    const editablePlant = {
       ...emptyPlant,
       ...selectedPlant,
       lastWatered: dateInputValue(selectedPlant.lastWatered),
       repotDate: dateInputValue(selectedPlant.repotDate),
-      plantedDate: dateInputValue(selectedPlant.plantedDate),
       acquiredDate: dateInputValue(selectedPlant.acquiredDate),
       pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
       pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
@@ -1218,7 +1282,9 @@ function App() {
       tcAcclimationStartDate: dateInputValue(selectedPlant.tcAcclimationStartDate),
       tcAcclimationEndDate: dateInputValue(selectedPlant.tcAcclimationEndDate),
       lecaConversionStartDate: dateInputValue(selectedPlant.lecaConversionStartDate),
-    });
+    };
+    setNewPlant(editablePlant);
+    setPlantFormBaseline(JSON.stringify(editablePlant));
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setIsEditing(true);
@@ -1440,6 +1506,10 @@ function App() {
         <button type="button" className={appView === 'wishlist' ? 'active' : ''}
           aria-current={appView === 'wishlist' ? 'page' : undefined} onClick={() => openWishlist()}>
           Wishlist
+        </button>
+        <button type="button" className={appView === 'garden' ? 'active' : ''}
+          aria-current={appView === 'garden' ? 'page' : undefined} onClick={() => openGarden()}>
+          Garden Beds
         </button>
         <button type="button" className={appView === 'settings' ? 'active' : ''}
           aria-current={appView === 'settings' ? 'page' : undefined} onClick={openSettings}>
@@ -1871,9 +1941,7 @@ function App() {
             </div>
             {[
               ['lastWatered', 'Last watered date'],
-              newPlant.type === 'Garden'
-                ? ['plantedDate', 'Planted date']
-                : ['repotDate', 'Repotted date'],
+              ['repotDate', 'Repotted date'],
               ['acquiredDate', 'Acquired date'],
               ['pestQuarantineStartDate', 'Pest quarantine start date'],
               ['pestQuarantineEndDate', 'Pest quarantine end date'],
@@ -2012,6 +2080,8 @@ function App() {
             <div className="dashboard-action-buttons">
               <button className="dashboard-add-button" type="button" onClick={() => {
                 setAddPlantMessage('');
+                setNewPlant(emptyPlant);
+                setPlantFormBaseline(JSON.stringify(emptyPlant));
                 setShowForm(true);
               }}>+ Add New Plant</button>
               <button className="secondary-button" type="button" onClick={() => openPlantList()}>
@@ -2056,6 +2126,20 @@ function App() {
                 <button className="dashboard-metric-card" type="button" key={metric.label}
                   onClick={() => openWishlist(metric)}>
                   <strong>{metric.count}</strong><span>{metric.label}</span><small>View purchases →</small>
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="dashboard-section" aria-labelledby="garden-metrics-heading">
+            <div className="dashboard-section-heading">
+              <h3 id="garden-metrics-heading">Garden Beds</h3>
+              <p>Outdoor crops, harvest readiness, and pest notes.</p>
+            </div>
+            <div className="dashboard-metrics">
+              {gardenMetrics.map((metric) => (
+                <button className="dashboard-metric-card" type="button" key={metric.label}
+                  onClick={() => openGarden(metric.filter)}>
+                  <strong>{metric.count}</strong><span>{metric.label}</span><small>View garden →</small>
                 </button>
               ))}
             </div>
@@ -2126,6 +2210,9 @@ function App() {
             </div>
           </section>
         </section>
+        ) : appView === 'garden' ? (
+          <Garden key={JSON.stringify(gardenFilter)} beds={gardenBeds} onChange={setGardenBeds}
+            initialFilter={gardenFilter} onDirtyChange={setGardenFormDirty} />
         ) : appView === 'wishlist' ? (
         <section className="wishlist-view" aria-labelledby="wishlist-heading">
           <div className="section-heading">
@@ -2134,7 +2221,7 @@ function App() {
               <h2 className="section-title" id="wishlist-heading">Wishlist / Purchases</h2>
             </div>
             <button className="add-plant-button" type="button" onClick={() => {
-              setWishlistDraft(emptyWishlistItem); setEditingWishlistId(''); setShowWishlistForm(true);
+              setWishlistDraft(emptyWishlistItem); setWishlistFormBaseline(JSON.stringify(emptyWishlistItem)); setEditingWishlistId(''); setShowWishlistForm(true);
             }} aria-label="Add wishlist or purchase item" title="Add item">+</button>
           </div>
           {showWishlistForm ? (
@@ -2175,7 +2262,7 @@ function App() {
                   <textarea id="wish-notes" rows="3" value={wishlistDraft.notes} onChange={(e) => setWishlistDraft({ ...wishlistDraft, notes: e.target.value })} /></div>
               </div>
               <div className="form-actions"><button type="submit">{editingWishlistId ? 'Save changes' : 'Add item'}</button>
-                <button className="secondary-button" type="button" onClick={() => { setShowWishlistForm(false); setEditingWishlistId(''); setWishlistDraft(emptyWishlistItem); }}>Cancel</button></div>
+                <button className="secondary-button" type="button" onClick={() => { if (confirmDiscardChanges(wishlistFormDirty)) { setShowWishlistForm(false); setEditingWishlistId(''); setWishlistDraft(emptyWishlistItem); setWishlistFormBaseline(JSON.stringify(emptyWishlistItem)); } }}>Cancel</button></div>
             </form>
           ) : (
             <>
@@ -2263,6 +2350,8 @@ function App() {
           <h2 className="section-title" id="plant-list-heading">Plant List</h2>
           <button className="add-plant-button" type="button" onClick={() => {
             setAddPlantMessage('');
+            setNewPlant(emptyPlant);
+            setPlantFormBaseline(JSON.stringify(emptyPlant));
             setShowForm(true);
           }}
             aria-label="Add new plant" title="Add new plant">
