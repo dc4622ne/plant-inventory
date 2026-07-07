@@ -261,6 +261,32 @@ function getAppStorageData() {
   );
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function downloadCsv(filename, columns, rows) {
+  const header = columns.map(([label]) => csvCell(label)).join(',');
+  const body = rows.map((row) => columns.map(([, getValue]) => csvCell(getValue(row))).join(','));
+  const url = URL.createObjectURL(new Blob(
+    [`\uFEFF${[header, ...body].join('\r\n')}`],
+    { type: 'text/csv;charset=utf-8' },
+  ));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function validateBackup(backup) {
   const hasValidPlants = Array.isArray(backup?.plants)
     && backup.plants.every((plant) => plant && typeof plant === 'object' && !Array.isArray(plant));
@@ -547,6 +573,13 @@ function getLastCheckedDate(plant) {
     .filter(Boolean)
     .sort()
     .at(-1) || '';
+}
+
+function daysBetweenTodayAnd(dateValue) {
+  if (!dateInputValue(dateValue)) return '';
+  const start = new Date(`${dateValue}T00:00:00`);
+  const today = new Date(`${todayDate()}T00:00:00`);
+  return Math.max(0, Math.floor((today - start) / 86400000));
 }
 
 function wasRecentlyChecked(plant, today = todayDate()) {
@@ -1198,6 +1231,111 @@ function App() {
     URL.revokeObjectURL(url);
     setBackupMessageType('success');
     setBackupMessage('Backup exported successfully.');
+  }
+
+  function exportPlantsCsv() {
+    const columns = [
+      ['Plant Name', (plant) => plant.name],
+      ['Genus', (plant) => plant.genus],
+      ['Type / Category', (plant) => plant.type],
+      ['Status', (plant) => plant.status],
+      ['Lifecycle State', (plant) => lifecycleLabel(plant.lifecycleStatus)],
+      ['Location', (plant) => plant.location],
+      ['Source', (plant) => plant.source],
+      ['Date Acquired', (plant) => plant.acquiredDate],
+      ['Growing Medium', (plant) => plant.medium],
+      ['Soil Mix / Substrate Mix', (plant) => plant.soilMix],
+      ['Pot Size', (plant) => plant.potSize],
+      ['Attention', (plant) => plant.attention],
+      ['Thirst Level', (plant) => plant.thirstLevel],
+      ['Watering Rhythm', (plant) => plant.wateringRhythm],
+      ['Moisture Preference', (plant) => plant.moisturePreference],
+      ['Care Difficulty', (plant) => plant.careDifficulty],
+      ['Light Level', (plant) => plant.lightNeeds],
+      ['Last Watered Date', (plant) => plant.lastWatered],
+      ['Last Repotted Date', (plant) => plant.repotDate],
+      ['Last Checked Date', (plant) => getLastCheckedDate(plant)],
+      ['Pest Quarantine Start Date', (plant) => plant.pestQuarantineStartDate],
+      ['Pest Quarantine End Date', (plant) => plant.pestQuarantineEndDate],
+      ['TC Stage', (plant) => plant.tcStage],
+      ['LECA Conversion Status', (plant) => plant.lecaStatus],
+      ['LECA Stress Level', (plant) => plant.lecaStressLevel],
+      ['Image URL', (plant) => plant.imageUrl],
+      ['Watering Notes', (plant) => plant.watering],
+      ['Care Notes', (plant) => plant.careNote],
+      ['Growth Notes', (plant) => plant.growthNotes],
+      ['Pest Notes', (plant) => plant.pestNotes],
+    ];
+    downloadCsv(`plant-inventory-export-${exportDate()}.csv`, columns, plants);
+  }
+
+  function exportWishlistCsv() {
+    const columns = [
+      ['Plant Name', (item) => item.name], ['Genus', (item) => item.genus],
+      ['Type / Category', (item) => item.type], ['Desired Status', (item) => item.desiredStatus],
+      ['Source / Seller', (item) => item.source], ['Price', (item) => item.price],
+      ['Order Date', (item) => item.orderDate], ['Ship Date', (item) => item.shipDate],
+      ['Expected Arrival Date', (item) => item.expectedArrivalDate],
+      ['Actual Arrival Date', (item) => item.actualArrivalDate],
+      ['Tracking Number / Link', (item) => item.tracking],
+      ['Converted Status', (item) => item.converted ? 'Converted to plant inventory' : 'Not converted'],
+      ['Notes', (item) => item.notes], ['Image URL', (item) => item.imageUrl],
+    ];
+    downloadCsv(`plant-wishlist-export-${exportDate()}.csv`, columns, wishlistItems);
+  }
+
+  function exportGardenCsv() {
+    const datedName = (name) => `garden-${name}-export-${exportDate()}.csv`;
+    downloadCsv(datedName('beds'), [
+      ['Bed Name', (bed) => bed.name], ['Bed Location', (bed) => bed.location],
+      ['Bed Size', (bed) => bed.size], ['Sun Exposure', (bed) => bed.sunExposure],
+      ['Notes', (bed) => bed.notes], ['Image URL', (bed) => bed.imageUrl],
+    ], gardenBeds);
+
+    const cropRows = gardenBeds.flatMap((bed) => (bed.crops || []).map((crop) => ({ bed, crop })));
+    downloadCsv(datedName('crops'), [
+      ['Bed Name', ({ bed }) => bed.name], ['Bed Location', ({ bed }) => bed.location],
+      ['Crop Name', ({ crop }) => crop.name], ['Crop Type / Category', ({ crop }) => crop.type],
+      ['Variety', ({ crop }) => crop.variety], ['Planting Date', ({ crop }) => crop.plantingDate],
+      ['Expected Harvest Date', ({ crop }) => crop.expectedHarvestDate],
+      ['Actual Harvest Date', ({ crop }) => crop.actualHarvestDate],
+      ['Days to Maturity', ({ crop }) => crop.daysToMaturity],
+      ['Days Since Planting', ({ crop }) => daysBetweenTodayAnd(crop.plantingDate)],
+      ['Crop Status', ({ crop }) => crop.status], ['Companion Notes', ({ crop }) => crop.companionNotes],
+      ['Pest Notes', ({ crop }) => crop.pestNotes], ['Fertilizing Notes', ({ crop }) => crop.fertilizingNotes],
+      ['General Notes', ({ crop }) => crop.notes], ['Image URL', ({ crop }) => crop.imageUrl],
+    ], cropRows);
+
+    const activityRows = gardenBeds.flatMap((bed) => (bed.activities || []).map((entry) => ({ bed, entry })));
+    downloadCsv(datedName('activity-log'), [
+      ['Bed Name', ({ bed }) => bed.name], ['Bed Location', ({ bed }) => bed.location],
+      ['Activity Type', ({ entry }) => entry.activityType], ['Date', ({ entry }) => entry.date],
+      ['Notes', ({ entry }) => entry.notes],
+    ], activityRows);
+
+    const harvestRows = gardenBeds.flatMap((bed) => (bed.harvests || []).map((entry) => ({ bed, entry })));
+    downloadCsv(datedName('harvest-log'), [
+      ['Bed Name', ({ bed }) => bed.name], ['Bed Location', ({ bed }) => bed.location],
+      ['Crop Name', ({ entry }) => entry.cropName], ['Date', ({ entry }) => entry.date],
+      ['Amount', ({ entry }) => entry.amount], ['Notes', ({ entry }) => entry.notes],
+    ], harvestRows);
+  }
+
+  function exportPlantActivityCsv() {
+    const rows = plants.flatMap((plant) => (plant.activityLog || []).map((entry) => ({ plant, entry })));
+    downloadCsv(`plant-activity-log-export-${exportDate()}.csv`, [
+      ['Plant Name', ({ plant }) => plant.name], ['Activity Type', ({ entry }) => entry.activityType],
+      ['Date', ({ entry }) => entry.date], ['Notes', ({ entry }) => entry.notes],
+    ], rows);
+  }
+
+  function exportPlantPhotoCsv() {
+    const rows = plants.flatMap((plant) => (plant.photoLog || []).map((entry) => ({ plant, entry })));
+    downloadCsv(`plant-photo-log-export-${exportDate()}.csv`, [
+      ['Plant Name', ({ plant }) => plant.name], ['Photo URL', ({ entry }) => entry.photoUrl],
+      ['Date', ({ entry }) => entry.date], ['Category / Type', ({ entry }) => entry.photoType],
+      ['Caption / Notes', ({ entry }) => entry.caption],
+    ], rows);
   }
 
   async function importData(event) {
@@ -2399,6 +2537,31 @@ function App() {
                 {backupMessage}
               </p>
             )}
+          </section>
+
+          <section className="settings-card" aria-labelledby="csv-export-heading">
+            <h3 id="csv-export-heading">CSV Export</h3>
+            <p className="settings-card-intro">Create spreadsheet-friendly files for reviewing, sorting, or printing your plant data. CSV export is one-way; use Data Backup for full backup and restore.</p>
+            <div className="data-tool-row">
+              <div><h4>Plant Inventory</h4><p>Includes active, archived, and graveyard plants.</p></div>
+              <button type="button" onClick={exportPlantsCsv}>Export Plants CSV</button>
+            </div>
+            <div className="data-tool-row">
+              <div><h4>Wishlist / Purchases</h4><p>Export wishlist, order, shipping, and arrival details.</p></div>
+              <button type="button" onClick={exportWishlistCsv}>Export Wishlist CSV</button>
+            </div>
+            <div className="data-tool-row">
+              <div><h4>Garden</h4><p>Downloads separate files for beds, crops, activity, and harvests.</p></div>
+              <button type="button" onClick={exportGardenCsv}>Export Garden CSV</button>
+            </div>
+            <div className="data-tool-row">
+              <div><h4>Plant Activity Log</h4><p>Export dated care and plant activity entries.</p></div>
+              <button type="button" onClick={exportPlantActivityCsv}>Export Plant Activity Log CSV</button>
+            </div>
+            <div className="data-tool-row">
+              <div><h4>Plant Photo Log</h4><p>Export photo links, dates, categories, and captions.</p></div>
+              <button type="button" onClick={exportPlantPhotoCsv}>Export Plant Photo Log CSV</button>
+            </div>
           </section>
 
           <section className="settings-card" aria-labelledby="app-info-heading">

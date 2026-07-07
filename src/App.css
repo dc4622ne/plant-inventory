@@ -564,6 +564,10 @@
   font-size: 1.05rem;
 }
 
+.settings-card .settings-card-intro {
+  margin: -6px 0 14px;
+}
+
 .data-tool-row {
   display: flex;
   gap: 24px;
@@ -598,6 +602,18 @@
   border: 1px solid var(--brand-leaf);
   border-radius: 8px;
   cursor: pointer;
+}
+
+@media (max-width: 620px) {
+  .data-tool-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .data-tool-row button {
+    width: 100%;
+  }
 }
 
 .data-tool-row button:focus-visible {
