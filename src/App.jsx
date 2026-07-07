@@ -3,6 +3,7 @@ import './App.css';
 import Garden from './Garden';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
+import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const initialPlants = [
   {
@@ -235,6 +236,8 @@ const plantViewModeStorageKey = 'plant-inventory-view-mode';
 const plantPageSizesStorageKey = 'plant-inventory-page-sizes';
 const appStoragePrefix = 'plant-inventory-';
 const backupFormatVersion = 1;
+const cloudBackupTable = 'app_backups';
+const cloudBackupId = 'primary';
 const defaultPlantPageSizes = { cards: 12, gallery: 18, compact: 25 };
 
 function loadPlantViewMode() {
@@ -766,6 +769,10 @@ function App() {
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
   const [backupMessageType, setBackupMessageType] = useState('success');
+  const [cloudMessage, setCloudMessage] = useState('');
+  const [cloudMessageType, setCloudMessageType] = useState('success');
+  const [cloudUpdatedAt, setCloudUpdatedAt] = useState('');
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [wishlistItems, setWishlistItems] = useState(loadWishlistItems);
   const [wishlistDraft, setWishlistDraft] = useState(emptyWishlistItem);
   const [editingWishlistId, setEditingWishlistId] = useState('');
@@ -1207,8 +1214,8 @@ function App() {
     setPlantPage(1);
   }
 
-  function exportData() {
-    const backup = {
+  function createBackup() {
+    return {
       app: 'plant-inventory',
       version: backupFormatVersion,
       exportedAt: new Date().toISOString(),
@@ -1218,6 +1225,10 @@ function App() {
       gardenBeds,
       storage: getAppStorageData(),
     };
+  }
+
+  function exportData() {
+    const backup = createBackup();
     const date = new Date().toISOString().slice(0, 10);
     const url = URL.createObjectURL(new Blob(
       [JSON.stringify(backup, null, 2)],
@@ -1232,6 +1243,130 @@ function App() {
     URL.revokeObjectURL(url);
     setBackupMessageType('success');
     setBackupMessage('Backup exported successfully.');
+  }
+
+  function restoreBackup(backup, returnToDashboard = true) {
+    const previousStorage = getAppStorageData();
+    try {
+      Object.keys(previousStorage).forEach((key) => localStorage.removeItem(key));
+      Object.entries(backup.storage).forEach(([key, value]) => localStorage.setItem(key, value));
+      // These named values are the source of truth, even if a backup contains stale storage copies.
+      localStorage.setItem(plantsStorageKey, JSON.stringify(backup.plants));
+      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(backup.dropdownOptions));
+      if (Array.isArray(backup.wishlistItems)) {
+        localStorage.setItem(wishlistStorageKey, JSON.stringify(backup.wishlistItems));
+      }
+      if (Array.isArray(backup.gardenBeds)) {
+        localStorage.setItem(gardenStorageKey, JSON.stringify(backup.gardenBeds));
+      }
+
+      setPlants(loadPlants());
+      setDropdownOptions(loadDropdownOptions());
+      setWishlistItems(loadWishlistItems());
+      setGardenBeds(loadGardenBeds());
+      setSelectedPlant(null);
+      setShowForm(false);
+      setIsEditing(false);
+      if (returnToDashboard) setAppView('dashboard');
+      clearAllFilters();
+      setLifecycleView('active');
+      return true;
+    } catch {
+      Object.keys(getAppStorageData()).forEach((key) => localStorage.removeItem(key));
+      Object.entries(previousStorage).forEach(([key, value]) => localStorage.setItem(key, value));
+      setPlants(loadPlants());
+      setDropdownOptions(loadDropdownOptions());
+      setWishlistItems(loadWishlistItems());
+      setGardenBeds(loadGardenBeds());
+      return false;
+    }
+  }
+
+  async function checkCloudStatus() {
+    if (!isSupabaseConfigured) {
+      setCloudMessageType('error');
+      setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
+      return;
+    }
+    setCloudBusy(true);
+    setCloudMessage('');
+    const { data, error } = await supabase
+      .from(cloudBackupTable)
+      .select('updated_at')
+      .eq('id', cloudBackupId)
+      .maybeSingle();
+    setCloudBusy(false);
+    if (error) {
+      setCloudMessageType('error');
+      setCloudMessage('Cloud status could not be checked. Confirm the Supabase table and access policy are set up.');
+      return;
+    }
+    setCloudUpdatedAt(data?.updated_at || '');
+    setCloudMessageType('success');
+    setCloudMessage(data ? 'Cloud backup is available.' : 'Supabase is connected, but no cloud backup has been saved yet.');
+  }
+
+  async function saveToCloud() {
+    if (!isSupabaseConfigured) {
+      setCloudMessageType('error');
+      setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
+      return;
+    }
+    setCloudBusy(true);
+    setCloudMessage('');
+    const updatedAt = new Date().toISOString();
+    const { error } = await supabase.from(cloudBackupTable).upsert({
+      id: cloudBackupId,
+      data: createBackup(),
+      updated_at: updatedAt,
+    });
+    setCloudBusy(false);
+    if (error) {
+      setCloudMessageType('error');
+      setCloudMessage('Your data could not be saved to the cloud. Your local data is unchanged. Check the Supabase setup and try again.');
+      return;
+    }
+    setCloudUpdatedAt(updatedAt);
+    setCloudMessageType('success');
+    setCloudMessage('Cloud backup saved successfully. Your local data is still here.');
+  }
+
+  async function loadFromCloud() {
+    if (!isSupabaseConfigured) {
+      setCloudMessageType('error');
+      setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
+      return;
+    }
+    if (!window.confirm(
+      'Loading from cloud will replace the current local browser data. This cannot be undone unless you have another backup. Continue?',
+    )) return;
+
+    setCloudBusy(true);
+    setCloudMessage('');
+    const { data, error } = await supabase
+      .from(cloudBackupTable)
+      .select('data, updated_at')
+      .eq('id', cloudBackupId)
+      .maybeSingle();
+    setCloudBusy(false);
+    if (error) {
+      setCloudMessageType('error');
+      setCloudMessage('The cloud backup could not be loaded. Your local data was not changed.');
+      return;
+    }
+    if (!data || !validateBackup(data.data)) {
+      setCloudMessageType('error');
+      setCloudMessage('No valid cloud backup was found. Your local data was not changed.');
+      return;
+    }
+    if (!restoreBackup(data.data, false)) {
+      setCloudMessageType('error');
+      setCloudMessage('The cloud backup could not be restored. Your previous local data has been put back.');
+      return;
+    }
+    setCloudUpdatedAt(data.updated_at || '');
+    setCloudMessageType('success');
+    setCloudMessage('Cloud backup loaded successfully. Your local browser data has been restored.');
   }
 
   function exportPlantsCsv() {
@@ -1363,39 +1498,10 @@ function App() {
       'Importing this backup will replace your current local Plant Inventory data. Continue?',
     )) return;
 
-    const previousStorage = getAppStorageData();
-    try {
-      Object.keys(previousStorage).forEach((key) => localStorage.removeItem(key));
-      Object.entries(backup.storage).forEach(([key, value]) => localStorage.setItem(key, value));
-      // These named values are the source of truth, even if a future backup contains stale copies.
-      localStorage.setItem(plantsStorageKey, JSON.stringify(backup.plants));
-      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(backup.dropdownOptions));
-      if (Array.isArray(backup.wishlistItems)) {
-        localStorage.setItem(wishlistStorageKey, JSON.stringify(backup.wishlistItems));
-      }
-      if (Array.isArray(backup.gardenBeds)) {
-        localStorage.setItem(gardenStorageKey, JSON.stringify(backup.gardenBeds));
-      }
-
-      setPlants(loadPlants());
-      setDropdownOptions(loadDropdownOptions());
-      setWishlistItems(loadWishlistItems());
-      setGardenBeds(loadGardenBeds());
-      setSelectedPlant(null);
-      setShowForm(false);
-      setIsEditing(false);
-      setAppView('dashboard');
-      clearAllFilters();
-      setLifecycleView('active');
+    if (restoreBackup(backup)) {
       setBackupMessageType('success');
       setBackupMessage('Backup imported successfully. Your restored plants are ready.');
-    } catch {
-      Object.keys(getAppStorageData()).forEach((key) => localStorage.removeItem(key));
-      Object.entries(previousStorage).forEach(([key, value]) => localStorage.setItem(key, value));
-      setPlants(loadPlants());
-      setDropdownOptions(loadDropdownOptions());
-      setWishlistItems(loadWishlistItems());
-      setGardenBeds(loadGardenBeds());
+    } else {
       setBackupMessageType('error');
       setBackupMessage('The backup could not be imported. Your previous data has been restored.');
     }
@@ -2513,8 +2619,20 @@ function App() {
 
           <section className="settings-card" aria-labelledby="cloud-sync-heading">
             <h3 id="cloud-sync-heading">Cloud Sync</h3>
-            <p>Cloud sync is not connected yet.</p>
-            <p>Local browser storage is still being used.</p>
+            <p>Supabase configuration: <strong>{isSupabaseConfigured ? 'Configured' : 'Not configured'}</strong></p>
+            <p>Last cloud save: <strong>{cloudUpdatedAt ? new Date(cloudUpdatedAt).toLocaleString() : 'Not checked'}</strong></p>
+            <p>Local browser storage is still used. Cloud sync is manual.</p>
+            <div className="cloud-sync-actions">
+              <button type="button" onClick={saveToCloud} disabled={cloudBusy}>Save to Cloud</button>
+              <button type="button" onClick={loadFromCloud} disabled={cloudBusy}>Load from Cloud</button>
+              <button type="button" onClick={checkCloudStatus} disabled={cloudBusy}>Check Cloud Status</button>
+            </div>
+            {cloudMessage && (
+              <p className={`backup-message backup-message-${cloudMessageType}`}
+                role={cloudMessageType === 'error' ? 'alert' : 'status'}>
+                {cloudMessage}
+              </p>
+            )}
           </section>
 
           <section className="settings-card" aria-labelledby="data-tools-heading">
@@ -2576,9 +2694,8 @@ function App() {
               <div><dt>Current storage type</dt><dd>Browser local storage</dd></div>
             </dl>
             <p className="storage-note">
-              Data is stored in this browser's local storage. It does not automatically sync to a
-              different device or browser. Use Export/Import JSON backup to move your data until
-              cloud sync is added.
+              Data is stored in this browser's local storage and does not automatically sync.
+              Use manual Cloud Sync or Export/Import JSON backup to move your data.
             </p>
           </section>
         </section>

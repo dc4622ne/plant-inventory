@@ -660,6 +660,17 @@
   border-radius: 8px;
 }
 
+.cloud-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.cloud-sync-actions button {
+  min-height: 44px;
+}
+
 .app-info-list {
   margin: 0;
 }
