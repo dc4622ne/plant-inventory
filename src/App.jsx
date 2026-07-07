@@ -2570,7 +2570,9 @@ function App() {
               <div><dt>Current storage type</dt><dd>Browser local storage</dd></div>
             </dl>
             <p className="storage-note">
-              Your data is stored locally in this browser unless you export or import a backup.
+              Data is stored in this browser's local storage. It does not automatically sync to a
+              different device or browser. Use Export/Import JSON backup to move your data until
+              cloud sync is added.
             </p>
           </section>
         </section>

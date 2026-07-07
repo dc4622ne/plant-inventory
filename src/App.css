@@ -2244,3 +2244,120 @@
   .garden-crop-entry { grid-template-columns: 1fr; }
   .garden-crop-image { width: 100%; height: 180px; }
 }
+
+/* Mobile web app hardening */
+@media (max-width: 700px) {
+  .app-navigation {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    position: sticky;
+    top: env(safe-area-inset-top);
+    z-index: 20;
+    margin-inline: -8px;
+    padding: 6px;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+  }
+
+  .app-navigation button {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 3px;
+    font-size: .7rem;
+    line-height: 1.15;
+  }
+
+  .plant-section,
+  .dashboard-chart,
+  .settings-card,
+  .garden-panel,
+  .plant-detail,
+  .photo-log,
+  .activity-log { min-width: 0; }
+
+  .dashboard-chart,
+  .settings-card,
+  .garden-panel { padding: 16px; }
+  .dashboard-chart-content { min-width: 0; }
+  .dashboard-donut { margin-inline: auto; }
+  .dashboard-chart-label { white-space: normal; }
+
+  .form-actions,
+  .photo-entry-actions,
+  .activity-entry-actions,
+  .activity-edit-actions { gap: 8px; }
+
+  .form-actions > button,
+  .plant-pagination button,
+  .clear-filters-button,
+  .more-filters-button { min-height: 44px; }
+
+  .image-file-input { max-width: 100%; }
+  .image-upload-preview img { max-height: 280px; object-fit: contain; }
+  .photo-entry-heading,
+  .activity-entry-heading { gap: 8px; flex-wrap: wrap; }
+}
+
+@media (max-width: 480px) {
+  .plant-inventory { padding: 18px 12px calc(28px + env(safe-area-inset-bottom)); }
+  .brand-header { margin-bottom: 20px; }
+  .brand-header h1 { font-size: clamp(1.7rem, 9vw, 2.25rem); }
+
+  .section-heading .add-plant-button { align-self: flex-end; }
+  .quick-view-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-view-list button { min-height: 44px; }
+
+  .filter-actions,
+  .view-mode-buttons { grid-template-columns: 1fr; }
+  .view-mode-buttons button { min-height: 44px; }
+  .page-size-control select { width: 100%; min-height: 44px; }
+
+  .plant-list-gallery { grid-template-columns: 1fr; }
+  .gallery-image .plant-image { height: 220px; }
+  .compact-plant-row { grid-template-columns: 40px minmax(0, 1fr) 18px; }
+  .compact-plant-row .plant-badges { display: none; }
+
+  .plant-pagination { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .plant-pagination span { grid-column: 1 / -1; grid-row: 1; }
+
+  .plant-change-actions,
+  .garden-card-actions { flex-wrap: wrap; }
+  .plant-change-actions button,
+  .garden-card-actions button,
+  .wishlist-card-actions button { min-width: 44px; min-height: 44px; }
+
+  .form-actions { display: grid; grid-template-columns: 1fr; }
+  .form-actions > button,
+  .data-tool-row button,
+  .convert-button { width: 100%; }
+
+  .new-option-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .new-option-row button { min-height: 44px; }
+  .tc-form-section { padding: 13px; }
+
+  .wishlist-card-body,
+  .garden-card > div:last-child { padding: 15px; }
+  .wishlist-summary { display: grid; grid-template-columns: 1fr 1fr; }
+  .garden-tools { padding: 14px; }
+  .garden-panel { padding: 15px; }
+
+  .photo-entry-content,
+  .activity-entry-content { min-width: 0; }
+  .photo-entry-content p,
+  .activity-entry-content p,
+  dd { overflow-wrap: anywhere; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  button,
+  input,
+  select,
+  textarea { min-height: 44px; }
+
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='file'] { min-height: initial; }
+}

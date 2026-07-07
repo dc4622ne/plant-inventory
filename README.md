@@ -1,16 +1,23 @@
-# React + Vite
+# Plant Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A mobile-friendly React app for tracking plants, care activity, wishlists, purchases, and garden beds. Data stays in the current browser using local storage.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Install dependencies with `npm install`, then start the development app with `npm run dev`.
 
-## React Compiler
+## Build and deploy
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Create a production build: `npm run build`
+- Preview the production build: `npm run preview`
+- Deploy the generated `dist` folder to a static host such as Vercel, Netlify, GitHub Pages, or Cloudflare Pages.
 
-## Expanding the Oxlint configuration
+The app includes a web app manifest and a basic service worker. On iPhone or iPad, open the deployed HTTPS site in Safari and use **Share → Add to Home Screen**. Other mobile browsers may show an install option in their menu.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+For GitHub Pages deployments under a repository subpath, set Vite's `base` option to that repository path before building. Hosts that publish at the domain root need no change.
+
+## Important data note
+
+Data is stored in this browser's local storage. It does not automatically sync between devices or browsers. Use **Settings → Export Data** and **Import Data** to move a JSON backup between devices until a database or cloud sync is added.
+
+The service worker caches only the app shell for a basic offline launch. It does not sync or upload plant data.

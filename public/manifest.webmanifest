@@ -1,0 +1,16 @@
+{
+  "name": "Plant Tracker",
+  "short_name": "Plants",
+  "description": "Track plants, care, wishlists, and garden beds.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f4ef",
+  "theme_color": "#1f3d2b",
+  "icons": [{
+    "src": "/app-icon.svg",
+    "sizes": "any",
+    "type": "image/svg+xml",
+    "purpose": "any maskable"
+  }]
+}
