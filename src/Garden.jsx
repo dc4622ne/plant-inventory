@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { gardenStorageKey } from './gardenData';
+import ImageUploadField, { SafeImage } from './ImageUploadField';
 
 const cropStatuses = ['Not set', 'Planned', 'Planted', 'Growing', 'Flowering', 'Fruiting', 'Ready to harvest', 'Harvested', 'Failed / removed'];
 const sunOptions = ['Not set', 'Full sun', 'Partial sun', 'Partial shade', 'Full shade'];
@@ -117,7 +118,7 @@ export default function Garden({ beds, onChange, initialFilter, onDirtyChange })
   if (selectedBed) return <section className="garden-view garden-detail">
     <button className="back-button" type="button" onClick={() => { if (confirmDiscard()) setSelectedId(''); }}>← Back to Garden Beds</button>
     <div className="garden-detail-hero">
-      {selectedBed.imageUrl && <img src={selectedBed.imageUrl} alt={`${selectedBed.name} garden bed`} />}
+      {selectedBed.imageUrl && <SafeImage key={selectedBed.imageUrl} src={selectedBed.imageUrl} alt={`${selectedBed.name} garden bed`} />}
       <div><p className="detail-eyebrow">Garden bed</p><h2>{selectedBed.name}</h2><p>{[selectedBed.location, selectedBed.size, selectedBed.sunExposure].filter(Boolean).join(' · ') || 'Bed details not set'}</p><p>{selectedBed.notes}</p></div>
       <div className="garden-card-actions"><button className="edit-plant-button" type="button" onClick={() => editBed(selectedBed)} aria-label="Edit garden bed" title="Edit garden bed">✏️</button><button className="delete-plant-button" type="button" onClick={() => deleteBed(selectedBed)} aria-label="Delete garden bed" title="Delete garden bed">🗑️</button></div>
     </div>
@@ -127,7 +128,7 @@ export default function Garden({ beds, onChange, initialFilter, onDirtyChange })
         <FormField id="garden-crop-type" label="Crop type / category"><input id="garden-crop-type" list="crop-types" value={cropDraft.type} onChange={(e) => setCropDraft({ ...cropDraft, type: e.target.value })} /></FormField>
         <datalist id="crop-types">{cropTypeSuggestions.map((item) => <option key={item}>{item}</option>)}</datalist>
         <FormField id="garden-crop-variety" label="Variety"><input id="garden-crop-variety" value={cropDraft.variety} onChange={(e) => setCropDraft({ ...cropDraft, variety: e.target.value })} /></FormField>
-        <FormField id="garden-crop-image" label="Image URL"><input id="garden-crop-image" type="url" value={cropDraft.imageUrl} onChange={(e) => setCropDraft({ ...cropDraft, imageUrl: e.target.value })} /></FormField>
+        <ImageUploadField id="garden-crop-image" label="Image URL" value={cropDraft.imageUrl} onChange={(imageUrl) => setCropDraft({ ...cropDraft, imageUrl })} />
         {cropDraft.imageUrl && <div className="garden-crop-preview"><CropImage key={cropDraft.imageUrl} crop={{ ...cropDraft, name: cropDraft.name || 'Crop preview' }} /></div>}
         <FormField id="garden-planting-date" label="Planting date"><input id="garden-planting-date" type="date" value={cropDraft.plantingDate} onChange={(e) => setCropDraft({ ...cropDraft, plantingDate: e.target.value })} /></FormField>
         <FormField id="garden-expected-harvest" label="Expected harvest"><input id="garden-expected-harvest" type="date" value={cropDraft.expectedHarvestDate} onChange={(e) => setCropDraft({ ...cropDraft, expectedHarvestDate: e.target.value })} /></FormField>
@@ -150,11 +151,11 @@ export default function Garden({ beds, onChange, initialFilter, onDirtyChange })
       <FormField id="garden-bed-location" label="Bed location"><input id="garden-bed-location" list="bed-locations" value={bedDraft.location} onChange={(e) => setBedDraft({ ...bedDraft, location: e.target.value })} /></FormField><datalist id="bed-locations">{locationSuggestions.map((item) => <option key={item}>{item}</option>)}</datalist>
       <FormField id="garden-bed-size" label="Bed size"><input id="garden-bed-size" placeholder="e.g. 4x8 bed" value={bedDraft.size} onChange={(e) => setBedDraft({ ...bedDraft, size: e.target.value })} /></FormField>
       <FormField id="garden-bed-sun" label="Sun exposure"><select id="garden-bed-sun" value={bedDraft.sunExposure} onChange={(e) => setBedDraft({ ...bedDraft, sunExposure: e.target.value })}>{sunOptions.map((item) => <option key={item} value={item === 'Not set' ? '' : item}>{item}</option>)}</select></FormField>
-      <FormField id="garden-bed-image" label="Image URL" className="form-field-wide"><input id="garden-bed-image" type="url" value={bedDraft.imageUrl} onChange={(e) => setBedDraft({ ...bedDraft, imageUrl: e.target.value })} /></FormField>
+      <ImageUploadField id="garden-bed-image" label="Image URL" className="form-field-wide" value={bedDraft.imageUrl} onChange={(imageUrl) => setBedDraft({ ...bedDraft, imageUrl })} />
       <FormField id="garden-bed-notes" label="Notes" className="form-field-wide"><textarea id="garden-bed-notes" rows="3" value={bedDraft.notes} onChange={(e) => setBedDraft({ ...bedDraft, notes: e.target.value })} /></FormField>
     </div><div className="form-actions"><button type="submit">Save garden bed</button><button className="secondary-button" type="button" onClick={() => { if (confirmDiscard(bedDirty)) { setShowBedForm(false); setEditingBedId(''); setBedDraft(emptyBed); } }}>Cancel</button></div></form>}
     <div className="garden-tools"><label>Search<input type="search" placeholder="Bed, location, crop, or crop type" value={search} onChange={(e) => setSearch(e.target.value)} /></label><label>Bed location<select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}><option value="">All locations</option>{locations.map((item) => <option key={item}>{item}</option>)}</select></label><label>Crop status<select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{cropStatuses.map((item) => <option key={item}>{item}</option>)}</select></label><button className="clear-filters-button" type="button" onClick={() => { setSearch(''); setLocationFilter(''); setStatusFilter(''); }}>Clear filters</button></div>
-    <div className="garden-card-grid">{visibleBeds.length ? visibleBeds.map((bed) => <article className="garden-card" key={bed.id} onClick={() => setSelectedId(bed.id)} onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(bed.id); }} role="button" tabIndex="0"><div className="garden-card-image">{bed.imageUrl ? <img src={bed.imageUrl} alt="" /> : <span>🌿</span>}</div><div><h3>{bed.name}</h3><p>{bed.location || 'Location not set'}</p><dl><div><dt>Size</dt><dd>{bed.size || 'Not set'}</dd></div><div><dt>Sun</dt><dd>{bed.sunExposure || 'Not set'}</dd></div><div><dt>Crops</dt><dd>{bed.crops.length}</dd></div></dl><span className="view-details">View garden bed →</span></div></article>) : <p className="empty-message">No garden beds match these filters.</p>}</div>
+    <div className="garden-card-grid">{visibleBeds.length ? visibleBeds.map((bed) => <article className="garden-card" key={bed.id} onClick={() => setSelectedId(bed.id)} onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(bed.id); }} role="button" tabIndex="0"><div className="garden-card-image">{bed.imageUrl ? <SafeImage key={bed.imageUrl} src={bed.imageUrl} alt="" fallback={<span>🌿</span>} /> : <span>🌿</span>}</div><div><h3>{bed.name}</h3><p>{bed.location || 'Location not set'}</p><dl><div><dt>Size</dt><dd>{bed.size || 'Not set'}</dd></div><div><dt>Sun</dt><dd>{bed.sunExposure || 'Not set'}</dd></div><div><dt>Crops</dt><dd>{bed.crops.length}</dd></div></dl><span className="view-details">View garden bed →</span></div></article>) : <p className="empty-message">No garden beds match these filters.</p>}</div>
   </section>;
 }
 

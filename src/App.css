@@ -208,6 +208,37 @@
   resize: vertical;
 }
 
+.image-upload-field { align-content: start; }
+
+.image-choice-label,
+.image-upload-field small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.image-file-input { cursor: pointer; }
+.image-upload-message { color: var(--brand-green) !important; font-weight: 700; }
+
+.image-upload-preview {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.image-upload-preview img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.image-upload-preview .secondary-button {
+  justify-self: start;
+  padding: 7px 10px;
+}
+
 .new-option-row {
   display: grid;
   grid-template-columns: 1fr auto;

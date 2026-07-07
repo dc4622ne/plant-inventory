@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import Garden from './Garden';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
+import ImageUploadField, { SafeImage } from './ImageUploadField';
 
 const initialPlants = [
   {
@@ -1642,6 +1643,7 @@ function App() {
 
   function addPhotoEntry(event) {
     event.preventDefault();
+    if (!newPhotoEntry.photoUrl.trim()) return;
     const photoEntry = {
       ...newPhotoEntry,
       photoUrl: newPhotoEntry.photoUrl.trim(),
@@ -1671,6 +1673,7 @@ function App() {
 
   function saveEditedPhotoEntry(event) {
     event.preventDefault();
+    if (!photoEntryDraft.photoUrl.trim()) return;
     const updatedEntry = {
       ...editingPhotoEntry,
       ...photoEntryDraft,
@@ -1858,14 +1861,9 @@ function App() {
           <section className="photo-log" aria-labelledby="photo-log-heading">
             <h3 id="photo-log-heading">Photo Log</h3>
             <form className="photo-form" onSubmit={addPhotoEntry}>
-              <div className="form-field photo-url-field">
-                <label htmlFor="photo-url">Photo URL</label>
-                <input id="photo-url" type="url" required value={newPhotoEntry.photoUrl}
-                  placeholder="https://example.com/plant-photo.jpg"
-                  onChange={(event) => setNewPhotoEntry((entry) => ({
-                    ...entry, photoUrl: event.target.value,
-                  }))} />
-              </div>
+              <ImageUploadField id="photo" className="photo-url-field" label="Photo URL" required
+                value={newPhotoEntry.photoUrl}
+                onChange={(photoUrl) => setNewPhotoEntry((entry) => ({ ...entry, photoUrl }))} />
               <div className="form-field">
                 <label htmlFor="photo-date">Date</label>
                 <input id="photo-date" type="date" required value={newPhotoEntry.date}
@@ -1903,14 +1901,9 @@ function App() {
                     <li key={entry.id || `${entry.date}-${entry.photoUrl}-${entryIndex}`}>
                       {editingPhotoEntry === entry ? (
                         <form className="photo-edit-form" onSubmit={saveEditedPhotoEntry}>
-                          <div className="form-field photo-url-field">
-                            <label htmlFor="edit-photo-url">Photo URL</label>
-                            <input id="edit-photo-url" type="url" required
-                              value={photoEntryDraft.photoUrl}
-                              onChange={(event) => setPhotoEntryDraft((draft) => ({
-                                ...draft, photoUrl: event.target.value,
-                              }))} />
-                          </div>
+                          <ImageUploadField id={`edit-photo-${entry.id || entryIndex}`} className="photo-url-field" label="Photo URL" required
+                            value={photoEntryDraft.photoUrl}
+                            onChange={(photoUrl) => setPhotoEntryDraft((draft) => ({ ...draft, photoUrl }))} />
                           <div className="form-field">
                             <label htmlFor="edit-photo-date">Date</label>
                             <input id="edit-photo-date" type="date" required
@@ -2079,7 +2072,7 @@ function App() {
           )}
           <div className="form-grid">
             {[
-              ['name', 'Plant name'], ['imageUrl', 'Image URL (optional)'],
+              ['name', 'Plant name'],
               ['medium', 'Growing medium'], ['potSize', 'Pot size'],
               ['watering', 'Watering notes'], ['propagationStatus', 'Propagation'],
               ['purchasePrice', 'Purchase price'],
@@ -2092,6 +2085,9 @@ function App() {
                   onChange={handleInputChange} required={fieldName === 'name'} />
               </div>
             ))}
+
+            <ImageUploadField id="plant-image" value={newPlant.imageUrl}
+              onChange={(imageUrl) => setNewPlant((plant) => ({ ...plant, imageUrl }))} />
 
             {[
               ['genus', 'Genus'], ['type', 'Type / category'], ['source', 'Source'], ['status', 'Status'],
@@ -2438,11 +2434,13 @@ function App() {
               <div className="form-grid">
                 <div className="form-field"><label htmlFor="wish-name">Plant name *</label>
                   <input id="wish-name" name="name" required value={wishlistDraft.name} onChange={(e) => setWishlistDraft({ ...wishlistDraft, name: e.target.value })} /></div>
-                {[["price", "Price"], ["tracking", "Tracking number or link"], ["imageUrl", "Image URL"]].map(([field, label]) => (
+                {[["price", "Price"], ["tracking", "Tracking number or link"]].map(([field, label]) => (
                   <div className="form-field" key={field}><label htmlFor={`wish-${field}`}>{label}</label>
                     <input id={`wish-${field}`} type={field === 'price' ? 'number' : field === 'imageUrl' ? 'url' : 'text'} step={field === 'price' ? '0.01' : undefined}
                       value={wishlistDraft[field]} onChange={(e) => setWishlistDraft({ ...wishlistDraft, [field]: e.target.value })} /></div>
                 ))}
+                <ImageUploadField id="wish-image" label="Image URL" value={wishlistDraft.imageUrl}
+                  onChange={(imageUrl) => setWishlistDraft({ ...wishlistDraft, imageUrl })} />
                 {[["genus", "Genus"], ["type", "Type / category"], ["desiredStatus", "Desired status"], ["source", "Source / seller"]].map(([field, label]) => (
                   <div className="form-field" key={field}>
                     <label htmlFor={`wish-${field}`}>{label}</label>
@@ -2487,7 +2485,8 @@ function App() {
               <div className="wishlist-list">
                 {visibleWishlistItems.length ? visibleWishlistItems.map((item) => (
                   <article className="wishlist-card" key={item.id}>
-                    {item.imageUrl ? <img src={item.imageUrl} alt={`${item.name} plant`} /> : <div className="wishlist-placeholder" aria-hidden="true">🌱</div>}
+                    {item.imageUrl ? <SafeImage key={item.imageUrl} src={item.imageUrl} alt={`${item.name} plant`}
+                      fallback={<div className="wishlist-placeholder" aria-hidden="true">🌱</div>} /> : <div className="wishlist-placeholder" aria-hidden="true">🌱</div>}
                     <div className="wishlist-card-body"><div className="wishlist-card-heading"><div><span className="wishlist-status">{item.desiredStatus || 'Wishlist'}</span><h3>{item.name}</h3></div>
                       <div className="wishlist-card-actions">
                         <button type="button" onClick={() => editWishlistItem(item)}
