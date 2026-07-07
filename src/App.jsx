@@ -231,12 +231,26 @@ const plantsStorageKey = 'plant-inventory-plants';
 const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
 const wishlistStorageKey = 'plant-inventory-wishlist';
 const plantViewModeStorageKey = 'plant-inventory-view-mode';
+const plantPageSizesStorageKey = 'plant-inventory-page-sizes';
 const appStoragePrefix = 'plant-inventory-';
 const backupFormatVersion = 1;
+const defaultPlantPageSizes = { cards: 12, gallery: 18, compact: 25 };
 
 function loadPlantViewMode() {
   const savedViewMode = localStorage.getItem(plantViewModeStorageKey);
   return ['cards', 'gallery', 'compact'].includes(savedViewMode) ? savedViewMode : 'cards';
+}
+
+function loadPlantPageSizes() {
+  try {
+    const savedPageSizes = JSON.parse(localStorage.getItem(plantPageSizesStorageKey) || '{}');
+    const validPageSizes = [12, 18, 25, 50, 'all'];
+    return Object.fromEntries(Object.entries(defaultPlantPageSizes).map(([viewMode, defaultSize]) => (
+      [viewMode, validPageSizes.includes(savedPageSizes[viewMode]) ? savedPageSizes[viewMode] : defaultSize]
+    )));
+  } catch {
+    return { ...defaultPlantPageSizes };
+  }
 }
 
 function getAppStorageData() {
@@ -706,6 +720,8 @@ function App() {
   const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
   const [activeQuickView, setActiveQuickView] = useState('all-active');
   const [plantViewMode, setPlantViewMode] = useState(loadPlantViewMode);
+  const [plantPageSizes, setPlantPageSizes] = useState(loadPlantPageSizes);
+  const [plantPage, setPlantPage] = useState(1);
   const [addPlantMessage, setAddPlantMessage] = useState('');
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
@@ -732,7 +748,15 @@ function App() {
 
   function changePlantViewMode(nextViewMode) {
     setPlantViewMode(nextViewMode);
+    setPlantPage(1);
     localStorage.setItem(plantViewModeStorageKey, nextViewMode);
+  }
+
+  function changePlantPageSize(nextPageSize) {
+    const updatedPageSizes = { ...plantPageSizes, [plantViewMode]: nextPageSize };
+    setPlantPageSizes(updatedPageSizes);
+    setPlantPage(1);
+    localStorage.setItem(plantPageSizesStorageKey, JSON.stringify(updatedPageSizes));
   }
 
   function openPlantDetails(plant) {
@@ -841,6 +865,28 @@ function App() {
         && matchesRecentlyChecked && matchesRecentlyAcquired;
     })
     .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
+
+  const plantPageSize = plantPageSizes[plantViewMode];
+  const plantPageCount = plantPageSize === 'all'
+    ? 1
+    : Math.max(1, Math.ceil(visiblePlants.length / plantPageSize));
+  const currentPlantPage = Math.min(plantPage, plantPageCount);
+  const firstVisiblePlantIndex = plantPageSize === 'all'
+    ? 0
+    : (currentPlantPage - 1) * plantPageSize;
+  const paginatedPlants = plantPageSize === 'all'
+    ? visiblePlants
+    : visiblePlants.slice(firstVisiblePlantIndex, firstVisiblePlantIndex + plantPageSize);
+  const lastVisiblePlantIndex = firstVisiblePlantIndex + paginatedPlants.length;
+
+  useEffect(() => {
+    setPlantPage(1);
+  }, [searchText, plantFilters, lifecycleView, quarantineFilter, recentlyCheckedFilter,
+    recentlyAcquiredFilter, plantViewMode]);
+
+  useEffect(() => {
+    if (plantPage > plantPageCount) setPlantPage(plantPageCount);
+  }, [plantPage, plantPageCount]);
 
   const countPlants = (matchesPlant) => plants.filter(matchesPlant).length;
   const lifecycleCounts = {
@@ -962,6 +1008,7 @@ function App() {
       metric.filter && advancedFilterFields.some(([fieldName]) => fieldName === metric.filter[0])
     ));
     setSelectedPlant(null);
+    setPlantPage(1);
     setAppView('plants');
   }
 
@@ -1081,6 +1128,7 @@ function App() {
     setRecentlyAcquiredFilter(false);
     setLifecycleView('active');
     setActiveQuickView('all-active');
+    setPlantPage(1);
   }
 
   const quickViews = [
@@ -1122,6 +1170,7 @@ function App() {
       && advancedFilterFields.some(([fieldName]) => fieldName === quickView.filter[0])
     ));
     setActiveQuickView(quickView.id);
+    setPlantPage(1);
   }
 
   function exportData() {
@@ -2444,6 +2493,19 @@ function App() {
               ))}
             </div>
           </div>
+          <div className="page-size-control">
+            <label htmlFor="plant-page-size">Plants per page</label>
+            <select id="plant-page-size" value={plantPageSize}
+              onChange={(event) => changePlantPageSize(
+                event.target.value === 'all' ? 'all' : Number(event.target.value),
+              )}>
+              <option value={12}>12</option>
+              <option value={18}>18</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value="all">All</option>
+            </select>
+          </div>
         </div>
         <div className="plant-filter-panel" aria-label="Filter plants">
           <div className="filter-panel-heading">
@@ -2500,8 +2562,13 @@ function App() {
           )}
         </div>
         <hr className="plant-list-divider" />
+        {visiblePlants.length > 0 && (
+          <p className="plant-result-summary" aria-live="polite">
+            Showing {firstVisiblePlantIndex + 1}–{lastVisiblePlantIndex} of {visiblePlants.length} plants
+          </p>
+        )}
         <div className={`plant-list plant-list-${plantViewMode}`}>
-          {visiblePlants.length > 0 && plantViewMode === 'cards' && visiblePlants.map((plant, plantIndex) => (
+          {paginatedPlants.length > 0 && plantViewMode === 'cards' && paginatedPlants.map((plant, plantIndex) => (
             <button
               className="plant-card"
               type="button"
@@ -2525,7 +2592,7 @@ function App() {
               <span className="view-details">View details →</span>
             </button>
           ))}
-          {visiblePlants.length > 0 && plantViewMode === 'gallery' && visiblePlants.map((plant, plantIndex) => (
+          {paginatedPlants.length > 0 && plantViewMode === 'gallery' && paginatedPlants.map((plant, plantIndex) => (
             <button className="gallery-card" type="button" key={`${plant.name}-${plantIndex}`}
               onClick={() => openPlantDetails(plant)} aria-label={`View details for ${plant.name}`}>
               <div className="gallery-image"><PlantImage key={plant.imageUrl || 'placeholder'} plant={plant} /></div>
@@ -2536,7 +2603,7 @@ function App() {
               </div>
             </button>
           ))}
-          {visiblePlants.length > 0 && plantViewMode === 'compact' && visiblePlants.map((plant, plantIndex) => (
+          {paginatedPlants.length > 0 && plantViewMode === 'compact' && paginatedPlants.map((plant, plantIndex) => (
             <button className="compact-plant-row" type="button" key={`${plant.name}-${plantIndex}`}
               onClick={() => openPlantDetails(plant)} aria-label={`View details for ${plant.name}`}>
               <PlantImage key={plant.imageUrl || 'placeholder'} plant={plant} />
@@ -2554,6 +2621,19 @@ function App() {
           ))}
           {visiblePlants.length === 0 && <p className="empty-message">No plants found.</p>}
         </div>
+        {visiblePlants.length > 0 && plantPageCount > 1 && (
+          <nav className="plant-pagination" aria-label="Plant list pages">
+            <button type="button" disabled={currentPlantPage === 1}
+              onClick={() => setPlantPage((page) => Math.max(1, page - 1))}>
+              Previous
+            </button>
+            <span>Page {currentPlantPage} of {plantPageCount}</span>
+            <button type="button" disabled={currentPlantPage === plantPageCount}
+              onClick={() => setPlantPage((page) => Math.min(plantPageCount, page + 1))}>
+              Next
+            </button>
+          </nav>
+        )}
         </>
         )
         )}

@@ -825,6 +825,30 @@
   text-align: left;
 }
 
+.page-size-control {
+  min-width: 130px;
+  text-align: left;
+}
+
+.page-size-control label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.page-size-control select {
+  width: 100%;
+  padding: 10px 30px 10px 12px;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
 .plant-filter-dropdowns {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -957,6 +981,46 @@
   gap: 22px;
   text-align: left;
 }
+
+.plant-result-summary {
+  margin: -12px 0 16px;
+  color: var(--text-p);
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-align: left;
+}
+
+.plant-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.plant-pagination span {
+  min-width: 92px;
+  color: var(--text-p);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.plant-pagination button {
+  padding: 9px 14px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid var(--brand-leaf);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.plant-pagination button:hover:not(:disabled) { background: var(--accent-bg); }
+.plant-pagination button:disabled { opacity: 0.45; cursor: default; }
+.plant-pagination button:focus-visible { outline: 3px solid var(--accent-border); outline-offset: 2px; }
 
 .plant-card {
   position: relative;
