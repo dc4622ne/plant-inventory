@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.12.0',
-  buildDateTime: '2026-07-14 15:24:25 -04:00',
-  releaseName: 'Wishlist details and shared image uploads',
+  version: 'v0.13.0',
+  buildDateTime: '2026-07-14 16:00:00 -04:00',
+  releaseName: 'Native Resources and Soil Mix Guide',
 };
 
 export const changelog = [
+  {
+    version: 'v0.13.0',
+    releaseDate: '2026-07-14',
+    changes: [
+      'Added a new Resources section for native plant-care reference content.',
+      'Added the Rooted with Gibre Houseplant Soil Mix Guide inside the app.',
+      'Added soil mix search, plant match search, and category filters.',
+      'Added expandable, mobile-friendly guide sections with Expand All and Collapse All controls.',
+    ],
+  },
   {
     version: 'v0.12.0',
     releaseDate: '2026-07-14',

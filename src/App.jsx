@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import Garden from './Garden';
+import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
@@ -783,6 +784,7 @@ function App() {
   const [gardenBeds, setGardenBeds] = useState(loadGardenBeds);
   const [gardenFilter, setGardenFilter] = useState({});
   const [appView, setAppView] = useState('dashboard');
+  const [selectedResourceId, setSelectedResourceId] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [plantFormBaseline, setPlantFormBaseline] = useState(JSON.stringify(emptyPlant));
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
@@ -1260,6 +1262,18 @@ function App() {
     setAddPlantMessage('');
     setQuickCheckMessage('');
     setAppView('settings');
+  }
+
+  function openResources(resourceId = '') {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setAddPlantMessage('');
+    setQuickCheckMessage('');
+    setSelectedResourceId(resourceId);
+    setAppView('resources');
   }
 
   async function checkForUpdates() {
@@ -2110,6 +2124,10 @@ function App() {
           aria-current={appView === 'garden' ? 'page' : undefined} onClick={() => openGarden()}>
           Garden Beds
         </button>
+        <button type="button" className={appView === 'resources' ? 'active' : ''}
+          aria-current={appView === 'resources' ? 'page' : undefined} onClick={() => openResources()}>
+          Resources
+        </button>
         <button type="button" className={appView === 'settings' ? 'active' : ''}
           aria-current={appView === 'settings' ? 'page' : undefined} onClick={openSettings}>
           Settings
@@ -2857,6 +2875,12 @@ function App() {
         ) : appView === 'garden' ? (
           <Garden key={JSON.stringify(gardenFilter)} beds={gardenBeds} onChange={setGardenBeds}
             initialFilter={gardenFilter} onDirtyChange={setGardenFormDirty} />
+        ) : appView === 'resources' ? (
+          <Resources
+            selectedResourceId={selectedResourceId}
+            onOpenResource={setSelectedResourceId}
+            onBackToResources={() => setSelectedResourceId('')}
+          />
         ) : appView === 'wishlist' ? (
         <section className="wishlist-view" aria-labelledby="wishlist-heading">
           <div className="section-heading">

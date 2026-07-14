@@ -777,6 +777,319 @@
   text-align: center;
 }
 
+.resources-view {
+  display: grid;
+  gap: 22px;
+  text-align: left;
+}
+
+.resources-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: end;
+}
+
+.resources-heading h2 {
+  margin: 3px 0 6px;
+}
+
+.resources-heading p:last-child,
+.resource-detail-heading p {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.resources-tools {
+  padding: 16px;
+  background: color-mix(in srgb, var(--brand-cream) 44%, #fff);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.resource-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.resource-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 154px;
+  padding: 18px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: 0 7px 22px rgba(31, 61, 43, 0.08);
+  transition: box-shadow 180ms ease, transform 180ms ease;
+}
+
+.resource-card:hover {
+  box-shadow: 0 12px 28px rgba(31, 61, 43, 0.14);
+  transform: translateY(-2px);
+}
+
+.resource-card:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.resource-card-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  font-size: 1.8rem;
+  background: rgba(107, 143, 113, 0.13);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.resource-card-content {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.resource-card-content strong {
+  color: var(--brand-green);
+  font-size: 1.04rem;
+  line-height: 1.25;
+}
+
+.resource-card-content span:not(.wishlist-status),
+.resource-card-content small,
+.resource-detail-heading small {
+  color: var(--text-h);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.resource-card .view-details {
+  grid-column: 2;
+  align-self: end;
+}
+
+.resource-detail {
+  display: grid;
+  gap: 22px;
+}
+
+.resource-detail .detail-actions {
+  margin-bottom: 0;
+}
+
+.resource-detail-heading {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.resource-detail-heading h2 {
+  margin: 3px 0 7px;
+}
+
+.soil-guide-tools {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background: var(--social-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.soil-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.soil-filter-list button {
+  padding: 7px 11px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid var(--brand-leaf);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.soil-filter-list button:hover {
+  background: var(--accent-bg);
+}
+
+.soil-filter-list button.quick-view-active {
+  color: #fff;
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+}
+
+.soil-filter-list button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.soil-expand-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.soil-recipe-list {
+  display: grid;
+  gap: 12px;
+}
+
+.soil-recipe-card {
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.soil-recipe-toggle {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 16px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.soil-recipe-toggle > span:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.soil-recipe-toggle strong {
+  color: var(--brand-green);
+  font-size: 1rem;
+}
+
+.soil-recipe-toggle small {
+  color: var(--text-h);
+  font-size: 0.82rem;
+}
+
+.soil-recipe-toggle > span:last-child {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  background: var(--brand-deep);
+  border-radius: 8px;
+}
+
+.soil-recipe-toggle:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: -3px;
+}
+
+.soil-recipe-content {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 0 16px 16px;
+}
+
+.soil-recipe-group {
+  min-width: 0;
+  padding: 13px;
+  background: color-mix(in srgb, var(--brand-cream) 38%, #fff);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.soil-recipe-group h4 {
+  margin: 0 0 9px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.soil-recipe-group ul,
+.resource-bullet-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.soil-recipe-group li,
+.resource-bullet-list li {
+  color: var(--text-h);
+  font-size: 0.85rem;
+  line-height: 1.42;
+}
+
+.soil-mix-facts {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  margin: 0;
+}
+
+.soil-mix-facts div,
+.resource-note-list div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.45fr) 1fr;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+
+.soil-mix-facts dt,
+.resource-note-list dt {
+  color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.soil-mix-facts dd,
+.resource-note-list dd {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.resource-reference-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.resource-reference-section h3 {
+  margin: 0 0 14px;
+  color: var(--brand-green);
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.resource-note-list {
+  margin: 0;
+}
+
 .data-tool-row {
   display: flex;
   gap: 24px;
@@ -2194,6 +2507,14 @@
 }
 
 @media (max-width: 760px) {
+  .resource-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .soil-recipe-content {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2370,6 +2691,18 @@
   .wishlist-card-heading { flex-direction: column; }
   .wishlist-detail-image,
   .wishlist-detail-placeholder { width: 100%; height: 220px; }
+  .resources-heading,
+  .resource-detail-heading { align-items: flex-start; flex-direction: column; }
+  .resource-card { min-height: 0; padding: 15px; }
+  .resource-card .view-details { grid-column: 1 / -1; }
+  .soil-guide-tools { padding: 14px; }
+  .soil-filter-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .soil-filter-list button { min-height: 40px; padding-inline: 8px; }
+  .soil-expand-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .soil-recipe-toggle { padding: 13px; }
+  .soil-recipe-content { padding: 0 13px 13px; }
+  .soil-mix-facts div,
+  .resource-note-list div { grid-template-columns: 1fr; gap: 4px; }
 
   .section-heading {
     align-items: stretch;
@@ -2455,7 +2788,7 @@
 @media (max-width: 700px) {
   .app-navigation {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 4px;
     position: sticky;
     top: env(safe-area-inset-top);
@@ -2480,13 +2813,15 @@
   .dashboard-chart,
   .settings-card,
   .garden-panel,
+  .resource-detail,
   .plant-detail,
   .photo-log,
   .activity-log { min-width: 0; }
 
   .dashboard-chart,
   .settings-card,
-  .garden-panel { padding: 16px; }
+  .garden-panel,
+  .resource-detail { padding: 16px; }
   .dashboard-chart-content { min-width: 0; }
   .dashboard-donut { margin-inline: auto; }
   .dashboard-chart-label { white-space: normal; }
@@ -2549,6 +2884,11 @@
   .wishlist-summary { display: grid; grid-template-columns: 1fr 1fr; }
   .garden-tools { padding: 14px; }
   .garden-panel { padding: 15px; }
+  .resource-card { grid-template-columns: 44px minmax(0, 1fr); gap: 11px; }
+  .resource-card-icon { width: 44px; height: 44px; font-size: 1.5rem; }
+  .soil-filter-list { grid-template-columns: 1fr; }
+  .soil-expand-actions { grid-template-columns: 1fr; }
+  .soil-expand-actions button { width: 100%; }
 
   .photo-entry-content,
   .activity-entry-content { min-width: 0; }

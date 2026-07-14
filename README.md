@@ -89,6 +89,10 @@ The app includes a web app manifest and a basic service worker. On iPhone or iPa
 
 For GitHub Pages deployments under a repository subpath, set Vite's `base` option to that repository path before building. Hosts that publish at the domain root need no change.
 
+## Adding resources
+
+Resources are native app data, not linked documents. Add a new resource file in `src/resources/`, export a structured object with `id`, `title`, `version`, `category`, `description`, `lastUpdated`, `icon`, and `sections`, then add it to the `resources` array in `src/resources/index.js`. The Resources landing page will pick it up from that registry.
+
 ## Important data note
 
 Data is stored in this browser's local storage and does not automatically sync. Use **Settings → Cloud Sync** for manual Supabase backup/restore, and keep using **Export Data** for downloadable JSON backups.
