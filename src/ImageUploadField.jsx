@@ -1,10 +1,5 @@
 import { useState } from 'react';
-import { imageAcceptAttribute, prepareImageForStorage, readFileAsDataUrl, validateImageFile } from './imageUploadUtils';
-
-async function prepareImage(file) {
-  const { file: preparedFile } = await prepareImageForStorage(file);
-  return readFileAsDataUrl(preparedFile);
-}
+import { imageAcceptAttribute, validateImageFile } from './imageUploadUtils';
 
 export function SafeImage({ src, alt, className, fallback = null }) {
   const [failed, setFailed] = useState(false);
@@ -41,9 +36,7 @@ export default function ImageUploadField({
         onFileSelected(file);
         setMessage('Photo selected and ready to save.');
       } else {
-        setMessage('Preparing image...');
-        onChange(await prepareImage(file));
-        setMessage('Photo selected and ready to save.');
+        setMessage('This form is not connected to photo uploads yet. Please paste an image URL instead.');
       }
     } catch (error) {
       setMessage(error.message || 'That image could not be added.');
@@ -57,7 +50,7 @@ export default function ImageUploadField({
       <label htmlFor={`${id}-url`}>{label}</label>
       <input id={`${id}-url`} type="url" value={uploaded ? '' : value}
         placeholder={uploaded ? 'Uploaded photo selected' : 'https://example.com/photo.jpg'}
-        required={required && !uploaded}
+        required={required && !uploaded && !selectedFileName && !previewUrl}
         disabled={disabled}
         onChange={(event) => { onChange(event.target.value); setMessage(''); }} />
       <span className="image-choice-label">or choose a photo from your device</span>

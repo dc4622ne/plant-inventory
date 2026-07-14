@@ -4,10 +4,8 @@ import Garden from './Garden';
 import { changelog, currentAppVersion } from './appVersion';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
-import { prepareImageForStorage } from './imageUploadUtils';
+import { uploadStoredImage } from './imageUploadUtils';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
-
-const plantImageBucket = 'plant-images';
 
 const initialPlants = [
   {
@@ -189,20 +187,6 @@ function emptyLogEntry() {
 
 function emptyPhotoEntry() {
   return { photoUrl: '', date: todayDate(), caption: '', photoType: 'General photo' };
-}
-
-function imageExtension(contentType) {
-  if (contentType === 'image/png') return 'png';
-  if (contentType === 'image/webp') return 'webp';
-  if (contentType === 'image/heic') return 'heic';
-  if (contentType === 'image/heif') return 'heif';
-  return 'jpg';
-}
-
-function imageStoragePath(folderName, contentType) {
-  const extension = imageExtension(contentType);
-  const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${folderName}/${Date.now()}-${uniqueId}.${extension}`;
 }
 
 function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
@@ -748,6 +732,52 @@ function getDetailSections(plant) {
   });
 }
 
+const wishlistFieldLabels = {
+  name: 'Plant name',
+  genus: 'Genus',
+  type: 'Type / category',
+  imageUrl: 'Photo URL',
+  desiredStatus: 'Purchase status',
+  priority: 'Purchase priority',
+  purchasePriority: 'Purchase priority',
+  source: 'Source / seller',
+  price: 'Price',
+  orderDate: 'Order date',
+  shipDate: 'Ship date',
+  expectedArrivalDate: 'Expected arrival',
+  actualArrivalDate: 'Actual arrival',
+  dateAdded: 'Date added',
+  createdAt: 'Date added',
+  tracking: 'Tracking',
+  notes: 'Notes',
+  converted: 'Added to inventory',
+  convertedPlantId: 'Inventory plant ID',
+};
+
+const primaryWishlistFields = [
+  'genus', 'type', 'source', 'price', 'desiredStatus', 'orderDate',
+  'shipDate', 'expectedArrivalDate', 'actualArrivalDate', 'tracking',
+  'converted', 'convertedPlantId', 'notes',
+];
+
+function wishlistDisplayValue(fieldName, value) {
+  if (fieldName === 'price') return formatPrice(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : '';
+  return value;
+}
+
+function getWishlistDetailFields(item) {
+  const knownFields = primaryWishlistFields
+    .map((fieldName) => [fieldName, wishlistFieldLabels[fieldName], wishlistDisplayValue(fieldName, item[fieldName])])
+    .filter(([, , value]) => value !== '' && value !== null && value !== undefined);
+  const knownFieldNames = new Set(['id', 'name', 'imageUrl', ...primaryWishlistFields]);
+  const extraFields = Object.entries(item)
+    .filter(([fieldName, value]) => !knownFieldNames.has(fieldName) && value !== '' && value !== null && value !== undefined)
+    .map(([fieldName, value]) => [fieldName, wishlistFieldLabels[fieldName] || fieldName, wishlistDisplayValue(fieldName, value)]);
+
+  return [...knownFields, ...extraFields];
+}
+
 function App() {
   const [plants, setPlants] = useState(loadPlants);
   const [gardenBeds, setGardenBeds] = useState(loadGardenBeds);
@@ -789,6 +819,16 @@ function App() {
   const [newPhotoEntry, setNewPhotoEntry] = useState(emptyPhotoEntry);
   const [editingPhotoEntry, setEditingPhotoEntry] = useState(null);
   const [photoEntryDraft, setPhotoEntryDraft] = useState(emptyPhotoEntry);
+  const [photoEntryFile, setPhotoEntryFile] = useState(null);
+  const [photoEntryPreviewUrl, setPhotoEntryPreviewUrl] = useState('');
+  const [photoEntryUploadError, setPhotoEntryUploadError] = useState('');
+  const [photoEntrySubmitStatus, setPhotoEntrySubmitStatus] = useState('');
+  const [isPhotoEntrySubmitting, setIsPhotoEntrySubmitting] = useState(false);
+  const [photoEditFile, setPhotoEditFile] = useState(null);
+  const [photoEditPreviewUrl, setPhotoEditPreviewUrl] = useState('');
+  const [photoEditUploadError, setPhotoEditUploadError] = useState('');
+  const [photoEditSubmitStatus, setPhotoEditSubmitStatus] = useState('');
+  const [isPhotoEditSubmitting, setIsPhotoEditSubmitting] = useState(false);
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
   const [backupMessageType, setBackupMessageType] = useState('success');
@@ -809,6 +849,7 @@ function App() {
   const [gardenFormDirty, setGardenFormDirty] = useState(false);
   const [wishlistSearch, setWishlistSearch] = useState('');
   const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
+  const [selectedWishlistItemId, setSelectedWishlistItemId] = useState('');
   const importInputRef = useRef(null);
   const hasNewOptionDraft = Object.values(newOptionText).some((value) => value.trim());
   const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft || Boolean(plantImageFile));
@@ -849,6 +890,23 @@ function App() {
   useEffect(() => () => {
     if (wishlistImagePreviewUrl) URL.revokeObjectURL(wishlistImagePreviewUrl);
   }, [wishlistImagePreviewUrl]);
+
+  useEffect(() => () => {
+    if (photoEntryPreviewUrl) URL.revokeObjectURL(photoEntryPreviewUrl);
+  }, [photoEntryPreviewUrl]);
+
+  useEffect(() => () => {
+    if (photoEditPreviewUrl) URL.revokeObjectURL(photoEditPreviewUrl);
+  }, [photoEditPreviewUrl]);
+
+  useEffect(() => {
+    if (!selectedWishlistItemId) return undefined;
+    const closeWishlistDetails = (event) => {
+      if (event.key === 'Escape') setSelectedWishlistItemId('');
+    };
+    window.addEventListener('keydown', closeWishlistDetails);
+    return () => window.removeEventListener('keydown', closeWishlistDetails);
+  }, [selectedWishlistItemId]);
 
   function clearPlantImageSelection() {
     if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
@@ -893,6 +951,48 @@ function App() {
     setWishlistSubmitStatus('');
   }
 
+  function clearPhotoEntryImageSelection() {
+    if (photoEntryPreviewUrl) URL.revokeObjectURL(photoEntryPreviewUrl);
+    setPhotoEntryFile(null);
+    setPhotoEntryPreviewUrl('');
+    setPhotoEntryUploadError('');
+    setPhotoEntrySubmitStatus('');
+  }
+
+  function selectPhotoEntryImageFile(file) {
+    if (!file) {
+      clearPhotoEntryImageSelection();
+      return;
+    }
+
+    if (photoEntryPreviewUrl) URL.revokeObjectURL(photoEntryPreviewUrl);
+    setPhotoEntryFile(file);
+    setPhotoEntryPreviewUrl(URL.createObjectURL(file));
+    setPhotoEntryUploadError('');
+    setPhotoEntrySubmitStatus('');
+  }
+
+  function clearPhotoEditImageSelection() {
+    if (photoEditPreviewUrl) URL.revokeObjectURL(photoEditPreviewUrl);
+    setPhotoEditFile(null);
+    setPhotoEditPreviewUrl('');
+    setPhotoEditUploadError('');
+    setPhotoEditSubmitStatus('');
+  }
+
+  function selectPhotoEditImageFile(file) {
+    if (!file) {
+      clearPhotoEditImageSelection();
+      return;
+    }
+
+    if (photoEditPreviewUrl) URL.revokeObjectURL(photoEditPreviewUrl);
+    setPhotoEditFile(file);
+    setPhotoEditPreviewUrl(URL.createObjectURL(file));
+    setPhotoEditUploadError('');
+    setPhotoEditSubmitStatus('');
+  }
+
   function confirmDiscardChanges(isDirty = hasUnsavedFormChanges) {
     return !isDirty || window.confirm('You have unsaved changes. Discard them and continue?');
   }
@@ -907,7 +1007,12 @@ function App() {
     setWishlistFormBaseline(JSON.stringify(emptyWishlistItem));
     setEditingWishlistId('');
     setShowWishlistForm(false);
+    setSelectedWishlistItemId('');
     clearWishlistImageSelection();
+    setNewPhotoEntry(emptyPhotoEntry());
+    cancelEditingPhotoEntry();
+    clearPhotoEntryImageSelection();
+    clearPhotoEditImageSelection();
     setNewOptionText({
       genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
       wateringRhythm: '', moisturePreference: '', careDifficulty: '',
@@ -1068,6 +1173,7 @@ function App() {
   ];
   const gardenMetrics = getGardenMetrics(gardenBeds);
   const wishlistFilterOptions = (field) => [...new Set(wishlistItems.map((item) => item[field]).filter(Boolean))].sort();
+  const selectedWishlistItem = wishlistItems.find((item) => item.id === selectedWishlistItemId);
   const visibleWishlistItems = wishlistItems.filter((item) => {
     const matchesSearch = !wishlistSearch.trim() || item.name.toLowerCase().includes(wishlistSearch.trim().toLowerCase());
     const matchesFilters = Object.entries(wishlistFilters).every(([field, value]) => !value || item[field] === value);
@@ -1245,6 +1351,7 @@ function App() {
   function deleteWishlistItem(item) {
     if (!window.confirm(`Delete ${item.name} from Wishlist / Purchases?`)) return;
     saveWishlist(wishlistItems.filter((current) => current.id !== item.id));
+    if (selectedWishlistItemId === item.id) setSelectedWishlistItemId('');
   }
 
   function convertWishlistItem(item) {
@@ -1623,27 +1730,6 @@ function App() {
     }
   }
 
-  async function uploadStoredImage(file, folderName = 'plants') {
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase is not configured. Remove the photo or add Supabase Storage settings before saving with an uploaded photo.');
-    }
-
-    const { file: preparedFile, contentType } = await prepareImageForStorage(file);
-    const storagePath = imageStoragePath(folderName, contentType);
-    const { error } = await supabase.storage
-      .from(plantImageBucket)
-      .upload(storagePath, preparedFile, {
-        cacheControl: '3600',
-        contentType,
-        upsert: false,
-      });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(plantImageBucket).getPublicUrl(storagePath);
-    return data.publicUrl || storagePath;
-  }
-
   async function handleSubmit(event) {
     event.preventDefault();
     if (isPlantSubmitting) return;
@@ -1906,22 +1992,42 @@ function App() {
     setSelectedPlant(updatedPlant);
   }
 
-  function addPhotoEntry(event) {
+  async function addPhotoEntry(event) {
     event.preventDefault();
-    if (!newPhotoEntry.photoUrl.trim()) return;
-    const photoEntry = {
-      ...newPhotoEntry,
-      photoUrl: newPhotoEntry.photoUrl.trim(),
-      caption: newPhotoEntry.caption.trim(),
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      createdAt: new Date().toISOString(),
-    };
+    if (isPhotoEntrySubmitting) return;
+    if (!photoEntryFile && !newPhotoEntry.photoUrl.trim()) return;
 
-    savePhotoLog([...(selectedPlant.photoLog || []), photoEntry]);
-    setNewPhotoEntry(emptyPhotoEntry());
+    setPhotoEntryUploadError('');
+    setIsPhotoEntrySubmitting(true);
+    setPhotoEntrySubmitStatus(photoEntryFile ? 'Uploading photo...' : 'Saving photo...');
+
+    try {
+      const uploadedPhotoUrl = photoEntryFile
+        ? await uploadStoredImage(photoEntryFile, 'photo-log')
+        : newPhotoEntry.photoUrl.trim();
+      setPhotoEntrySubmitStatus('Saving photo...');
+      const photoEntry = {
+        ...newPhotoEntry,
+        photoUrl: uploadedPhotoUrl,
+        caption: newPhotoEntry.caption.trim(),
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        createdAt: new Date().toISOString(),
+      };
+
+      savePhotoLog([...(selectedPlant.photoLog || []), photoEntry]);
+      setNewPhotoEntry(emptyPhotoEntry());
+      clearPhotoEntryImageSelection();
+    } catch (error) {
+      console.error('Photo log image upload failed:', error);
+      setPhotoEntryUploadError(error.message || String(error));
+      setPhotoEntrySubmitStatus('');
+    } finally {
+      setIsPhotoEntrySubmitting(false);
+    }
   }
 
   function startEditingPhotoEntry(entry) {
+    clearPhotoEditImageSelection();
     setEditingPhotoEntry(entry);
     setPhotoEntryDraft({
       photoUrl: entry.photoUrl || '',
@@ -1934,23 +2040,42 @@ function App() {
   function cancelEditingPhotoEntry() {
     setEditingPhotoEntry(null);
     setPhotoEntryDraft(emptyPhotoEntry());
+    clearPhotoEditImageSelection();
   }
 
-  function saveEditedPhotoEntry(event) {
+  async function saveEditedPhotoEntry(event) {
     event.preventDefault();
-    if (!photoEntryDraft.photoUrl.trim()) return;
-    const updatedEntry = {
-      ...editingPhotoEntry,
-      ...photoEntryDraft,
-      photoUrl: photoEntryDraft.photoUrl.trim(),
-      caption: photoEntryDraft.caption.trim(),
-    };
-    const updatedPhotoLog = (selectedPlant.photoLog || []).map((entry) => (
-      entry === editingPhotoEntry ? updatedEntry : entry
-    ));
+    if (isPhotoEditSubmitting) return;
+    if (!photoEditFile && !photoEntryDraft.photoUrl.trim()) return;
 
-    savePhotoLog(updatedPhotoLog);
-    cancelEditingPhotoEntry();
+    setPhotoEditUploadError('');
+    setIsPhotoEditSubmitting(true);
+    setPhotoEditSubmitStatus(photoEditFile ? 'Uploading replacement photo...' : 'Saving changes...');
+
+    try {
+      const uploadedPhotoUrl = photoEditFile
+        ? await uploadStoredImage(photoEditFile, 'photo-log')
+        : photoEntryDraft.photoUrl.trim();
+      setPhotoEditSubmitStatus('Saving changes...');
+      const updatedEntry = {
+        ...editingPhotoEntry,
+        ...photoEntryDraft,
+        photoUrl: uploadedPhotoUrl,
+        caption: photoEntryDraft.caption.trim(),
+      };
+      const updatedPhotoLog = (selectedPlant.photoLog || []).map((entry) => (
+        entry === editingPhotoEntry ? updatedEntry : entry
+      ));
+
+      savePhotoLog(updatedPhotoLog);
+      cancelEditingPhotoEntry();
+    } catch (error) {
+      console.error('Photo log replacement upload failed:', error);
+      setPhotoEditUploadError(error.message || String(error));
+      setPhotoEditSubmitStatus('');
+    } finally {
+      setIsPhotoEditSubmitting(false);
+    }
   }
 
   function deletePhotoEntry(entryToDelete) {
@@ -2126,9 +2251,24 @@ function App() {
           <section className="photo-log" aria-labelledby="photo-log-heading">
             <h3 id="photo-log-heading">Photo Log</h3>
             <form className="photo-form" onSubmit={addPhotoEntry}>
+              {photoEntryUploadError && (
+                <p className="form-error-message photo-form-message" role="alert">{photoEntryUploadError}</p>
+              )}
+              {photoEntrySubmitStatus && (
+                <p className="form-status-message photo-form-message" role="status">{photoEntrySubmitStatus}</p>
+              )}
               <ImageUploadField id="photo" className="photo-url-field" label="Photo URL" required
                 value={newPhotoEntry.photoUrl}
-                onChange={(photoUrl) => setNewPhotoEntry((entry) => ({ ...entry, photoUrl }))} />
+                onChange={(photoUrl) => {
+                  clearPhotoEntryImageSelection();
+                  setNewPhotoEntry((entry) => ({ ...entry, photoUrl }));
+                }}
+                onFileSelected={selectPhotoEntryImageFile}
+                selectedFileName={photoEntryFile?.name || ''}
+                previewUrl={photoEntryPreviewUrl}
+                disabled={isPhotoEntrySubmitting}
+                message={photoEntryUploadError}
+                messageType={photoEntryUploadError ? 'error' : 'status'} />
               <div className="form-field">
                 <label htmlFor="photo-date">Date</label>
                 <input id="photo-date" type="date" required value={newPhotoEntry.date}
@@ -2153,7 +2293,9 @@ function App() {
                     ...entry, caption: event.target.value,
                   }))} />
               </div>
-              <button type="submit">Add photo</button>
+              <button type="submit" disabled={isPhotoEntrySubmitting}>
+                {isPhotoEntrySubmitting ? (photoEntryFile ? 'Uploading photo...' : 'Saving photo...') : 'Add photo'}
+              </button>
             </form>
             {(selectedPlant.photoLog || []).length > 0 ? (
               <ol className="photo-list">
@@ -2166,9 +2308,24 @@ function App() {
                     <li key={entry.id || `${entry.date}-${entry.photoUrl}-${entryIndex}`}>
                       {editingPhotoEntry === entry ? (
                         <form className="photo-edit-form" onSubmit={saveEditedPhotoEntry}>
+                          {photoEditUploadError && (
+                            <p className="form-error-message photo-form-message" role="alert">{photoEditUploadError}</p>
+                          )}
+                          {photoEditSubmitStatus && (
+                            <p className="form-status-message photo-form-message" role="status">{photoEditSubmitStatus}</p>
+                          )}
                           <ImageUploadField id={`edit-photo-${entry.id || entryIndex}`} className="photo-url-field" label="Photo URL" required
                             value={photoEntryDraft.photoUrl}
-                            onChange={(photoUrl) => setPhotoEntryDraft((draft) => ({ ...draft, photoUrl }))} />
+                            onChange={(photoUrl) => {
+                              clearPhotoEditImageSelection();
+                              setPhotoEntryDraft((draft) => ({ ...draft, photoUrl }));
+                            }}
+                            onFileSelected={selectPhotoEditImageFile}
+                            selectedFileName={photoEditFile?.name || ''}
+                            previewUrl={photoEditPreviewUrl}
+                            disabled={isPhotoEditSubmitting}
+                            message={photoEditUploadError}
+                            messageType={photoEditUploadError ? 'error' : 'status'} />
                           <div className="form-field">
                             <label htmlFor="edit-photo-date">Date</label>
                             <input id="edit-photo-date" type="date" required
@@ -2195,8 +2352,10 @@ function App() {
                               }))} />
                           </div>
                           <div className="photo-entry-actions">
-                            <button type="submit">Save changes</button>
-                            <button type="button" onClick={cancelEditingPhotoEntry}>Cancel</button>
+                            <button type="submit" disabled={isPhotoEditSubmitting}>
+                              {isPhotoEditSubmitting ? (photoEditFile ? 'Uploading photo...' : 'Saving changes...') : 'Save changes'}
+                            </button>
+                            <button type="button" disabled={isPhotoEditSubmitting} onClick={cancelEditingPhotoEntry}>Cancel</button>
                           </div>
                         </form>
                       ) : (
@@ -2771,6 +2930,53 @@ function App() {
             </form>
           ) : (
             <>
+              {selectedWishlistItem && (
+                <article className="wishlist-detail plant-detail" aria-labelledby="wishlist-detail-heading">
+                  <div className="detail-actions">
+                    <button className="back-button" type="button" onClick={() => setSelectedWishlistItemId('')}>
+                      ← Back to Wishlist
+                    </button>
+                    <div className="plant-change-actions">
+                      <button className="edit-plant-button" type="button" onClick={() => editWishlistItem(selectedWishlistItem)}
+                        aria-label={`Edit ${selectedWishlistItem.name}`} title="Edit">✏️</button>
+                      <button className="delete-plant-button" type="button" onClick={() => deleteWishlistItem(selectedWishlistItem)}
+                        aria-label={`Delete ${selectedWishlistItem.name}`} title="Delete">🗑️</button>
+                    </div>
+                  </div>
+                  <div className="detail-heading">
+                    {selectedWishlistItem.imageUrl ? (
+                      <SafeImage key={selectedWishlistItem.imageUrl} className="wishlist-detail-image"
+                        src={selectedWishlistItem.imageUrl} alt={`${selectedWishlistItem.name} plant`}
+                        fallback={<div className="wishlist-placeholder wishlist-detail-placeholder" aria-hidden="true">🌱</div>} />
+                    ) : (
+                      <div className="wishlist-placeholder wishlist-detail-placeholder" aria-hidden="true">🌱</div>
+                    )}
+                    <div>
+                      <p className="detail-eyebrow">Wishlist / purchase details</p>
+                      <h2 id="wishlist-detail-heading">{selectedWishlistItem.name}</h2>
+                      <p>{[selectedWishlistItem.genus, selectedWishlistItem.type].filter(Boolean).join(' · ') || 'Plant details not set'}</p>
+                      {selectedWishlistItem.desiredStatus && <p className="wishlist-status">{selectedWishlistItem.desiredStatus}</p>}
+                    </div>
+                  </div>
+                  <section className="detail-section">
+                    <h3>Item details</h3>
+                    <dl className="detail-list">
+                      {getWishlistDetailFields(selectedWishlistItem).map(([fieldName, label, value]) => (
+                        <div key={fieldName}><dt>{label}</dt><dd>{value}</dd></div>
+                      ))}
+                    </dl>
+                  </section>
+                  <div className="wishlist-detail-actions">
+                    <button type="button" className="convert-button" disabled={selectedWishlistItem.converted}
+                      onClick={() => convertWishlistItem(selectedWishlistItem)}>
+                      {selectedWishlistItem.converted ? 'Added to Plant Inventory' : 'Add to Plant Inventory'}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => setSelectedWishlistItemId('')}>
+                      Close details
+                    </button>
+                  </div>
+                </article>
+              )}
               <div className="wishlist-tools">
                 <div className="plant-search"><label htmlFor="wishlist-search">Search by plant name</label>
                   <input id="wishlist-search" type="search" placeholder="Search wishlist..." value={wishlistSearch} onChange={(e) => setWishlistSearch(e.target.value)} /></div>
@@ -2785,18 +2991,30 @@ function App() {
               {wishlistFilters.arrivingSoon && <p className="applied-dashboard-filter">Showing arrivals expected in the next 7 days.</p>}
               <div className="wishlist-list">
                 {visibleWishlistItems.length ? visibleWishlistItems.map((item) => (
-                  <article className="wishlist-card" key={item.id}>
+                  <article className="wishlist-card" key={item.id}
+                    role="button" tabIndex="0" aria-label={`View details for ${item.name}`}
+                    onClick={() => setSelectedWishlistItemId(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedWishlistItemId(item.id);
+                      }
+                    }}>
                     {item.imageUrl ? <SafeImage key={item.imageUrl} src={item.imageUrl} alt={`${item.name} plant`}
                       fallback={<div className="wishlist-placeholder" aria-hidden="true">🌱</div>} /> : <div className="wishlist-placeholder" aria-hidden="true">🌱</div>}
                     <div className="wishlist-card-body"><div className="wishlist-card-heading"><div><span className="wishlist-status">{item.desiredStatus || 'Wishlist'}</span><h3>{item.name}</h3></div>
                       <div className="wishlist-card-actions">
-                        <button type="button" onClick={() => editWishlistItem(item)}
+                        <button type="button" onClick={(event) => { event.stopPropagation(); editWishlistItem(item); }}
                           aria-label={`Edit ${item.name}`} title="Edit">✏️</button>
-                        <button className="delete-plant-button" type="button" onClick={() => deleteWishlistItem(item)}
+                        <button className="delete-plant-button" type="button" onClick={(event) => { event.stopPropagation(); deleteWishlistItem(item); }}
                           aria-label={`Delete ${item.name}`} title="Delete">🗑️</button>
                       </div></div>
                       <dl className="wishlist-summary"><div><dt>Source</dt><dd>{displayValue(item.source)}</dd></div><div><dt>Expected</dt><dd>{displayValue(item.expectedArrivalDate)}</dd></div>{item.price !== '' && <div><dt>Price</dt><dd>{formatPrice(item.price)}</dd></div>}</dl>
-                      <button type="button" className="convert-button" disabled={item.converted} onClick={() => convertWishlistItem(item)}>{item.converted ? 'Added to Plant Inventory' : 'Add to Plant Inventory'}</button>
+                      <button type="button" className="convert-button" disabled={item.converted}
+                        onClick={(event) => { event.stopPropagation(); convertWishlistItem(item); }}>
+                        {item.converted ? 'Added to Plant Inventory' : 'Add to Plant Inventory'}
+                      </button>
+                      <span className="view-details">View details →</span>
                     </div>
                   </article>
                 )) : <p className="empty-message">No wishlist or purchase items found.</p>}

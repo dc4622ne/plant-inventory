@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.11.0',
+  version: 'v0.12.0',
   buildDateTime: '2026-07-14 15:24:25 -04:00',
-  releaseName: 'Settings version and changelog',
+  releaseName: 'Wishlist details and shared image uploads',
 };
 
 export const changelog = [
+  {
+    version: 'v0.12.0',
+    releaseDate: '2026-07-14',
+    changes: [
+      'Added full wishlist card detail views.',
+      'Fixed Plant Photo Log image uploads.',
+      'Fixed Garden crop image uploads.',
+      'Fixed Garden bed image uploads.',
+    ],
+  },
   {
     version: 'v0.11.0',
     releaseDate: '2026-07-14',
