@@ -10,6 +10,30 @@ Install dependencies with `npm install`, then start the development app with `np
 
 Local browser storage remains the app's main working storage. Supabase holds one manual backup record; the app does not auto-sync.
 
+## Supabase plant image storage setup
+
+Photos chosen in the Add New Plant form upload to Supabase Storage before the plant is saved locally. The app currently has no sign-in flow, so it uses Supabase's `anon` role.
+
+In your Supabase project, open **Storage**, create a public bucket named `plant-images`, then open **SQL Editor**, create a new query, paste the SQL below, and run it:
+
+```sql
+insert into storage.buckets (id, name, public)
+values ('plant-images', 'plant-images', true)
+on conflict (id) do update set public = true;
+
+create policy "Allow anonymous plant image reads"
+on storage.objects for select
+to anon
+using (bucket_id = 'plant-images');
+
+create policy "Allow anonymous plant image uploads"
+on storage.objects for insert
+to anon
+with check (bucket_id = 'plant-images');
+```
+
+Because this phase intentionally has no login, anyone with your project URL and anon key can upload and read files in this bucket. Use this only as a personal, single-user setup and add authentication before sharing the deployed app broadly.
+
 ### 1. Create the backup table
 
 In your Supabase project, open **SQL Editor**, create a new query, paste the SQL below, and run it:

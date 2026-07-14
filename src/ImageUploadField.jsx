@@ -1,42 +1,9 @@
 import { useState } from 'react';
-
-const MAX_IMAGE_DIMENSION = 1600;
-const RESIZE_THRESHOLD = 1_500_000;
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('That image could not be read.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('That image format could not be opened.'));
-    image.src = dataUrl;
-  });
-}
+import { imageAcceptAttribute, prepareImageForStorage, readFileAsDataUrl, validateImageFile } from './imageUploadUtils';
 
 async function prepareImage(file) {
-  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
-  const dataUrl = await readFileAsDataUrl(file);
-  if (file.size <= RESIZE_THRESHOLD) return dataUrl;
-
-  try {
-    const image = await loadImage(dataUrl);
-    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(image.width, image.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(image.width * scale));
-    canvas.height = Math.max(1, Math.round(image.height * scale));
-    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.82);
-  } catch {
-    return dataUrl;
-  }
+  const { file: preparedFile } = await prepareImageForStorage(file);
+  return readFileAsDataUrl(preparedFile);
 }
 
 export function SafeImage({ src, alt, className, fallback = null }) {
@@ -45,17 +12,39 @@ export function SafeImage({ src, alt, className, fallback = null }) {
   return <img className={className} src={src} alt={alt} onError={() => setFailed(true)} />;
 }
 
-export default function ImageUploadField({ id, value = '', onChange, label = 'Image URL (optional)', className = '', required = false }) {
+export default function ImageUploadField({
+  id,
+  value = '',
+  onChange,
+  label = 'Image URL (optional)',
+  className = '',
+  required = false,
+  onFileSelected,
+  selectedFileName = '',
+  previewUrl = '',
+  disabled = false,
+  message: externalMessage = '',
+  messageType = 'status',
+}) {
   const [message, setMessage] = useState('');
   const uploaded = value.startsWith('data:image/');
+  const visibleMessage = externalMessage || message;
+  const visiblePreviewUrl = previewUrl || value;
+  const hasFileMode = typeof onFileSelected === 'function';
 
   async function chooseImage(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    setMessage('Preparing image…');
     try {
-      onChange(await prepareImage(file));
-      setMessage('Photo selected and ready to save.');
+      validateImageFile(file);
+      if (hasFileMode) {
+        onFileSelected(file);
+        setMessage('Photo selected and ready to save.');
+      } else {
+        setMessage('Preparing image...');
+        onChange(await prepareImage(file));
+        setMessage('Photo selected and ready to save.');
+      }
     } catch (error) {
       setMessage(error.message || 'That image could not be added.');
     } finally {
@@ -69,15 +58,30 @@ export default function ImageUploadField({ id, value = '', onChange, label = 'Im
       <input id={`${id}-url`} type="url" value={uploaded ? '' : value}
         placeholder={uploaded ? 'Uploaded photo selected' : 'https://example.com/photo.jpg'}
         required={required && !uploaded}
+        disabled={disabled}
         onChange={(event) => { onChange(event.target.value); setMessage(''); }} />
       <span className="image-choice-label">or choose a photo from your device</span>
-      <input id={`${id}-file`} className="image-file-input" type="file" accept="image/*"
-        onChange={chooseImage} aria-describedby={`${id}-help`} />
-      <small id={`${id}-help`}>Smaller images use less browser storage. Large photos are reduced automatically.</small>
-      {message && <small className="image-upload-message" role="status">{message}</small>}
-      {value && <div className="image-upload-preview">
-        <SafeImage key={value} src={value} alt="Selected preview" />
-        <button className="secondary-button" type="button" onClick={() => { onChange(''); setMessage('Image removed.'); }}>Remove image</button>
+      <input id={`${id}-file`} className="image-file-input" type="file" accept={imageAcceptAttribute}
+        onChange={chooseImage} aria-describedby={`${id}-help`} disabled={disabled} />
+      <small id={`${id}-help`}>JPEG, PNG, WebP, HEIC, and HEIF photos are accepted. Large photos are reduced automatically when the browser can process them.</small>
+      {selectedFileName && <small className="image-upload-filename">Selected: {selectedFileName}</small>}
+      {visibleMessage && (
+        <small className={messageType === 'error' ? 'image-upload-error' : 'image-upload-message'}
+          role={messageType === 'error' ? 'alert' : 'status'}>
+          {visibleMessage}
+        </small>
+      )}
+      {visiblePreviewUrl && <div className="image-upload-preview">
+        <SafeImage key={visiblePreviewUrl} src={visiblePreviewUrl} alt="Selected preview"
+          fallback={<div className="image-preview-fallback">Photo selected</div>} />
+        <button className="secondary-button" type="button" disabled={disabled}
+          onClick={() => {
+            if (hasFileMode) onFileSelected(null);
+            onChange('');
+            setMessage('Image removed.');
+          }}>
+          Remove image
+        </button>
       </div>}
     </div>
   );

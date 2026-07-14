@@ -3,7 +3,10 @@ import './App.css';
 import Garden from './Garden';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
+import { prepareImageForStorage } from './imageUploadUtils';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+
+const plantImageBucket = 'plant-images';
 
 const initialPlants = [
   {
@@ -185,6 +188,20 @@ function emptyLogEntry() {
 
 function emptyPhotoEntry() {
   return { photoUrl: '', date: todayDate(), caption: '', photoType: 'General photo' };
+}
+
+function imageExtension(contentType) {
+  if (contentType === 'image/png') return 'png';
+  if (contentType === 'image/webp') return 'webp';
+  if (contentType === 'image/heic') return 'heic';
+  if (contentType === 'image/heif') return 'heif';
+  return 'jpg';
+}
+
+function plantImageStoragePath(contentType) {
+  const extension = imageExtension(contentType);
+  const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `plants/${Date.now()}-${uniqueId}.${extension}`;
 }
 
 function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
@@ -760,6 +777,11 @@ function App() {
   const [plantPageSizes, setPlantPageSizes] = useState(loadPlantPageSizes);
   const [plantPage, setPlantPage] = useState(1);
   const [addPlantMessage, setAddPlantMessage] = useState('');
+  const [plantImageFile, setPlantImageFile] = useState(null);
+  const [plantImagePreviewUrl, setPlantImagePreviewUrl] = useState('');
+  const [plantImageUploadError, setPlantImageUploadError] = useState('');
+  const [plantSubmitStatus, setPlantSubmitStatus] = useState('');
+  const [isPlantSubmitting, setIsPlantSubmitting] = useState(false);
   const [newLogEntry, setNewLogEntry] = useState(emptyLogEntry);
   const [editingLogEntry, setEditingLogEntry] = useState(null);
   const [logEntryDraft, setLogEntryDraft] = useState(emptyLogEntry);
@@ -783,7 +805,7 @@ function App() {
   const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
   const importInputRef = useRef(null);
   const hasNewOptionDraft = Object.values(newOptionText).some((value) => value.trim());
-  const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft);
+  const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft || Boolean(plantImageFile));
   const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft);
   const hasUnsavedFormChanges = plantFormDirty || wishlistFormDirty || gardenFormDirty;
 
@@ -814,6 +836,32 @@ function App() {
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
   }, [hasUnsavedFormChanges]);
 
+  useEffect(() => () => {
+    if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
+  }, [plantImagePreviewUrl]);
+
+  function clearPlantImageSelection() {
+    if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
+    setPlantImageFile(null);
+    setPlantImagePreviewUrl('');
+    setPlantImageUploadError('');
+    setPlantSubmitStatus('');
+  }
+
+  function selectPlantImageFile(file) {
+    if (!file) {
+      clearPlantImageSelection();
+      return;
+    }
+
+    if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
+    setPlantImageFile(file);
+    setPlantImagePreviewUrl(URL.createObjectURL(file));
+    setPlantImageUploadError('');
+    setPlantSubmitStatus('');
+    setNewPlant((plant) => ({ ...plant, imageUrl: '' }));
+  }
+
   function confirmDiscardChanges(isDirty = hasUnsavedFormChanges) {
     return !isDirty || window.confirm('You have unsaved changes. Discard them and continue?');
   }
@@ -821,6 +869,7 @@ function App() {
   function resetMajorFormDrafts() {
     setNewPlant(emptyPlant);
     setPlantFormBaseline(JSON.stringify(emptyPlant));
+    clearPlantImageSelection();
     setShowForm(false);
     setIsEditing(false);
     setWishlistDraft(emptyWishlistItem);
@@ -1507,39 +1556,80 @@ function App() {
     }
   }
 
-  function handleSubmit(event) {
+  async function uploadPlantImage(file) {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase is not configured. Remove the photo or add Supabase Storage settings before saving with an uploaded photo.');
+    }
+
+    const { file: preparedFile, contentType } = await prepareImageForStorage(file);
+    const storagePath = plantImageStoragePath(contentType);
+    const { error } = await supabase.storage
+      .from(plantImageBucket)
+      .upload(storagePath, preparedFile, {
+        cacheControl: '3600',
+        contentType,
+        upsert: false,
+      });
+
+    if (error) throw error;
+
+    const { data } = supabase.storage.from(plantImageBucket).getPublicUrl(storagePath);
+    return data.publicUrl || storagePath;
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault();
+    if (isPlantSubmitting) return;
+
     const shouldAddAnother = !isEditing
       && event.nativeEvent.submitter?.value === 'add-another';
 
-    const savedPlant = {
-      ...newPlant,
-      image: getPlantImage(newPlant.name, newPlant.type),
-    };
+    setPlantImageUploadError('');
+    setAddPlantMessage('');
+    setIsPlantSubmitting(true);
+    setPlantSubmitStatus(plantImageFile ? 'Uploading photo...' : 'Saving plant...');
 
-    // Keep older text values unless the user chooses a replacement date.
-    if (isEditing) {
-      ['lastWatered', 'repotDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate'].forEach((fieldName) => {
-        const previousValue = selectedPlant[fieldName];
-        const isLegacyText = previousValue && !dateInputValue(previousValue);
+    try {
+      const uploadedImageUrl = plantImageFile ? await uploadPlantImage(plantImageFile) : newPlant.imageUrl;
+      setPlantSubmitStatus('Saving plant...');
 
-        if (!newPlant[fieldName] && isLegacyText) savedPlant[fieldName] = previousValue;
-      });
+      const savedPlant = {
+        ...newPlant,
+        imageUrl: uploadedImageUrl,
+        image: getPlantImage(newPlant.name, newPlant.type),
+      };
+
+      // Keep older text values unless the user chooses a replacement date.
+      if (isEditing) {
+        ['lastWatered', 'repotDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate'].forEach((fieldName) => {
+          const previousValue = selectedPlant[fieldName];
+          const isLegacyText = previousValue && !dateInputValue(previousValue);
+
+          if (!newPlant[fieldName] && isLegacyText) savedPlant[fieldName] = previousValue;
+        });
+      }
+      const updatedPlants = isEditing
+        ? plants.map((plant) => plant === selectedPlant ? savedPlant : plant)
+        : [...plants, savedPlant];
+
+      localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+      setPlants(updatedPlants);
+
+      if (isEditing) setSelectedPlant(savedPlant);
+      setNewPlant(emptyPlant);
+      setPlantFormBaseline(JSON.stringify(emptyPlant));
+      clearPlantImageSelection();
+      setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
+      setShowForm(shouldAddAnother);
+      setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Plant image upload failed:', error);
+      setPlantImageUploadError(error.message || String(error));
+      setPlantSubmitStatus('');
+    } finally {
+      setIsPlantSubmitting(false);
     }
-    const updatedPlants = isEditing
-      ? plants.map((plant) => plant === selectedPlant ? savedPlant : plant)
-      : [...plants, savedPlant];
-
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    setPlants(updatedPlants);
-
-    if (isEditing) setSelectedPlant(savedPlant);
-    setNewPlant(emptyPlant);
-    setPlantFormBaseline(JSON.stringify(emptyPlant));
-    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
-    setShowForm(shouldAddAnother);
-    setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
-    setIsEditing(false);
   }
 
   function handleInputChange(event) {
@@ -1574,6 +1664,7 @@ function App() {
     if (!confirmDiscardChanges(plantFormDirty)) return;
     setNewPlant(emptyPlant);
     setPlantFormBaseline(JSON.stringify(emptyPlant));
+    clearPlantImageSelection();
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setShowForm(false);
@@ -1598,6 +1689,7 @@ function App() {
     };
     setNewPlant(editablePlant);
     setPlantFormBaseline(JSON.stringify(editablePlant));
+    clearPlantImageSelection();
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setIsEditing(true);
@@ -2176,6 +2268,12 @@ function App() {
           {!isEditing && addPlantMessage && (
             <p className="form-success-message" role="status">{addPlantMessage}</p>
           )}
+          {plantImageUploadError && (
+            <p className="form-error-message" role="alert">{plantImageUploadError}</p>
+          )}
+          {plantSubmitStatus && (
+            <p className="form-status-message" role="status">{plantSubmitStatus}</p>
+          )}
           <div className="form-grid">
             {[
               ['name', 'Plant name'],
@@ -2193,7 +2291,16 @@ function App() {
             ))}
 
             <ImageUploadField id="plant-image" value={newPlant.imageUrl}
-              onChange={(imageUrl) => setNewPlant((plant) => ({ ...plant, imageUrl }))} />
+              onChange={(imageUrl) => {
+                clearPlantImageSelection();
+                setNewPlant((plant) => ({ ...plant, imageUrl }));
+              }}
+              onFileSelected={selectPlantImageFile}
+              selectedFileName={plantImageFile?.name || ''}
+              previewUrl={plantImagePreviewUrl}
+              disabled={isPlantSubmitting}
+              message={plantImageUploadError}
+              messageType={plantImageUploadError ? 'error' : 'status'} />
 
             {[
               ['genus', 'Genus'], ['type', 'Type / category'], ['source', 'Source'], ['status', 'Status'],
@@ -2361,13 +2468,15 @@ function App() {
             )}
           </div>
           <div className="form-actions">
-            <button type="submit">{isEditing ? 'Save changes' : 'Add Plant & Close'}</button>
+            <button type="submit" disabled={isPlantSubmitting}>
+              {isPlantSubmitting ? (plantImageFile ? 'Uploading photo...' : 'Saving plant...') : (isEditing ? 'Save changes' : 'Add Plant & Close')}
+            </button>
             {!isEditing && (
-              <button className="add-another-button" type="submit" value="add-another">
-                Save &amp; Add Another
+              <button className="add-another-button" type="submit" value="add-another" disabled={isPlantSubmitting}>
+                {isPlantSubmitting ? 'Saving plant...' : 'Save & Add Another'}
               </button>
             )}
-            <button className="secondary-button" type="button" onClick={cancelForm}>Cancel</button>
+            <button className="secondary-button" type="button" onClick={cancelForm} disabled={isPlantSubmitting}>Cancel</button>
           </div>
         </form>
         ) : (
@@ -2390,6 +2499,7 @@ function App() {
                 setAddPlantMessage('');
                 setNewPlant(emptyPlant);
                 setPlantFormBaseline(JSON.stringify(emptyPlant));
+                clearPlantImageSelection();
                 setShowForm(true);
               }}>+ Add New Plant</button>
               <button className="secondary-button" type="button" onClick={() => openPlantList()}>
@@ -2707,6 +2817,7 @@ function App() {
             setAddPlantMessage('');
             setNewPlant(emptyPlant);
             setPlantFormBaseline(JSON.stringify(emptyPlant));
+            clearPlantImageSelection();
             setShowForm(true);
           }}
             aria-label="Add new plant" title="Add new plant">
