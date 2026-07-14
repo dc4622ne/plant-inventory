@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.13.0',
-  buildDateTime: '2026-07-14 16:00:00 -04:00',
-  releaseName: 'Native Resources and Soil Mix Guide',
+  version: 'v0.14.0',
+  buildDateTime: '2026-07-14 16:30:00 -04:00',
+  releaseName: 'Linked Soil Mix Guide',
 };
 
 export const changelog = [
+  {
+    version: 'v0.14.0',
+    releaseDate: '2026-07-14',
+    changes: [
+      'Connected the Soil Mix Guide to plant add and edit forms.',
+      'Moved guide-based soil mix dropdown options to shared Resources data.',
+      'Added direct View recipe links from plant details into the in-app Soil Mix Guide.',
+      'Added support for custom soil mixes alongside guide recipes.',
+    ],
+  },
   {
     version: 'v0.13.0',
     releaseDate: '2026-07-14',

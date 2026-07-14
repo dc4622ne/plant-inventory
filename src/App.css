@@ -2147,6 +2147,39 @@
   white-space: pre-wrap;
 }
 
+.soil-mix-detail-value {
+  display: grid;
+  gap: 7px;
+}
+
+.soil-mix-detail-value button {
+  justify-self: start;
+  padding: 7px 10px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 750;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.soil-mix-detail-value button:hover {
+  filter: brightness(0.92);
+}
+
+.soil-mix-detail-value button:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.soil-mix-detail-value small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .activity-log,
 .photo-log {
   margin-top: 34px;

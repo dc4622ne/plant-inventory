@@ -6,6 +6,12 @@ import { changelog, currentAppVersion } from './appVersion';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { uploadStoredImage } from './imageUploadUtils';
+import {
+  getSoilMixByValue,
+  getSoilMixDisplayName,
+  soilMixGuideResourceId,
+  soilMixOptions,
+} from './resources';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const initialPlants = [
@@ -136,12 +142,6 @@ const photoTypes = [
 
 const attentionOptions = ['Low', 'Medium', 'High'];
 const thirstLevelOptions = ['Dry', 'Medium', 'Thirsty'];
-const soilMixOptions = [
-  'Base mix', 'Chunky aroid mix', 'Anthurium mix', 'Alocasia mix', 'Moisture mix',
-  'African violet mix', 'Lipstick plant mix', 'Dry mix', 'Christmas cactus mix',
-  'TC /Propagation mix', 'Carnivorous mix', 'Semi-hydro / LECA', 'Garden soil',
-  'Water propagation', 'Custom',
-];
 const wateringRhythmOptions = [
   'Dry out fully', 'Mostly dry', 'Slightly moist', 'Keep moist',
   'Reservoir / semi-hydro', 'Propagation water', 'Outdoor seasonal',
@@ -217,7 +217,7 @@ const initialDropdownOptions = {
   status: ['Acclimating', 'Growing outdoors', 'New', 'Rooting', 'Watching for new growth'],
   location: ['Plant Wall', 'South Window', 'Kitchen', 'Basement Grow Light', 'TC / Acclimation Area', 'Propagation Area'],
   lightNeeds: ['Bright indirect light', 'Direct light', 'Grow light', 'Low light', 'Outdoor sun'],
-  soilMix: soilMixOptions,
+  soilMix: soilMixOptions.map((option) => option.value),
   wateringRhythm: wateringRhythmOptions,
   moisturePreference: moisturePreferenceOptions,
   careDifficulty: careDifficultyOptions,
@@ -369,10 +369,16 @@ function loadDropdownOptions() {
   }
 
   // Preserve source values entered before Source became a reusable dropdown.
-  const savedPlantSources = loadPlants().map((plant) => plant.source).filter(Boolean);
+  const savedPlants = loadPlants();
+  const savedPlantSources = savedPlants.map((plant) => plant.source).filter(Boolean);
+  const customSoilMixValues = savedPlants
+    .map((plant) => plant.soilMix)
+    .filter((value) => value && !getSoilMixByValue(value));
+
   return {
     ...loadedOptions,
     source: [...new Set([...loadedOptions.source, ...savedPlantSources])],
+    soilMix: [...new Set([...soilMixOptions.map((option) => option.value), ...customSoilMixValues])],
   };
 }
 
@@ -450,6 +456,10 @@ function displayValue(value) {
   return value || 'Not set';
 }
 
+function displaySoilMixValue(value) {
+  return displayValue(getSoilMixDisplayName(value));
+}
+
 const missingFilterValue = '__missing__';
 const emptyPlantFilters = {
   genus: '', type: '', status: '', location: '',
@@ -477,7 +487,8 @@ function isLecaMedium(plant) {
 }
 
 function isSemiHydro(plant) {
-  return normalizedFilterValue(plant.soilMix).toLowerCase() === 'semi-hydro / leca';
+  return getSoilMixByValue(plant.soilMix)?.id === 'semi-hydro'
+    || normalizedFilterValue(plant.soilMix).toLowerCase() === 'semi-hydro / leca';
 }
 
 function hasLecaTrackerData(plant) {
@@ -498,7 +509,9 @@ function countPlantsByField(plants, fieldName, preferredLabels = []) {
   const counts = new Map(preferredLabels.map((label) => [label, 0]));
 
   plants.forEach((plant) => {
-    const label = normalizedFilterValue(plant[fieldName]) || 'Not set';
+    const label = normalizedFilterValue(fieldName === 'soilMix'
+      ? getSoilMixDisplayName(plant[fieldName])
+      : plant[fieldName]) || 'Not set';
     counts.set(label, (counts.get(label) || 0) + 1);
   });
 
@@ -785,6 +798,8 @@ function App() {
   const [gardenFilter, setGardenFilter] = useState({});
   const [appView, setAppView] = useState('dashboard');
   const [selectedResourceId, setSelectedResourceId] = useState('');
+  const [selectedSoilMixRecipeId, setSelectedSoilMixRecipeId] = useState('');
+  const [resourceReturnPlantId, setResourceReturnPlantId] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [plantFormBaseline, setPlantFormBaseline] = useState(JSON.stringify(emptyPlant));
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
@@ -872,6 +887,7 @@ function App() {
   }
 
   function openPlantDetails(plant) {
+    setAppView('plants');
     setSelectedPlant(plant);
     setNewLogEntry(emptyLogEntry());
     setQuickCheckMessage('');
@@ -1027,7 +1043,7 @@ function App() {
   const normalizedSearch = searchText.trim().toLowerCase();
   const searchableFields = [
     'name', 'genus', 'type', 'status', 'location', 'lightNeeds',
-    'careNote', 'watering', 'pestNotes', 'growthNotes',
+    'soilMix', 'careNote', 'watering', 'pestNotes', 'growthNotes',
     'wateringRhythm', 'moisturePreference', 'careDifficulty',
     'tcStage', 'tcSetup', 'tcHumidityLevel', 'tcNotes',
     'lecaStatus', 'lecaRootStatus', 'lecaReservoirSetup', 'lecaNutrientStatus',
@@ -1046,20 +1062,33 @@ function App() {
     ['lecaStatus', 'LECA conversion status'], ['lecaStressLevel', 'LECA stress level'],
   ];
   const filterFields = [...primaryFilterFields, ...advancedFilterFields];
-  const getFilterOptions = (fieldName) => [
-    ...new Set([
-      ...(dropdownOptions[fieldName] || []),
-      ...(fieldName === 'attention' ? attentionOptions : []),
-      ...plants.map((plant) => plant[fieldName]),
-    ].map(normalizedFilterValue).filter(Boolean)),
-  ].sort((firstOption, secondOption) => firstOption.localeCompare(secondOption));
+  const getFilterOptions = (fieldName) => {
+    if (fieldName === 'soilMix') {
+      return [
+        ...new Set([
+          ...soilMixOptions.map((option) => option.label),
+          ...plants.map((plant) => getSoilMixDisplayName(plant.soilMix)),
+        ].map(normalizedFilterValue).filter(Boolean)),
+      ].sort((firstOption, secondOption) => firstOption.localeCompare(secondOption));
+    }
+
+    return [
+      ...new Set([
+        ...(dropdownOptions[fieldName] || []),
+        ...(fieldName === 'attention' ? attentionOptions : []),
+        ...plants.map((plant) => plant[fieldName]),
+      ].map(normalizedFilterValue).filter(Boolean)),
+    ].sort((firstOption, secondOption) => firstOption.localeCompare(secondOption));
+  };
   const visiblePlants = plants
     .filter((plant) => {
       const matchesLifecycle = lifecycleView === 'all'
         || (plant.lifecycleStatus || 'active') === lifecycleView;
       const matchesFilters = filterFields.every(([fieldName]) => {
         const selectedFilter = plantFilters[fieldName];
-        const plantValue = normalizedFilterValue(plant[fieldName]);
+        const plantValue = normalizedFilterValue(fieldName === 'soilMix'
+          ? getSoilMixDisplayName(plant[fieldName])
+          : plant[fieldName]);
 
         if (!selectedFilter) return true;
         if (selectedFilter === missingFilterValue) return !plantValue;
@@ -1075,7 +1104,8 @@ function App() {
         return plantValue === selectedFilter;
       });
       const matchesSearch = !normalizedSearch || searchableFields.some((fieldName) => (
-        String(plant[fieldName] || '').toLowerCase().includes(normalizedSearch)
+        String(fieldName === 'soilMix' ? getSoilMixDisplayName(plant[fieldName]) : plant[fieldName] || '')
+          .toLowerCase().includes(normalizedSearch)
       ));
       const quarantineStatus = getQuarantineStatus(plant);
       const matchesQuarantine = !quarantineFilter
@@ -1268,12 +1298,53 @@ function App() {
     if (!confirmDiscardChanges()) return;
     resetMajorFormDrafts();
     setSelectedPlant(null);
+    setSelectedSoilMixRecipeId('');
+    setResourceReturnPlantId('');
     setShowForm(false);
     setIsEditing(false);
     setAddPlantMessage('');
     setQuickCheckMessage('');
     setSelectedResourceId(resourceId);
     setAppView('resources');
+  }
+
+  function openSoilMixRecipeForPlant(recipeId) {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedResourceId(soilMixGuideResourceId);
+    setSelectedSoilMixRecipeId(recipeId);
+    setResourceReturnPlantId(selectedPlant?.id || selectedPlant?.name || '');
+    setAppView('resources');
+  }
+
+  function returnToPlantFromResource() {
+    setSelectedResourceId('');
+    setSelectedSoilMixRecipeId('');
+    setResourceReturnPlantId('');
+    setAppView('plants');
+  }
+
+  function renderSoilMixDetail(value) {
+    const recipe = getSoilMixByValue(value);
+
+    if (!recipe) return displaySoilMixValue(value);
+
+    return (
+      <div className="soil-mix-detail-value">
+        <span>Soil Mix: {recipe.name}</span>
+        <button type="button" onClick={() => openSoilMixRecipeForPlant(recipe.id)}>
+          View recipe
+        </button>
+        <small>
+          {[...(recipe.ingredients || []).slice(0, 2), ...(recipe.characteristics || []).slice(0, 2)]
+            .join(' · ')}
+        </small>
+      </div>
+    );
+  }
+
+  function renderDetailValue(fieldName, value) {
+    return fieldName === 'soilMix' ? renderSoilMixDetail(value) : displayValue(value);
   }
 
   async function checkForUpdates() {
@@ -1617,7 +1688,7 @@ function App() {
       ['Source', (plant) => plant.source],
       ['Date Acquired', (plant) => plant.acquiredDate],
       ['Growing Medium', (plant) => plant.medium],
-      ['Soil Mix / Substrate Mix', (plant) => plant.soilMix],
+      ['Soil Mix / Substrate Mix', (plant) => getSoilMixDisplayName(plant.soilMix)],
       ['Pot Size', (plant) => plant.potSize],
       ['Attention', (plant) => plant.attention],
       ['Thirst Level', (plant) => plant.thirstLevel],
@@ -1802,6 +1873,25 @@ function App() {
   function handleInputChange(event) {
     const { name, value, type, checked } = event.target;
     setNewPlant((currentPlant) => ({ ...currentPlant, [name]: type === 'checkbox' ? checked : value }));
+  }
+
+  function getSoilMixSelectValue(value) {
+    if (!value) return '';
+    return getSoilMixByValue(value)?.id || '__custom__';
+  }
+
+  function handleSoilMixSelectChange(event) {
+    const value = event.target.value;
+    setNewPlant((currentPlant) => ({
+      ...currentPlant,
+      soilMix: value === '__custom__'
+        ? (getSoilMixByValue(currentPlant.soilMix) ? '' : currentPlant.soilMix)
+        : value,
+    }));
+  }
+
+  function handleSoilMixCustomChange(event) {
+    setNewPlant((currentPlant) => ({ ...currentPlant, soilMix: event.target.value }));
   }
 
   function addDropdownOption(fieldName, formName = 'plant') {
@@ -2135,7 +2225,7 @@ function App() {
       </nav>
 
       <section className="plant-section">
-        {selectedPlant && !isEditing ? (
+        {appView === 'plants' && selectedPlant && !isEditing ? (
         <article className="plant-detail" aria-labelledby="plant-detail-heading">
           <div className="detail-actions">
             <button className="back-button" type="button" onClick={() => {
@@ -2225,7 +2315,7 @@ function App() {
                   {section.fields.map(([fieldName, label]) => (
                     <div key={fieldName}>
                       <dt>{label}</dt>
-                      <dd>{displayValue(selectedPlant[fieldName])}</dd>
+                      <dd>{renderDetailValue(fieldName, selectedPlant[fieldName])}</dd>
                     </div>
                   ))}
                 </dl>
@@ -2552,31 +2642,54 @@ function App() {
               ['soilMix', 'Soil mix / substrate mix'], ['wateringRhythm', 'Watering rhythm'],
               ['moisturePreference', 'Moisture preference'], ['careDifficulty', 'Care difficulty'],
             ].map(([fieldName, label]) => (
-              <div className="form-field" key={fieldName}>
-                <label htmlFor={`plant-${fieldName}`}>{label}</label>
-                <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
-                  onChange={handleInputChange}>
-                  <option value="">
-                    {careRhythmFields.includes(fieldName) ? 'Not set' : `Select ${label.toLowerCase()}`}
-                  </option>
-                  {dropdownOptions[fieldName].map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-                <div className="new-option-row">
-                  <input
-                    type="text"
-                    aria-label={`New ${label.toLowerCase()} option`}
-                    placeholder="Add new option"
-                    value={newOptionText[fieldName]}
-                    onChange={(event) => setNewOptionText((currentText) => ({
-                      ...currentText,
-                      [fieldName]: event.target.value,
-                    }))}
-                  />
-                  <button type="button" onClick={() => addDropdownOption(fieldName)}>Add option</button>
+              fieldName === 'soilMix' ? (
+                <div className="form-field" key={fieldName}>
+                  <label htmlFor="plant-soilMix">Soil mix / substrate mix</label>
+                  <select id="plant-soilMix" value={getSoilMixSelectValue(newPlant.soilMix)}
+                    onChange={handleSoilMixSelectChange}>
+                    <option value="">Not selected</option>
+                    {soilMixOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                    <option value="__custom__">Custom / Other</option>
+                  </select>
+                  {getSoilMixSelectValue(newPlant.soilMix) === '__custom__' && (
+                    <input
+                      type="text"
+                      aria-label="Custom soil mix"
+                      placeholder="Enter custom soil mix"
+                      value={newPlant.soilMix}
+                      onChange={handleSoilMixCustomChange}
+                    />
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div className="form-field" key={fieldName}>
+                  <label htmlFor={`plant-${fieldName}`}>{label}</label>
+                  <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                    onChange={handleInputChange}>
+                    <option value="">
+                      {careRhythmFields.includes(fieldName) ? 'Not set' : `Select ${label.toLowerCase()}`}
+                    </option>
+                    {dropdownOptions[fieldName].map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                  <div className="new-option-row">
+                    <input
+                      type="text"
+                      aria-label={`New ${label.toLowerCase()} option`}
+                      placeholder="Add new option"
+                      value={newOptionText[fieldName]}
+                      onChange={(event) => setNewOptionText((currentText) => ({
+                        ...currentText,
+                        [fieldName]: event.target.value,
+                      }))}
+                    />
+                    <button type="button" onClick={() => addDropdownOption(fieldName)}>Add option</button>
+                  </div>
+                </div>
+              )
             ))}
 
             <div className="form-field">
@@ -2878,8 +2991,11 @@ function App() {
         ) : appView === 'resources' ? (
           <Resources
             selectedResourceId={selectedResourceId}
+            selectedSoilMixRecipeId={selectedSoilMixRecipeId}
+            returnLabel={resourceReturnPlantId ? 'Back to Plant' : ''}
             onOpenResource={setSelectedResourceId}
             onBackToResources={() => setSelectedResourceId('')}
+            onBackToPlant={returnToPlantFromResource}
           />
         ) : appView === 'wishlist' ? (
         <section className="wishlist-view" aria-labelledby="wishlist-heading">

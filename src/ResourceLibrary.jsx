@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { resources } from './resources';
 
 const soilMixFilters = [
@@ -101,9 +101,9 @@ function RecipeDetailList({ title, items }) {
   );
 }
 
-function SoilRecipeCard({ recipe, isExpanded, onToggle }) {
+function SoilRecipeCard({ recipe, isExpanded, onToggle, cardRef }) {
   return (
-    <article className="soil-recipe-card">
+    <article className="soil-recipe-card" ref={cardRef}>
       <button
         className="soil-recipe-toggle"
         type="button"
@@ -168,10 +168,11 @@ function ResourceNotesSection({ section }) {
   return null;
 }
 
-function SoilMixGuide({ resource, onBack }) {
+function SoilMixGuide({ resource, selectedRecipeId = '', onBack, returnLabel = '' }) {
   const [guideSearch, setGuideSearch] = useState('');
   const [plantSearch, setPlantSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
+  const recipeRefs = useRef({});
   const [expandedRecipeIds, setExpandedRecipeIds] = useState(() => (
     window.matchMedia('(max-width: 700px)').matches ? [] : ['base-mix']
   ));
@@ -182,6 +183,17 @@ function SoilMixGuide({ resource, onBack }) {
   const normalizedPlantSearch = plantSearch.trim().toLowerCase();
   const guideSections = resource.sections.filter((section) => section.id !== 'soil-recipes');
 
+  useEffect(() => {
+    if (!selectedRecipeId) return;
+
+    setGuideSearch('');
+    setPlantSearch('');
+    setActiveFilter('All');
+    setExpandedRecipeIds((currentIds) => (
+      currentIds.includes(selectedRecipeId) ? currentIds : [...currentIds, selectedRecipeId]
+    ));
+  }, [selectedRecipeId]);
+
   const visibleRecipes = useMemo(() => recipes.filter((recipe) => {
     const matchesFilter = activeFilter === 'All' || recipe.category === activeFilter;
     const matchesGuideSearch = !normalizedGuideSearch || getRecipeSearchText(recipe).toLowerCase().includes(normalizedGuideSearch);
@@ -190,6 +202,14 @@ function SoilMixGuide({ resource, onBack }) {
 
     return matchesFilter && matchesGuideSearch && matchesPlantSearch;
   }), [activeFilter, normalizedGuideSearch, normalizedPlantSearch, recipes]);
+
+  useEffect(() => {
+    if (!selectedRecipeId) return;
+
+    window.requestAnimationFrame(() => {
+      recipeRefs.current[selectedRecipeId]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [selectedRecipeId, visibleRecipes]);
 
   function toggleRecipe(recipeId) {
     setExpandedRecipeIds((currentIds) => (
@@ -211,7 +231,7 @@ function SoilMixGuide({ resource, onBack }) {
     <article className="resource-detail plant-detail" aria-labelledby="resource-detail-heading">
       <div className="detail-actions">
         <button className="back-button" type="button" onClick={onBack}>
-          ← Back to Resources
+          {returnLabel || '← Back to Resources'}
         </button>
       </div>
 
@@ -272,6 +292,9 @@ function SoilMixGuide({ resource, onBack }) {
             recipe={recipe}
             isExpanded={expandedRecipeIds.includes(recipe.id)}
             onToggle={toggleRecipe}
+            cardRef={(node) => {
+              if (node) recipeRefs.current[recipe.id] = node;
+            }}
           />
         )) : <p className="empty-message">No matching mixes found.</p>}
       </section>
@@ -281,11 +304,25 @@ function SoilMixGuide({ resource, onBack }) {
   );
 }
 
-export default function Resources({ selectedResourceId, onOpenResource, onBackToResources }) {
+export default function Resources({
+  selectedResourceId,
+  selectedSoilMixRecipeId,
+  returnLabel,
+  onOpenResource,
+  onBackToResources,
+  onBackToPlant,
+}) {
   const selectedResource = resources.find((resource) => resource.id === selectedResourceId);
 
   if (selectedResource?.type === 'soil-mix-guide') {
-    return <SoilMixGuide resource={selectedResource} onBack={onBackToResources} />;
+    return (
+      <SoilMixGuide
+        resource={selectedResource}
+        selectedRecipeId={selectedSoilMixRecipeId}
+        returnLabel={returnLabel}
+        onBack={returnLabel ? onBackToPlant : onBackToResources}
+      />
+    );
   }
 
   return <ResourceLanding onOpenResource={onOpenResource} />;
