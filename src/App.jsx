@@ -198,10 +198,10 @@ function imageExtension(contentType) {
   return 'jpg';
 }
 
-function plantImageStoragePath(contentType) {
+function imageStoragePath(folderName, contentType) {
   const extension = imageExtension(contentType);
   const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `plants/${Date.now()}-${uniqueId}.${extension}`;
+  return `${folderName}/${Date.now()}-${uniqueId}.${extension}`;
 }
 
 function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
@@ -800,13 +800,18 @@ function App() {
   const [editingWishlistId, setEditingWishlistId] = useState('');
   const [showWishlistForm, setShowWishlistForm] = useState(false);
   const [wishlistFormBaseline, setWishlistFormBaseline] = useState(JSON.stringify(emptyWishlistItem));
+  const [wishlistImageFile, setWishlistImageFile] = useState(null);
+  const [wishlistImagePreviewUrl, setWishlistImagePreviewUrl] = useState('');
+  const [wishlistImageUploadError, setWishlistImageUploadError] = useState('');
+  const [wishlistSubmitStatus, setWishlistSubmitStatus] = useState('');
+  const [isWishlistSubmitting, setIsWishlistSubmitting] = useState(false);
   const [gardenFormDirty, setGardenFormDirty] = useState(false);
   const [wishlistSearch, setWishlistSearch] = useState('');
   const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
   const importInputRef = useRef(null);
   const hasNewOptionDraft = Object.values(newOptionText).some((value) => value.trim());
   const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft || Boolean(plantImageFile));
-  const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft);
+  const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft || Boolean(wishlistImageFile));
   const hasUnsavedFormChanges = plantFormDirty || wishlistFormDirty || gardenFormDirty;
 
   function changePlantViewMode(nextViewMode) {
@@ -840,6 +845,10 @@ function App() {
     if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
   }, [plantImagePreviewUrl]);
 
+  useEffect(() => () => {
+    if (wishlistImagePreviewUrl) URL.revokeObjectURL(wishlistImagePreviewUrl);
+  }, [wishlistImagePreviewUrl]);
+
   function clearPlantImageSelection() {
     if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
     setPlantImageFile(null);
@@ -862,6 +871,27 @@ function App() {
     setNewPlant((plant) => ({ ...plant, imageUrl: '' }));
   }
 
+  function clearWishlistImageSelection() {
+    if (wishlistImagePreviewUrl) URL.revokeObjectURL(wishlistImagePreviewUrl);
+    setWishlistImageFile(null);
+    setWishlistImagePreviewUrl('');
+    setWishlistImageUploadError('');
+    setWishlistSubmitStatus('');
+  }
+
+  function selectWishlistImageFile(file) {
+    if (!file) {
+      clearWishlistImageSelection();
+      return;
+    }
+
+    if (wishlistImagePreviewUrl) URL.revokeObjectURL(wishlistImagePreviewUrl);
+    setWishlistImageFile(file);
+    setWishlistImagePreviewUrl(URL.createObjectURL(file));
+    setWishlistImageUploadError('');
+    setWishlistSubmitStatus('');
+  }
+
   function confirmDiscardChanges(isDirty = hasUnsavedFormChanges) {
     return !isDirty || window.confirm('You have unsaved changes. Discard them and continue?');
   }
@@ -876,6 +906,7 @@ function App() {
     setWishlistFormBaseline(JSON.stringify(emptyWishlistItem));
     setEditingWishlistId('');
     setShowWishlistForm(false);
+    clearWishlistImageSelection();
     setNewOptionText({
       genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
       wateringRhythm: '', moisturePreference: '', careDifficulty: '',
@@ -1152,23 +1183,45 @@ function App() {
     setWishlistItems(nextItems);
   }
 
-  function submitWishlistItem(event) {
+  async function submitWishlistItem(event) {
     event.preventDefault();
-    const item = {
-      ...wishlistDraft,
-      id: editingWishlistId || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: wishlistDraft.name.trim(),
-    };
-    saveWishlist(editingWishlistId
-      ? wishlistItems.map((current) => current.id === editingWishlistId ? item : current)
-      : [...wishlistItems, item]);
-    setWishlistDraft(emptyWishlistItem);
-    setWishlistFormBaseline(JSON.stringify(emptyWishlistItem));
-    setEditingWishlistId('');
-    setShowWishlistForm(false);
+    if (isWishlistSubmitting) return;
+
+    setWishlistImageUploadError('');
+    setIsWishlistSubmitting(true);
+    setWishlistSubmitStatus(wishlistImageFile ? 'Uploading photo...' : 'Saving wishlist item...');
+
+    try {
+      const uploadedImageUrl = wishlistImageFile
+        ? await uploadStoredImage(wishlistImageFile, 'wishlist')
+        : wishlistDraft.imageUrl;
+      setWishlistSubmitStatus('Saving wishlist item...');
+
+      const item = {
+        ...wishlistDraft,
+        id: editingWishlistId || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name: wishlistDraft.name.trim(),
+        imageUrl: uploadedImageUrl,
+      };
+      saveWishlist(editingWishlistId
+        ? wishlistItems.map((current) => current.id === editingWishlistId ? item : current)
+        : [...wishlistItems, item]);
+      setWishlistDraft(emptyWishlistItem);
+      setWishlistFormBaseline(JSON.stringify(emptyWishlistItem));
+      setEditingWishlistId('');
+      setShowWishlistForm(false);
+      clearWishlistImageSelection();
+    } catch (error) {
+      console.error('Wishlist image upload failed:', error);
+      setWishlistImageUploadError(error.message || String(error));
+      setWishlistSubmitStatus('');
+    } finally {
+      setIsWishlistSubmitting(false);
+    }
   }
 
   function editWishlistItem(item) {
+    clearWishlistImageSelection();
     setWishlistDraft({ ...emptyWishlistItem, ...item });
     setWishlistFormBaseline(JSON.stringify({ ...emptyWishlistItem, ...item }));
     setEditingWishlistId(item.id);
@@ -1556,13 +1609,13 @@ function App() {
     }
   }
 
-  async function uploadPlantImage(file) {
+  async function uploadStoredImage(file, folderName = 'plants') {
     if (!isSupabaseConfigured || !supabase) {
       throw new Error('Supabase is not configured. Remove the photo or add Supabase Storage settings before saving with an uploaded photo.');
     }
 
     const { file: preparedFile, contentType } = await prepareImageForStorage(file);
-    const storagePath = plantImageStoragePath(contentType);
+    const storagePath = imageStoragePath(folderName, contentType);
     const { error } = await supabase.storage
       .from(plantImageBucket)
       .upload(storagePath, preparedFile, {
@@ -1590,7 +1643,7 @@ function App() {
     setPlantSubmitStatus(plantImageFile ? 'Uploading photo...' : 'Saving plant...');
 
     try {
-      const uploadedImageUrl = plantImageFile ? await uploadPlantImage(plantImageFile) : newPlant.imageUrl;
+      const uploadedImageUrl = plantImageFile ? await uploadStoredImage(plantImageFile, 'plants') : newPlant.imageUrl;
       setPlantSubmitStatus('Saving plant...');
 
       const savedPlant = {
@@ -2639,7 +2692,7 @@ function App() {
               <h2 className="section-title" id="wishlist-heading">Wishlist / Purchases</h2>
             </div>
             <button className="add-plant-button" type="button" onClick={() => {
-              setWishlistDraft(emptyWishlistItem); setWishlistFormBaseline(JSON.stringify(emptyWishlistItem)); setEditingWishlistId(''); setShowWishlistForm(true);
+              setWishlistDraft(emptyWishlistItem); setWishlistFormBaseline(JSON.stringify(emptyWishlistItem)); setEditingWishlistId(''); clearWishlistImageSelection(); setShowWishlistForm(true);
             }} aria-label="Add wishlist or purchase item" title="Add item">+</button>
           </div>
           {showWishlistForm ? (
@@ -2647,6 +2700,12 @@ function App() {
               <div className="form-heading">
                 <div><p className="detail-eyebrow">Wishlist / purchase</p><h2>{editingWishlistId ? 'Edit item' : 'Add item'}</h2></div>
               </div>
+              {wishlistImageUploadError && (
+                <p className="form-error-message" role="alert">{wishlistImageUploadError}</p>
+              )}
+              {wishlistSubmitStatus && (
+                <p className="form-status-message" role="status">{wishlistSubmitStatus}</p>
+              )}
               <div className="form-grid">
                 <div className="form-field"><label htmlFor="wish-name">Plant name *</label>
                   <input id="wish-name" name="name" required value={wishlistDraft.name} onChange={(e) => setWishlistDraft({ ...wishlistDraft, name: e.target.value })} /></div>
@@ -2656,7 +2715,16 @@ function App() {
                       value={wishlistDraft[field]} onChange={(e) => setWishlistDraft({ ...wishlistDraft, [field]: e.target.value })} /></div>
                 ))}
                 <ImageUploadField id="wish-image" label="Image URL" value={wishlistDraft.imageUrl}
-                  onChange={(imageUrl) => setWishlistDraft({ ...wishlistDraft, imageUrl })} />
+                  onChange={(imageUrl) => {
+                    clearWishlistImageSelection();
+                    setWishlistDraft({ ...wishlistDraft, imageUrl });
+                  }}
+                  onFileSelected={selectWishlistImageFile}
+                  selectedFileName={wishlistImageFile?.name || ''}
+                  previewUrl={wishlistImagePreviewUrl}
+                  disabled={isWishlistSubmitting}
+                  message={wishlistImageUploadError}
+                  messageType={wishlistImageUploadError ? 'error' : 'status'} />
                 {[["genus", "Genus"], ["type", "Type / category"], ["desiredStatus", "Desired status"], ["source", "Source / seller"]].map(([field, label]) => (
                   <div className="form-field" key={field}>
                     <label htmlFor={`wish-${field}`}>{label}</label>
@@ -2681,8 +2749,11 @@ function App() {
                 <div className="form-field form-field-wide"><label htmlFor="wish-notes">Notes</label>
                   <textarea id="wish-notes" rows="3" value={wishlistDraft.notes} onChange={(e) => setWishlistDraft({ ...wishlistDraft, notes: e.target.value })} /></div>
               </div>
-              <div className="form-actions"><button type="submit">{editingWishlistId ? 'Save changes' : 'Add item'}</button>
-                <button className="secondary-button" type="button" onClick={() => { if (confirmDiscardChanges(wishlistFormDirty)) { setShowWishlistForm(false); setEditingWishlistId(''); setWishlistDraft(emptyWishlistItem); setWishlistFormBaseline(JSON.stringify(emptyWishlistItem)); } }}>Cancel</button></div>
+              <div className="form-actions"><button type="submit" disabled={isWishlistSubmitting}>
+                {isWishlistSubmitting ? (wishlistImageFile ? 'Uploading photo...' : 'Saving wishlist item...') : (editingWishlistId ? 'Save changes' : 'Add item')}
+              </button>
+                <button className="secondary-button" type="button" disabled={isWishlistSubmitting}
+                  onClick={() => { if (confirmDiscardChanges(wishlistFormDirty)) { setShowWishlistForm(false); setEditingWishlistId(''); setWishlistDraft(emptyWishlistItem); setWishlistFormBaseline(JSON.stringify(emptyWishlistItem)); clearWishlistImageSelection(); } }}>Cancel</button></div>
             </form>
           ) : (
             <>
