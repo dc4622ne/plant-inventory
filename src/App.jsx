@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import Garden from './Garden';
+import { changelog, currentAppVersion } from './appVersion';
 import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { prepareImageForStorage } from './imageUploadUtils';
@@ -1153,6 +1154,19 @@ function App() {
     setAddPlantMessage('');
     setQuickCheckMessage('');
     setAppView('settings');
+  }
+
+  async function checkForUpdates() {
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.update()));
+      }
+    } finally {
+      const reloadUrl = new URL(window.location.href);
+      reloadUrl.searchParams.set('update', Date.now().toString());
+      window.location.replace(reloadUrl.toString());
+    }
   }
 
   function openWishlist(metric = {}) {
@@ -2816,6 +2830,41 @@ function App() {
             )}
           </section>
 
+          <section className="settings-card app-version-card" aria-labelledby="app-version-heading">
+            <div className="app-version-heading">
+              <div>
+                <p className="detail-eyebrow">Current release</p>
+                <h3 id="app-version-heading">App Version</h3>
+              </div>
+              <span className="app-version-badge">{currentAppVersion.version}</span>
+            </div>
+            <dl className="app-version-details">
+              <div><dt>Current app version</dt><dd>{currentAppVersion.version}</dd></div>
+              <div><dt>Build date/time</dt><dd>{currentAppVersion.buildDateTime}</dd></div>
+              <div><dt>Release summary</dt><dd>{currentAppVersion.releaseName}</dd></div>
+            </dl>
+            <button className="check-updates-button" type="button" onClick={checkForUpdates}>
+              Check for updates
+            </button>
+          </section>
+
+          <section className="settings-card changelog-card" aria-labelledby="changelog-heading">
+            <h3 id="changelog-heading">Changelog</h3>
+            <div className="changelog-list">
+              {changelog.map((release) => (
+                <article className="changelog-entry" key={release.version}>
+                  <div className="changelog-entry-heading">
+                    <h4>{release.version}</h4>
+                    <time dateTime={release.releaseDate}>{release.releaseDate}</time>
+                  </div>
+                  <ul>
+                    {release.changes.map((change) => <li key={change}>{change}</li>)}
+                  </ul>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section className="settings-card" aria-labelledby="data-tools-heading">
             <h3 id="data-tools-heading">Data Backup</h3>
             <div className="data-tool-row">
@@ -2879,6 +2928,7 @@ function App() {
               Use manual Cloud Sync or Export/Import JSON backup to move your data.
             </p>
           </section>
+          <p className="settings-version-footer">Grow With Gibre Plant Tracker {currentAppVersion.version}</p>
         </section>
         ) : (
         <>
