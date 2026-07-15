@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.18.1',
+  version: 'v0.18.2',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Plant Spaces Mobile Tile Photos',
+  releaseName: 'Plant Spaces Responsive Wall',
 };
 
 export const changelog = [
+  {
+    version: 'v0.18.2',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added full-wall Fit Wall mode on phones so the Plant Wall width is visible in portrait.',
+      'Improved portrait canvas scaling while preserving percentage-based plant placements.',
+      'Fixed Plant Space tile photos on landscape phones by applying mobile image sizing to coarse-pointer devices.',
+      'Improved orientation handling so the rendered wall recalculates after phone rotation.',
+      'Collapsed the Plant Wall background editor behind a Change Background control after a background is saved.',
+    ],
+  },
   {
     version: 'v0.18.1',
     releaseDate: '2026-07-15',

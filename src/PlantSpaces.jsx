@@ -18,6 +18,23 @@ function plantMatchesLocation(plant, locationValue) {
   return String(plant.location || '').trim().toLowerCase() === String(locationValue || '').trim().toLowerCase();
 }
 
+const spaceViewModeStorageKey = 'plant-inventory-plant-space-view-modes';
+
+function isPhoneLikeViewport() {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+    && (window.innerWidth <= 930 || window.innerHeight <= 520);
+}
+
+function loadSpaceViewModes() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(spaceViewModeStorageKey) || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
 function getTileBadges(plant, reminders) {
   const badges = [];
   const attention = String(plant.attention || '').toLowerCase();
@@ -141,7 +158,11 @@ export default function PlantSpaces({
   const [chooserSearch, setChooserSearch] = useState('');
   const [chooserFilters, setChooserFilters] = useState({ genus: '', medium: '', status: '', attention: '' });
   const [selectedPlantIds, setSelectedPlantIds] = useState([]);
+  const [spaceViewModes, setSpaceViewModes] = useState(loadSpaceViewModes);
+  const [viewportTick, setViewportTick] = useState(0);
+  const [isBackgroundEditorExpanded, setIsBackgroundEditorExpanded] = useState(false);
   const canvasRef = useRef(null);
+  const canvasWrapRef = useRef(null);
   const tileRefs = useRef({});
 
   const plannedSpaces = useMemo(getPlannedPlantSpaces, []);
@@ -150,6 +171,10 @@ export default function PlantSpaces({
   const placedPlantIds = new Set((activeSpace?.placements || []).map((placement) => placement.plantId));
   const placedPlants = (activeSpace?.placements || []).map((placement) => plantById.get(placement.plantId)).filter(Boolean);
   const selectedPlacement = (activeSpace?.placements || []).find((placement) => placement.id === selectedPlacementId);
+  const phoneLike = viewportTick >= 0 && isPhoneLikeViewport();
+  const savedCanvasViewMode = spaceViewModes[activeSpace?.id] || '';
+  const canvasViewMode = isEditingLayout ? 'pan' : (savedCanvasViewMode || (phoneLike ? 'fit' : 'pan'));
+  const hasSavedBackground = Boolean(activeSpace?.backgroundImageUrl);
 
   useEffect(() => {
     if (focusSpaceId) setSelectedSpaceId(focusSpaceId);
@@ -167,8 +192,38 @@ export default function PlantSpaces({
     return undefined;
   }, [focusSpaceId, focusPlantId, onFocusHandled]);
 
+  useEffect(() => {
+    function handleResize() {
+      setViewportTick((tick) => tick + 1);
+    }
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    const mediaQuery = window.matchMedia('(hover: none) and (pointer: coarse)');
+    mediaQuery.addEventListener?.('change', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+      mediaQuery.removeEventListener?.('change', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    setIsBackgroundEditorExpanded(!hasSavedBackground);
+  }, [activeSpace?.id, hasSavedBackground]);
+
   function saveSpace(nextSpace) {
     onChange(spaces.map((space) => (space.id === nextSpace.id ? { ...nextSpace, updatedAt: new Date().toISOString() } : space)));
+  }
+
+  function changeCanvasViewMode(nextMode) {
+    const nextModes = { ...spaceViewModes, [activeSpace.id]: nextMode };
+    setSpaceViewModes(nextModes);
+    localStorage.setItem(spaceViewModeStorageKey, JSON.stringify(nextModes));
+    window.setTimeout(() => {
+      canvasWrapRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    }, 40);
   }
 
   function updatePlacements(nextPlacements) {
@@ -278,6 +333,15 @@ export default function PlantSpaces({
     window.setTimeout(() => setHighlightPlantId(''), 2200);
   }
 
+  function toggleEditLayout() {
+    setIsEditingLayout((editing) => !editing);
+    if (!isEditingLayout) {
+      window.setTimeout(() => {
+        canvasWrapRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+      }, 40);
+    }
+  }
+
   const searchResults = placedPlants.filter((plant) => (
     plant.name.toLowerCase().includes(spaceSearch.trim().toLowerCase())
   ));
@@ -342,14 +406,15 @@ export default function PlantSpaces({
           </div>
           <div className="plant-wall-actions">
             {isEditingLayout ? (
-              <button type="button" onClick={() => setIsEditingLayout(false)}>Done</button>
+              <button type="button" onClick={toggleEditLayout}>Done</button>
             ) : (
-              <button type="button" onClick={() => setIsEditingLayout(true)}>Edit Layout</button>
+              <button type="button" onClick={toggleEditLayout}>Edit Layout</button>
             )}
             <button type="button" onClick={() => setIsAddingPlants((visible) => !visible)}>Add Plants</button>
             <button type="button" className="secondary-button" onClick={() => {
               setHighlightPlantId('');
               setSpaceSearch('');
+              canvasWrapRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
               canvasRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
             }}>
               Reset View
@@ -375,7 +440,25 @@ export default function PlantSpaces({
             <input type="range" min="0" max="80" value={activeSpace.backgroundDim || 0}
               onChange={(event) => saveSpace({ ...activeSpace, backgroundDim: Number(event.target.value) })} />
           </label>
+          <div className="canvas-view-mode" aria-label="Plant Wall canvas view mode">
+            <span>Canvas view</span>
+            <div>
+              <button type="button" className={canvasViewMode === 'fit' ? 'active' : ''}
+                disabled={isEditingLayout} onClick={() => changeCanvasViewMode('fit')}>
+                Fit Wall
+              </button>
+              <button type="button" className={canvasViewMode === 'pan' ? 'active' : ''}
+                onClick={() => changeCanvasViewMode('pan')}>
+                Actual Size / Pan
+              </button>
+            </div>
+          </div>
         </div>
+        {isEditingLayout && phoneLike && (
+          <p className="plant-wall-mode-note" role="status">
+            Edit Layout uses Actual Size / Pan for accurate placement. Done returns to your selected view.
+          </p>
+        )}
 
         {isAddingPlants && (
           <div className="add-plants-panel">
@@ -422,7 +505,19 @@ export default function PlantSpaces({
           </div>
         )}
 
-        <SpaceBackgroundEditor space={activeSpace} onSave={(patch) => saveSpace({ ...activeSpace, ...patch })} />
+        <div className={`space-background-shell${isBackgroundEditorExpanded ? ' space-background-shell-open' : ''}`}>
+          <button type="button" className="secondary-button change-background-toggle"
+            aria-expanded={isBackgroundEditorExpanded}
+            onClick={() => setIsBackgroundEditorExpanded((expanded) => !expanded)}>
+            {isBackgroundEditorExpanded ? 'Hide Background Editor' : 'Change Background'}
+          </button>
+          {isBackgroundEditorExpanded && (
+            <SpaceBackgroundEditor space={activeSpace} onSave={(patch) => {
+              saveSpace({ ...activeSpace, ...patch });
+              if (patch.backgroundImageUrl) setIsBackgroundEditorExpanded(false);
+            }} />
+          )}
+        </div>
 
         {!activeSpace.placements.length && (
           <div className="plant-wall-empty">
@@ -431,7 +526,8 @@ export default function PlantSpaces({
           </div>
         )}
 
-        <div className={`plant-wall-canvas-wrap${isEditingLayout ? ' plant-wall-editing' : ''}`}>
+        <div className={`plant-wall-canvas-wrap plant-wall-${canvasViewMode}${isEditingLayout ? ' plant-wall-editing' : ''}`}
+          ref={canvasWrapRef}>
           <div className="plant-wall-canvas" ref={canvasRef} style={{
             aspectRatio: `${activeSpace.width} / ${activeSpace.height}`,
             backgroundImage: activeSpace.backgroundImageUrl ? `linear-gradient(rgba(0,0,0,${(activeSpace.backgroundDim || 0) / 100}), rgba(0,0,0,${(activeSpace.backgroundDim || 0) / 100})), url(${activeSpace.backgroundImageUrl})` : undefined,
