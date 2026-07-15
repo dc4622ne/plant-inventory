@@ -25,6 +25,7 @@
   color-scheme: light;
   color: var(--text);
   background: var(--bg);
+  scroll-padding-top: calc(12px + env(safe-area-inset-top));
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

@@ -813,6 +813,7 @@ function App() {
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
   const [areMoreFiltersVisible, setAreMoreFiltersVisible] = useState(false);
+  const [areQuickViewsVisible, setAreQuickViewsVisible] = useState(false);
   const [newPlant, setNewPlant] = useState(emptyPlant);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -868,6 +869,7 @@ function App() {
   const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
   const [selectedWishlistItemId, setSelectedWishlistItemId] = useState('');
   const importInputRef = useRef(null);
+  const plantResultsRef = useRef(null);
   const hasNewOptionDraft = Object.values(newOptionText).some((value) => value.trim());
   const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft || Boolean(plantImageFile));
   const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft || Boolean(wishlistImageFile));
@@ -884,6 +886,17 @@ function App() {
     setPlantPageSizes(updatedPageSizes);
     setPlantPage(1);
     localStorage.setItem(plantPageSizesStorageKey, JSON.stringify(updatedPageSizes));
+  }
+
+  function isMobilePlantLayout() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  function scrollPlantResultsIntoView() {
+    if (!isMobilePlantLayout()) return;
+    window.setTimeout(() => {
+      plantResultsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, 80);
   }
 
   function openPlantDetails(plant) {
@@ -1480,6 +1493,14 @@ function App() {
     setPlantPage(1);
   }
 
+  function updatePlantFilter(fieldName, value) {
+    setPlantFilters((currentFilters) => ({
+      ...currentFilters, [fieldName]: value,
+    }));
+    setActiveQuickView('');
+    scrollPlantResultsIntoView();
+  }
+
   const quickViews = [
     { id: 'all-active', label: 'All active plants', lifecycle: 'active' },
     { id: 'leca', label: 'LECA plants', lifecycle: 'active', filter: ['lecaStatus', '__leca__'] },
@@ -1503,6 +1524,14 @@ function App() {
     { id: 'archived', label: 'Archived plants', lifecycle: 'archived' },
     { id: 'graveyard', label: 'Graveyard plants', lifecycle: 'graveyard' },
   ];
+  const activePlantFilterCount = Object.values(plantFilters).filter(Boolean).length
+    + (lifecycleView !== 'active' ? 1 : 0)
+    + (quarantineFilter ? 1 : 0)
+    + (recentlyCheckedFilter ? 1 : 0)
+    + (recentlyAcquiredFilter ? 1 : 0)
+    + (searchText.trim() ? 1 : 0);
+  const activeQuickViewLabel = quickViews.find((quickView) => quickView.id === activeQuickView)?.label || '';
+  const hasActivePlantFilters = activePlantFilterCount > 0;
 
   function applyQuickView(quickView) {
     const nextFilters = { ...emptyPlantFilters };
@@ -1520,6 +1549,8 @@ function App() {
     ));
     setActiveQuickView(quickView.id);
     setPlantPage(1);
+    setAreQuickViewsVisible(false);
+    scrollPlantResultsIntoView();
   }
 
   function createBackup() {
@@ -3303,9 +3334,20 @@ function App() {
             +
           </button>
         </div>
-        <section className="quick-views" aria-labelledby="quick-views-heading">
-          <h3 id="quick-views-heading">Quick Views</h3>
-          <div className="quick-view-list">
+        <section className={`quick-views${areQuickViewsVisible ? ' quick-views-open' : ''}`}
+          aria-labelledby="quick-views-heading">
+          <div className="quick-views-heading">
+            <div>
+              <h3 id="quick-views-heading">Quick Views</h3>
+              {activeQuickViewLabel && <p>{activeQuickViewLabel}</p>}
+            </div>
+            <button className="quick-views-toggle" type="button"
+              aria-expanded={areQuickViewsVisible} aria-controls="quick-view-list"
+              onClick={() => setAreQuickViewsVisible((isVisible) => !isVisible)}>
+              {areQuickViewsVisible ? 'Hide Quick Views' : 'Show Quick Views'}
+            </button>
+          </div>
+          <div className="quick-view-list" id="quick-view-list">
             {quickViews.map((quickView) => (
               <button key={quickView.id} type="button"
                 className={activeQuickView === quickView.id ? 'quick-view-active' : ''}
@@ -3384,20 +3426,27 @@ function App() {
             </select>
           </div>
         </div>
-        <div className="plant-filter-panel" aria-label="Filter plants">
+        <div className={`plant-filter-panel${areMoreFiltersVisible ? ' plant-filter-panel-open' : ''}`}
+          aria-label="Filter plants">
           <div className="filter-panel-heading">
-            <h3>Filters</h3>
+            <div>
+              <h3>Filters</h3>
+              {hasActivePlantFilters && <p>{activePlantFilterCount} active</p>}
+            </div>
             <div className="filter-actions">
               <button className="more-filters-button" type="button"
-                aria-expanded={areMoreFiltersVisible} aria-controls="advanced-plant-filters"
+                aria-expanded={areMoreFiltersVisible} aria-controls="plant-filter-controls"
                 onClick={() => setAreMoreFiltersVisible((isVisible) => !isVisible)}>
                 {areMoreFiltersVisible ? 'Hide Filters' : 'More Filters'}
               </button>
-              <button className="clear-filters-button" type="button" onClick={clearAllFilters}>
-                Clear All Filters
-              </button>
+              {hasActivePlantFilters && (
+                <button className="clear-filters-button" type="button" onClick={clearAllFilters}>
+                  Clear All
+                </button>
+              )}
             </div>
           </div>
+          <div className="plant-filter-controls" id="plant-filter-controls">
           <div className="plant-filter-dropdowns primary-filters">
             <div className="plant-filter">
               <label htmlFor="lifecycle-filter">Plant view</label>
@@ -3405,6 +3454,7 @@ function App() {
                 onChange={(event) => {
                   setLifecycleView(event.target.value);
                   setActiveQuickView('');
+                  scrollPlantResultsIntoView();
                 }}>
                 <option value="all">All Plants</option>
                 <option value="active">Active Plants</option>
@@ -3415,12 +3465,7 @@ function App() {
             {primaryFilterFields.map(([fieldName, label]) => (
               <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
                 value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
-                onChange={(value) => {
-                  setPlantFilters((currentFilters) => ({
-                    ...currentFilters, [fieldName]: value,
-                  }));
-                  setActiveQuickView('');
-                }} />
+                onChange={(value) => updatePlantFilter(fieldName, value)} />
             ))}
           </div>
           {areMoreFiltersVisible && (
@@ -3428,17 +3473,13 @@ function App() {
               {advancedFilterFields.map(([fieldName, label]) => (
                 <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
                   value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
-                  onChange={(value) => {
-                    setPlantFilters((currentFilters) => ({
-                      ...currentFilters, [fieldName]: value,
-                    }));
-                    setActiveQuickView('');
-                  }} />
+                  onChange={(value) => updatePlantFilter(fieldName, value)} />
               ))}
             </div>
           )}
+          </div>
         </div>
-        <hr className="plant-list-divider" />
+        <hr className="plant-list-divider" ref={plantResultsRef} />
         {visiblePlants.length > 0 && (
           <p className="plant-result-summary" aria-live="polite">
             Showing {firstVisiblePlantIndex + 1}–{lastVisiblePlantIndex} of {visiblePlants.length} plants
@@ -3455,9 +3496,11 @@ function App() {
             >
               <div className="plant-card-heading">
                 <PlantImage key={plant.imageUrl || 'placeholder'} plant={plant} />
-                <h2>{plant.name}</h2>
+                <div className="plant-card-title">
+                  <h2>{plant.name}</h2>
+                  <p className="plant-type">{displayValue(plant.type)}</p>
+                </div>
               </div>
-              <p className="plant-type">{displayValue(plant.type)}</p>
               <PlantBadges plant={plant} />
               <section className="card-section">
                 <dl className="plant-details">

@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.14.0',
-  buildDateTime: '2026-07-14 16:30:00 -04:00',
-  releaseName: 'Linked Soil Mix Guide',
+  version: 'v0.15.0',
+  buildDateTime: '2026-07-14 20:27:31 -04:00',
+  releaseName: 'Compact Mobile Plant List',
 };
 
 export const changelog = [
+  {
+    version: 'v0.15.0',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added a compact mobile Plant List layout.',
+      'Made Quick Views and Filters collapsible on mobile.',
+      'Reduced mobile plant card height and spacing.',
+      'Improved iPhone safe-area handling for header and navigation spacing.',
+      'Made mobile view and pagination controls more compact.',
+    ],
+  },
   {
     version: 'v0.14.0',
     releaseDate: '2026-07-14',
