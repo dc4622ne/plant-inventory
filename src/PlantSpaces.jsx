@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { uploadStoredImage } from './imageUploadUtils';
-import { getPlannedPlantSpaces, plantWallSpaceId } from './plantSpacesData';
+import { getPlannedPlantSpaces, plantSpaceDisplayModes, plantWallSpaceId } from './plantSpacesData';
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -35,22 +35,50 @@ function loadSpaceViewModes() {
   }
 }
 
-function getTileBadges(plant, reminders) {
-  const badges = [];
+function isWithinDays(dateValue, days) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue || '')) return false;
+  const start = new Date(`${dateValue}T00:00:00`);
+  const today = new Date();
+  const localToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const elapsedDays = Math.floor((localToday - start) / 86400000);
+  return elapsedDays >= 0 && elapsedDays <= days;
+}
+
+const displayModeLabels = {
+  auto: 'Auto',
+  'compact-label': 'Compact Label',
+  'photo-card': 'Photo Card',
+  'full-card': 'Full Card',
+};
+
+function getTileStatuses(plant, reminders) {
+  const statuses = [];
   const attention = String(plant.attention || '').toLowerCase();
   const quarantine = plant.pestQuarantineStartDate && !plant.pestQuarantineEndDate;
+  const newPlantQuarantine = isWithinDays(plant.acquiredDate, 14);
   const activeReminder = reminders.some((reminder) => reminder.plantId === plant.id && reminder.status === 'active');
   const tcAcclimating = plant.type === 'Tissue Culture'
     && ['Deflasked', 'Community cup', 'High humidity acclimation', 'Venting', 'Transitioning to ambient'].includes(plant.tcStage || plant.status);
   const lecaTransitioning = ['Transitioning', 'Rooting'].includes(plant.lecaStatus);
 
-  if (attention === 'high' || attention.includes('attention')) badges.push(['!', 'Needs attention']);
-  if (quarantine) badges.push(['Q', 'Quarantine']);
-  if (activeReminder) badges.push(['✓', 'Active reminder or check-in']);
-  if (tcAcclimating) badges.push(['TC', 'TC acclimating']);
-  if (lecaTransitioning) badges.push(['L', 'LECA transitioning']);
+  if (attention === 'high' || attention.includes('attention')) statuses.push({ code: '!', label: 'Needs attention', kind: 'attention' });
+  if (quarantine) statuses.push({ code: 'Pest', label: 'Pest quarantine', kind: 'pest-quarantine' });
+  if (newPlantQuarantine) statuses.push({ code: 'Q', label: 'Quarantine', kind: 'quarantine' });
+  if (activeReminder) statuses.push({ code: 'Check', label: 'Active check-in', kind: 'reminder' });
+  if (tcAcclimating) statuses.push({ code: 'TC', label: 'TC acclimating', kind: 'tc' });
+  if (lecaTransitioning) statuses.push({ code: 'LECA', label: 'LECA transitioning', kind: 'leca' });
 
-  return badges.slice(0, 3);
+  return statuses;
+}
+
+function resolvePlacementDisplayMode(placement, activeSpace, { canvasViewMode, isEditingLayout, phoneLike }) {
+  const requestedMode = placement.displayMode === 'auto'
+    ? activeSpace.defaultDisplayMode || 'auto'
+    : placement.displayMode || 'auto';
+
+  if (requestedMode !== 'auto') return requestedMode;
+  if (isEditingLayout || canvasViewMode === 'pan') return 'full-card';
+  return phoneLike ? 'compact-label' : 'photo-card';
 }
 
 function firstOpenPlacement(existingCount) {
@@ -161,8 +189,10 @@ export default function PlantSpaces({
   const [spaceViewModes, setSpaceViewModes] = useState(loadSpaceViewModes);
   const [viewportTick, setViewportTick] = useState(0);
   const [isBackgroundEditorExpanded, setIsBackgroundEditorExpanded] = useState(false);
+  const [previewPlantId, setPreviewPlantId] = useState('');
   const canvasRef = useRef(null);
   const canvasWrapRef = useRef(null);
+  const compactPreviewRef = useRef(null);
   const tileRefs = useRef({});
 
   const plannedSpaces = useMemo(getPlannedPlantSpaces, []);
@@ -175,6 +205,8 @@ export default function PlantSpaces({
   const savedCanvasViewMode = spaceViewModes[activeSpace?.id] || '';
   const canvasViewMode = isEditingLayout ? 'pan' : (savedCanvasViewMode || (phoneLike ? 'fit' : 'pan'));
   const hasSavedBackground = Boolean(activeSpace?.backgroundImageUrl);
+  const previewPlant = previewPlantId ? plantById.get(previewPlantId) : null;
+  const previewStatuses = previewPlant ? getTileStatuses(previewPlant, reminders) : [];
 
   useEffect(() => {
     if (focusSpaceId) setSelectedSpaceId(focusSpaceId);
@@ -213,6 +245,25 @@ export default function PlantSpaces({
     setIsBackgroundEditorExpanded(!hasSavedBackground);
   }, [activeSpace?.id, hasSavedBackground]);
 
+  useEffect(() => {
+    if (!previewPlantId) return undefined;
+
+    function handleDocumentPointerDown(event) {
+      if (!compactPreviewRef.current?.contains(event.target)) setPreviewPlantId('');
+    }
+
+    function handleEscape(event) {
+      if (event.key === 'Escape') setPreviewPlantId('');
+    }
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handleDocumentPointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [previewPlantId]);
+
   function saveSpace(nextSpace) {
     onChange(spaces.map((space) => (space.id === nextSpace.id ? { ...nextSpace, updatedAt: new Date().toISOString() } : space)));
   }
@@ -236,6 +287,10 @@ export default function PlantSpaces({
         ? { ...placement, ...patch, updatedAt: new Date().toISOString() }
         : placement
     )));
+  }
+
+  function changeSpaceDisplayMode(nextMode) {
+    saveSpace({ ...activeSpace, defaultDisplayMode: nextMode });
   }
 
   function startDrag(event, placement) {
@@ -277,6 +332,7 @@ export default function PlantSpaces({
         plantId,
         ...firstOpenPlacement(nextPlacements.length),
         zIndex: nextPlacements.length + 1,
+        displayMode: 'auto',
         shelf: '',
         createdAt: now,
         updatedAt: now,
@@ -340,6 +396,14 @@ export default function PlantSpaces({
         canvasWrapRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
       }, 40);
     }
+  }
+
+  function openTile(plant, mode) {
+    if (mode === 'compact-label' && canvasViewMode === 'fit' && !isEditingLayout) {
+      setPreviewPlantId(plant.id);
+      return;
+    }
+    onOpenPlant(plant);
   }
 
   const searchResults = placedPlants.filter((plant) => (
@@ -453,6 +517,15 @@ export default function PlantSpaces({
               </button>
             </div>
           </div>
+          <label>
+            <span>Default tile display</span>
+            <select value={activeSpace.defaultDisplayMode || 'auto'}
+              onChange={(event) => changeSpaceDisplayMode(event.target.value)}>
+              {plantSpaceDisplayModes.map((mode) => (
+                <option key={mode} value={mode}>{displayModeLabels[mode]}</option>
+              ))}
+            </select>
+          </label>
         </div>
         {isEditingLayout && phoneLike && (
           <p className="plant-wall-mode-note" role="status">
@@ -536,11 +609,13 @@ export default function PlantSpaces({
               const plant = plantById.get(placement.plantId);
               if (!plant) return null;
               const size = tileSize(placement);
-              const badges = getTileBadges(plant, reminders);
+              const displayMode = resolvePlacementDisplayMode(placement, activeSpace, { canvasViewMode, isEditingLayout, phoneLike });
+              const statuses = getTileStatuses(plant, reminders);
+              const visibleStatuses = displayMode === 'full-card' ? statuses.slice(0, 3) : statuses.slice(0, 1);
               const selected = selectedPlacementId === placement.id;
               return (
                 <button
-                  className={`plant-space-tile${selected ? ' plant-space-tile-selected' : ''}${highlightPlantId === plant.id ? ' plant-space-tile-highlight' : ''}`}
+                  className={`plant-space-tile plant-space-tile-${displayMode}${selected ? ' plant-space-tile-selected' : ''}${highlightPlantId === plant.id ? ' plant-space-tile-highlight' : ''}`}
                   key={placement.id}
                   type="button"
                   ref={(node) => { tileRefs.current[plant.id] = node; }}
@@ -552,18 +627,23 @@ export default function PlantSpaces({
                     zIndex: placement.zIndex,
                   }}
                   onPointerDown={(event) => startDrag(event, placement)}
-                  onClick={() => (isEditingLayout ? setSelectedPlacementId(placement.id) : onOpenPlant(plant))}
+                  onClick={() => (isEditingLayout ? setSelectedPlacementId(placement.id) : openTile(plant, displayMode))}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !isEditingLayout) onOpenPlant(plant);
+                    if (event.key === 'Enter' && !isEditingLayout) openTile(plant, displayMode);
                   }}
-                  aria-label={`${isEditingLayout ? 'Select placement for' : 'Open'} ${plant.name}`}
+                  aria-label={`${isEditingLayout ? 'Select placement for' : displayMode === 'compact-label' ? 'Preview' : 'Open'} ${plant.name}`}
                 >
-                  <PlantThumb plant={plant} />
+                  {displayMode !== 'compact-label' && <PlantThumb plant={plant} />}
                   <span className="plant-space-tile-name">{plant.name}</span>
-                  {plant.genus && <span className="plant-space-tile-genus">{plant.genus}</span>}
-                  {badges.length > 0 && (
+                  {displayMode === 'full-card' && plant.genus && <span className="plant-space-tile-genus">{plant.genus}</span>}
+                  {visibleStatuses.length > 0 && (
                     <span className="plant-space-indicators">
-                      {badges.map(([label, title]) => <em key={title} title={title}>{label}</em>)}
+                      {visibleStatuses.map((status) => (
+                        <em className={`plant-space-status-${status.kind}`} key={status.label} title={status.label}
+                          aria-label={status.label}>
+                          {status.code}
+                        </em>
+                      ))}
                     </span>
                   )}
                 </button>
@@ -575,6 +655,14 @@ export default function PlantSpaces({
         {isEditingLayout && selectedPlacement && (
           <div className="placement-editor" aria-label="Selected tile controls">
             <strong>{plantById.get(selectedPlacement.plantId)?.name || 'Selected plant'}</strong>
+            <label>Tile display
+              <select value={selectedPlacement.displayMode || 'auto'}
+                onChange={(event) => updatePlacement(selectedPlacement.id, { displayMode: event.target.value })}>
+                {plantSpaceDisplayModes.map((mode) => (
+                  <option key={mode} value={mode}>{displayModeLabels[mode]}</option>
+                ))}
+              </select>
+            </label>
             <div className="placement-nudge-grid">
               <button type="button" aria-label="Move up" onClick={() => nudgeSelected(0, -1)}>↑</button>
               <button type="button" aria-label="Move left" onClick={() => nudgeSelected(-1, 0)}>←</button>
@@ -592,6 +680,35 @@ export default function PlantSpaces({
             <button type="button" className="secondary-button" onClick={() => removePlacement(selectedPlacement)}>
               Remove From Space
             </button>
+          </div>
+        )}
+
+        {previewPlant && (
+          <div className="compact-tile-preview-backdrop">
+            <aside className="compact-tile-preview" ref={compactPreviewRef}
+              aria-label={`${previewPlant.name} preview`} role="dialog">
+              <button type="button" className="compact-preview-close" aria-label="Close preview"
+                onClick={() => setPreviewPlantId('')}>
+                ×
+              </button>
+              <PlantThumb plant={previewPlant} />
+              <div>
+                <p className="detail-eyebrow">Plant Space preview</p>
+                <h4>{previewPlant.name}</h4>
+                {previewPlant.genus && <p>{previewPlant.genus}</p>}
+                {previewStatuses[0] && (
+                  <span className={`compact-preview-status plant-space-status-${previewStatuses[0].kind}`}>
+                    {previewStatuses[0].label}
+                  </span>
+                )}
+              </div>
+              <button type="button" onClick={() => {
+                setPreviewPlantId('');
+                onOpenPlant(previewPlant);
+              }}>
+                Open Plant Details
+              </button>
+            </aside>
           </div>
         )}
       </div>

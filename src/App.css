@@ -949,8 +949,10 @@
 }
 
 .plant-wall-tools input,
+.plant-wall-tools select,
 .add-plants-filters input,
 .add-plants-filters select,
+.placement-editor select,
 .placement-editor input {
   min-width: 0;
   padding: 10px 12px;
@@ -1201,6 +1203,36 @@
   user-select: none;
 }
 
+.plant-space-tile::before {
+  position: absolute;
+  inset: -4px;
+  content: "";
+}
+
+.plant-space-tile-compact-label {
+  grid-template-rows: minmax(0, auto);
+  align-content: center;
+  min-width: 54px;
+  min-height: 34px;
+  padding: 6px 8px;
+  color: #fff;
+  background: rgba(23, 51, 35, 0.78);
+  border-color: rgba(255, 255, 255, 0.52);
+  box-shadow: 0 6px 16px rgba(15, 32, 22, 0.22);
+  backdrop-filter: blur(3px);
+}
+
+.plant-space-tile-photo-card {
+  grid-template-rows: minmax(44px, 1fr) auto;
+  min-width: 64px;
+  min-height: 76px;
+  padding: 6px;
+}
+
+.plant-space-tile-full-card {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+
 .plant-wall-editing .plant-space-tile {
   cursor: grab;
   touch-action: none;
@@ -1250,9 +1282,30 @@
   font-weight: 850;
 }
 
+.plant-space-tile-compact-label .plant-space-tile-name {
+  display: -webkit-box;
+  color: #fff;
+  font-size: clamp(0.72rem, 2.4vw, 0.9rem);
+  line-height: 1.12;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.plant-space-tile-photo-card .plant-space-tile-name {
+  font-size: clamp(0.68rem, 1.7vw, 0.76rem);
+  line-height: 1.15;
+}
+
 .plant-space-tile-genus {
   color: var(--text-muted);
   font-size: 0.62rem;
+}
+
+.plant-space-tile-compact-label .plant-space-indicators,
+.plant-space-tile-photo-card .plant-space-indicators {
+  top: -8px;
+  right: -8px;
 }
 
 .plant-space-indicators {
@@ -1277,6 +1330,21 @@
   border-radius: 999px;
 }
 
+.plant-space-tile-compact-label .plant-space-indicators em,
+.plant-space-tile-photo-card .plant-space-indicators em {
+  min-width: 24px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 0.56rem;
+}
+
+.plant-space-status-reminder { background: var(--brand-green) !important; }
+.plant-space-status-tc { background: #6b5d8f !important; }
+.plant-space-status-leca { background: #52765b !important; }
+.plant-space-status-quarantine { background: #a96d57 !important; }
+.plant-space-status-pest-quarantine,
+.plant-space-status-attention { background: #8f2525 !important; }
+
 .placement-editor {
   flex-wrap: wrap;
 }
@@ -1288,6 +1356,85 @@
 .placement-nudge-grid button {
   width: 44px;
   padding: 0;
+}
+
+.compact-tile-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: end center;
+  padding: 18px;
+  background: rgba(15, 32, 22, 0.22);
+}
+
+.compact-tile-preview {
+  position: relative;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 14px;
+  width: min(420px, 100%);
+  padding: 16px;
+  color: var(--text-h);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(15, 32, 22, 0.24);
+}
+
+.compact-tile-preview .plant-space-thumb {
+  width: 92px;
+  height: 92px;
+  min-height: 92px;
+}
+
+.compact-tile-preview h4 {
+  margin: 2px 0 4px;
+  color: var(--brand-green);
+  font-size: 1.05rem;
+}
+
+.compact-tile-preview p {
+  margin: 0 0 8px;
+}
+
+.compact-preview-status {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  border-radius: 999px;
+}
+
+.compact-tile-preview > button:not(.compact-preview-close) {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  color: #fff;
+  font: inherit;
+  font-weight: 750;
+  background: var(--brand-deep);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.compact-preview-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  color: var(--brand-green);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 800;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
 }
 
 @media (max-width: 900px) {
@@ -1412,6 +1559,17 @@
     padding: 6px;
   }
 
+  .plant-space-tile-compact-label {
+    min-width: 54px;
+    min-height: 34px;
+    padding: 6px 8px;
+  }
+
+  .plant-space-tile-photo-card {
+    min-width: 60px;
+    min-height: 74px;
+  }
+
   .plant-space-tile .plant-space-thumb {
     width: 100%;
     height: clamp(42px, 8vw, 62px);
@@ -1439,6 +1597,11 @@
   .plant-wall-fit .plant-space-tile-genus {
     font-size: clamp(0.58rem, 1.5vw, 0.64rem);
     line-height: 1.1;
+  }
+
+  .plant-wall-fit .plant-space-tile-compact-label .plant-space-tile-name {
+    font-size: clamp(0.72rem, 2.5vw, 0.92rem);
+    line-height: 1.12;
   }
 }
 

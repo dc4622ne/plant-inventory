@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.18.2',
+  version: 'v0.18.3',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Plant Spaces Responsive Wall',
+  releaseName: 'Smart Plant Space Tile Display',
 };
 
 export const changelog = [
+  {
+    version: 'v0.18.3',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added smart Plant Space tile display modes with Auto, Compact Label, Photo Card, and Full Card options.',
+      'Added compact Fit Wall labels for readable phone layouts.',
+      'Kept Full Card tiles in Actual Size / Pan and Edit Layout modes.',
+      'Added placement-level display overrides and a space-level default display mode.',
+    ],
+  },
   {
     version: 'v0.18.2',
     releaseDate: '2026-07-15',

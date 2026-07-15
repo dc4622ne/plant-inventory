@@ -3,6 +3,11 @@ import { storageKeys } from './backupUtils';
 export const plantSpacesStorageKey = storageKeys.plantSpaces;
 export const plantWallSpaceId = 'space-plant-wall';
 export const plantWallLocationValue = 'Plant Wall';
+export const plantSpaceDisplayModes = ['auto', 'compact-label', 'photo-card', 'full-card'];
+
+function normalizeDisplayMode(value) {
+  return plantSpaceDisplayModes.includes(value) ? value : 'auto';
+}
 
 const defaultPlantWallSpace = {
   id: plantWallSpaceId,
@@ -13,6 +18,7 @@ const defaultPlantWallSpace = {
   locationValue: plantWallLocationValue,
   width: 100,
   height: 68,
+  defaultDisplayMode: 'auto',
   createdAt: '2026-07-15T00:00:00.000Z',
   updatedAt: '2026-07-15T00:00:00.000Z',
   placements: [],
@@ -58,6 +64,7 @@ export function normalizePlantPlacement(rawPlacement = {}, index = 0) {
     width: finitePercent(rawPlacement.width, 16, 8, 42),
     height: finitePercent(rawPlacement.height, 18, 8, 42),
     zIndex: Number.isFinite(Number(rawPlacement.zIndex)) ? Number(rawPlacement.zIndex) : index + 1,
+    displayMode: normalizeDisplayMode(rawPlacement.displayMode),
     shelf: rawPlacement.shelf || rawPlacement.zone || '',
     createdAt: rawPlacement.createdAt || now,
     updatedAt: rawPlacement.updatedAt || rawPlacement.createdAt || now,
@@ -80,6 +87,7 @@ export function normalizePlantSpace(rawSpace = {}, index = 0) {
     locationValue: rawSpace.locationValue || fallback.locationValue || rawSpace.name || '',
     width: finitePercent(rawSpace.width, fallback.width || 100, 20, 300),
     height: finitePercent(rawSpace.height, fallback.height || 68, 20, 300),
+    defaultDisplayMode: normalizeDisplayMode(rawSpace.defaultDisplayMode),
     createdAt: rawSpace.createdAt || fallback.createdAt || now,
     updatedAt: rawSpace.updatedAt || fallback.updatedAt || rawSpace.createdAt || now,
     placements: placements
