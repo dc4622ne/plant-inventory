@@ -1,10 +1,18 @@
 export const currentAppVersion = {
-  version: 'v0.15.0',
-  buildDateTime: '2026-07-14 20:27:31 -04:00',
-  releaseName: 'Compact Mobile Plant List',
+  version: 'v0.15.1',
+  buildDateTime: '2026-07-15 00:00:00 -04:00',
+  releaseName: 'Mobile Header Spacing Fix',
 };
 
 export const changelog = [
+  {
+    version: 'v0.15.1',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Improved mobile header spacing by applying safe-area padding only once.',
+      'Tightened Plant List navigation, Quick Views, and Filters spacing on phones.',
+    ],
+  },
   {
     version: 'v0.15.0',
     releaseDate: '2026-07-15',

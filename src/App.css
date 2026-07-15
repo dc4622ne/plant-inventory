@@ -2996,16 +2996,18 @@
 @media (max-width: 768px) {
   .plant-inventory {
     --mobile-page-padding-inline: 14px;
-    --mobile-section-gap: 10px;
+    --mobile-section-gap: 8px;
     --mobile-card-padding: 12px;
     --mobile-control-height: 44px;
     --mobile-badge-gap: 4px;
-    padding: calc(12px + env(safe-area-inset-top)) var(--mobile-page-padding-inline)
-      calc(24px + env(safe-area-inset-bottom));
+    padding: calc(8px + env(safe-area-inset-top))
+      calc(var(--mobile-page-padding-inline) + env(safe-area-inset-right))
+      calc(24px + env(safe-area-inset-bottom))
+      calc(var(--mobile-page-padding-inline) + env(safe-area-inset-left));
   }
 
   .brand-header {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
 
   .brand-name {
@@ -3028,7 +3030,7 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 5px;
-    margin: 0 0 14px;
+    margin: 0 0 10px;
     padding: 0;
     background: transparent;
     border: 0;
@@ -3047,9 +3049,9 @@
 
   .section-heading {
     flex-direction: row;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
-    margin-bottom: var(--mobile-section-gap);
+    margin-bottom: 6px;
   }
 
   .section-title {
@@ -3067,12 +3069,12 @@
   .quick-views,
   .plant-filter-panel {
     margin-bottom: var(--mobile-section-gap);
-    padding: 10px;
+    padding: 8px 9px;
     border-radius: 10px;
   }
 
   .quick-views-heading {
-    gap: 8px;
+    gap: 6px;
   }
 
   .quick-views h3,
