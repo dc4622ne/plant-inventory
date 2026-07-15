@@ -10,7 +10,13 @@ Install dependencies with `npm install`, then start the development app with `np
 
 Local browser storage remains the app's main working storage. Supabase holds one manual backup record; the app does not auto-sync.
 
-Check-ins and reminders are included in the same JSON backup record as plants, wishlist items, and garden beds. No separate reminders table is required for the current offline-first/manual-sync architecture.
+Check-ins, reminders, and manual plant timeline entries are included in the same JSON backup record as plants, wishlist items, and garden beds. No separate reminders or timeline table is required for the current offline-first/manual-sync architecture.
+
+## Plant Health Timeline data
+
+Each plant can store optional manual timeline records in `timelineEntries`. Automatic timeline rows are derived at view time from existing authoritative records: plant Activity Log entries, Plant Photo Log entries, check-ins/reminders, and dated plant detail fields such as repot, watering, quarantine, TC acclimation, and LECA transition dates. Derived rows are not duplicated into backup because their source records are already backed up.
+
+The shared timeline type labels, icons, filters, source labels, and derivation rules live in `src/timeline.js`. Duplicate automatic rows are prevented with source/sourceId keys when present, falling back to deterministic plant/date/type/title/note/photo keys for older records.
 
 ## Supabase plant image storage setup
 
@@ -68,7 +74,7 @@ with check (id = 'primary');
 
 The app always uses the fixed record ID `primary`. Because this phase intentionally has no login, anyone with your project URL and anon key can access that record. Use this only as a personal, single-user setup and do not put sensitive information in the tracker. Authentication should be added before sharing the deployed app broadly.
 
-If you already created `public.app_backups` for an earlier version, no migration is needed for v0.16.0. Saving to Cloud after upgrading writes reminders into the existing `data` JSONB column.
+If you already created `public.app_backups` for an earlier version, no migration is needed for v0.17.0. Saving to Cloud after upgrading writes reminders and manual timeline entries into the existing `data` JSONB column.
 
 ### 2. Configure the app
 

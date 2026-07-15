@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import Garden from './Garden';
 import Resources from './ResourceLibrary';
@@ -14,6 +14,17 @@ import {
 } from './resources';
 import { reminderRules } from './reminderRules';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+import {
+  buildPlantTimelineEntries,
+  filterTimelineEntries,
+  formatTimelineMonth,
+  groupTimelineEntriesByMonth,
+  sortTimelineEntries,
+  timelineFilters,
+  timelineSourceLabels,
+  timelineTypeOptions,
+  timelineTypes,
+} from './timeline';
 
 const initialPlants = [
   {
@@ -122,6 +133,7 @@ const emptyPlant = {
   propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
   doNotTouchUntil: '',
   pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
+  timelineEntries: [],
   tcStage: '', tcDeflaskDate: '', tcAcclimationStartDate: '', tcAcclimationEndDate: '',
   tcSetup: '', tcHumidityLevel: '', tcNotes: '',
   trackLecaConversion: false, lecaStatus: '', lecaConversionStartDate: '', lecaRootStatus: '',
@@ -190,6 +202,10 @@ function emptyLogEntry() {
 
 function emptyPhotoEntry() {
   return { photoUrl: '', date: todayDate(), caption: '', photoType: 'General photo' };
+}
+
+function emptyTimelineEntry() {
+  return { type: 'generalNote', date: todayDate(), title: '', note: '', photoUrl: '' };
 }
 
 function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
@@ -342,7 +358,7 @@ function validateBackup(backup) {
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
   const plantsWithLogs = initialPlants.map((plant, index) => ({
-    ...plant, id: plant.id || makeId(`starter-${index}`), activityLog: [], photoLog: [],
+    ...plant, id: plant.id || makeId(`starter-${index}`), activityLog: [], photoLog: [], timelineEntries: [],
   }));
 
   if (!savedPlants) return plantsWithLogs;
@@ -358,6 +374,7 @@ function loadPlants() {
         lifecycleStatus: plant.lifecycleStatus || 'active',
         activityLog: Array.isArray(plant.activityLog) ? plant.activityLog : [],
         photoLog: Array.isArray(plant.photoLog) ? plant.photoLog : [],
+        timelineEntries: Array.isArray(plant.timelineEntries) ? plant.timelineEntries : [],
       };
     });
   } catch {
@@ -985,6 +1002,20 @@ function App() {
   const [photoEditUploadError, setPhotoEditUploadError] = useState('');
   const [photoEditSubmitStatus, setPhotoEditSubmitStatus] = useState('');
   const [isPhotoEditSubmitting, setIsPhotoEditSubmitting] = useState(false);
+  const [timelineSortOrder, setTimelineSortOrder] = useState('newest');
+  const [timelineFilter, setTimelineFilter] = useState('all');
+  const [timelineSearch, setTimelineSearch] = useState('');
+  const [showTimelineForm, setShowTimelineForm] = useState(false);
+  const [timelineDraft, setTimelineDraft] = useState(emptyTimelineEntry);
+  const [editingTimelineEntryId, setEditingTimelineEntryId] = useState('');
+  const [timelineEntryFile, setTimelineEntryFile] = useState(null);
+  const [timelineEntryPreviewUrl, setTimelineEntryPreviewUrl] = useState('');
+  const [timelineEntryUploadError, setTimelineEntryUploadError] = useState('');
+  const [timelineEntrySubmitStatus, setTimelineEntrySubmitStatus] = useState('');
+  const [isTimelineEntrySubmitting, setIsTimelineEntrySubmitting] = useState(false);
+  const [timelineLightboxPhoto, setTimelineLightboxPhoto] = useState(null);
+  const [showPhotoComparison, setShowPhotoComparison] = useState(false);
+  const [comparisonPhotoIds, setComparisonPhotoIds] = useState({ before: '', after: '' });
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
   const [manualReminderDraft, setManualReminderDraft] = useState({ title: '', dueDate: todayDate(), note: '' });
   const [showManualReminderForm, setShowManualReminderForm] = useState(false);
@@ -1045,6 +1076,11 @@ function App() {
     setNewLogEntry(emptyLogEntry());
     setManualReminderDraft({ title: '', dueDate: todayDate(), note: '' });
     setShowManualReminderForm(false);
+    setTimelineFilter('all');
+    setTimelineSearch('');
+    resetTimelineEntryForm();
+    setTimelineLightboxPhoto(null);
+    setShowPhotoComparison(false);
     setQuickCheckMessage('');
     cancelEditingLogEntry();
   }
@@ -1199,6 +1235,10 @@ function App() {
     if (photoEditPreviewUrl) URL.revokeObjectURL(photoEditPreviewUrl);
   }, [photoEditPreviewUrl]);
 
+  useEffect(() => () => {
+    if (timelineEntryPreviewUrl) URL.revokeObjectURL(timelineEntryPreviewUrl);
+  }, [timelineEntryPreviewUrl]);
+
   useEffect(() => {
     if (!selectedWishlistItemId) return undefined;
     const closeWishlistDetails = (event) => {
@@ -1293,6 +1333,35 @@ function App() {
     setPhotoEditSubmitStatus('');
   }
 
+  function clearTimelineEntryImageSelection() {
+    if (timelineEntryPreviewUrl) URL.revokeObjectURL(timelineEntryPreviewUrl);
+    setTimelineEntryFile(null);
+    setTimelineEntryPreviewUrl('');
+    setTimelineEntryUploadError('');
+    setTimelineEntrySubmitStatus('');
+  }
+
+  function selectTimelineEntryImageFile(file) {
+    if (!file) {
+      clearTimelineEntryImageSelection();
+      return;
+    }
+
+    if (timelineEntryPreviewUrl) URL.revokeObjectURL(timelineEntryPreviewUrl);
+    setTimelineEntryFile(file);
+    setTimelineEntryPreviewUrl(URL.createObjectURL(file));
+    setTimelineEntryUploadError('');
+    setTimelineEntrySubmitStatus('');
+    setTimelineDraft((draft) => ({ ...draft, photoUrl: '' }));
+  }
+
+  function resetTimelineEntryForm() {
+    setTimelineDraft(emptyTimelineEntry());
+    setEditingTimelineEntryId('');
+    setShowTimelineForm(false);
+    clearTimelineEntryImageSelection();
+  }
+
   function confirmDiscardChanges(isDirty = hasUnsavedFormChanges) {
     return !isDirty || window.confirm('You have unsaved changes. Discard them and continue?');
   }
@@ -1313,6 +1382,9 @@ function App() {
     cancelEditingPhotoEntry();
     clearPhotoEntryImageSelection();
     clearPhotoEditImageSelection();
+    resetTimelineEntryForm();
+    setTimelineLightboxPhoto(null);
+    setShowPhotoComparison(false);
     setNewOptionText({
       genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
       wateringRhythm: '', moisturePreference: '', careDifficulty: '',
@@ -1472,6 +1544,39 @@ function App() {
       })
       .slice(0, 8)
     : [];
+  const selectedPlantTimelineEntries = useMemo(() => (
+    selectedPlant ? buildPlantTimelineEntries(selectedPlant, reminders) : []
+  ), [selectedPlant, reminders]);
+  const visibleTimelineEntries = useMemo(() => (
+    sortTimelineEntries(
+      filterTimelineEntries(selectedPlantTimelineEntries, timelineFilter, timelineSearch),
+      timelineSortOrder,
+    )
+  ), [selectedPlantTimelineEntries, timelineFilter, timelineSearch, timelineSortOrder]);
+  const timelineMonthGroups = useMemo(() => (
+    [...groupTimelineEntriesByMonth(visibleTimelineEntries).entries()]
+  ), [visibleTimelineEntries]);
+  const timelinePhotoEntries = useMemo(() => (
+    selectedPlantTimelineEntries
+      .filter((entry) => entry.photoUrl)
+      .sort((firstEntry, secondEntry) => firstEntry.date.localeCompare(secondEntry.date))
+  ), [selectedPlantTimelineEntries]);
+  const selectedComparisonPhotos = {
+    before: timelinePhotoEntries.find((entry) => entry.id === comparisonPhotoIds.before) || null,
+    after: timelinePhotoEntries.find((entry) => entry.id === comparisonPhotoIds.after) || null,
+  };
+  const comparisonDaysBetween = selectedComparisonPhotos.before && selectedComparisonPhotos.after
+    ? Math.abs(Math.round(
+      (new Date(`${selectedComparisonPhotos.after.date}T00:00:00`) - new Date(`${selectedComparisonPhotos.before.date}T00:00:00`)) / 86400000,
+    ))
+    : null;
+  const timelineSummary = {
+    total: selectedPlantTimelineEntries.length,
+    photos: timelinePhotoEntries.length,
+    firstDate: selectedPlantTimelineEntries.map((entry) => entry.date).filter(Boolean).sort()[0] || '',
+    latestDate: selectedPlantTimelineEntries.map((entry) => entry.date).filter(Boolean).sort().at(-1) || '',
+  };
+  const hasActiveTimelineFilters = timelineFilter !== 'all' || timelineSearch.trim();
   const keyMetrics = [
     { label: 'Active plants', count: activePlants.length, lifecycle: 'active' },
     { label: 'Total plants', count: plants.length, lifecycle: 'all' },
@@ -2541,6 +2646,87 @@ function App() {
     if (editingPhotoEntry === entryToDelete) cancelEditingPhotoEntry();
   }
 
+  function saveManualTimelineEntries(timelineEntries) {
+    const updatedPlant = { ...selectedPlant, timelineEntries };
+    const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
+
+    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    setPlants(updatedPlants);
+    setSelectedPlant(updatedPlant);
+  }
+
+  async function saveManualTimelineEntry(event) {
+    event.preventDefault();
+    if (isTimelineEntrySubmitting || !timelineDraft.title.trim()) return;
+
+    setTimelineEntryUploadError('');
+    setIsTimelineEntrySubmitting(true);
+    setTimelineEntrySubmitStatus(timelineEntryFile ? 'Uploading photo...' : 'Saving timeline entry...');
+
+    try {
+      const uploadedPhotoUrl = timelineEntryFile
+        ? await uploadStoredImage(timelineEntryFile, 'timeline')
+        : timelineDraft.photoUrl.trim();
+      setTimelineEntrySubmitStatus('Saving timeline entry...');
+      const now = new Date().toISOString();
+      const manualEntry = {
+        ...timelineDraft,
+        id: editingTimelineEntryId || makeId('timeline'),
+        title: timelineDraft.title.trim(),
+        note: timelineDraft.note.trim(),
+        photoUrl: uploadedPhotoUrl,
+        date: dateInputValue(timelineDraft.date) || todayDate(),
+        createdAt: editingTimelineEntryId
+          ? (selectedPlant.timelineEntries || []).find((entry) => entry.id === editingTimelineEntryId)?.createdAt || now
+          : now,
+        updatedAt: now,
+      };
+      const existingEntries = selectedPlant.timelineEntries || [];
+      const nextEntries = editingTimelineEntryId
+        ? existingEntries.map((entry) => entry.id === editingTimelineEntryId ? manualEntry : entry)
+        : [...existingEntries, manualEntry];
+
+      saveManualTimelineEntries(nextEntries);
+      resetTimelineEntryForm();
+    } catch (error) {
+      console.error('Timeline image upload failed:', error);
+      setTimelineEntryUploadError(error.message || String(error));
+      setTimelineEntrySubmitStatus('');
+    } finally {
+      setIsTimelineEntrySubmitting(false);
+    }
+  }
+
+  function startEditingTimelineEntry(entry) {
+    if (entry.source !== 'manual') return;
+    clearTimelineEntryImageSelection();
+    setEditingTimelineEntryId(entry.sourceId || entry.id);
+    setTimelineDraft({
+      type: entry.type,
+      date: dateInputValue(entry.date),
+      title: entry.title,
+      note: entry.note || '',
+      photoUrl: entry.photoUrl || '',
+    });
+    setShowTimelineForm(true);
+  }
+
+  function deleteManualTimelineEntry(entry) {
+    if (entry.source !== 'manual') return;
+    if (!window.confirm('Delete this manual timeline entry?')) return;
+    saveManualTimelineEntries((selectedPlant.timelineEntries || []).filter((item) => item.id !== entry.sourceId));
+  }
+
+  function openTimelineSource(entry) {
+    const sectionId = ({
+      activityLog: 'activity-log-heading',
+      photoLog: 'photo-log-heading',
+      reminder: 'plant-checkins-heading',
+      plantFields: 'plant-detail-heading',
+    })[entry.source];
+    if (sectionId) document.getElementById(sectionId)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
   function renderReminderCard(reminder, compact = false) {
     const plant = reminderPlantById.get(reminder.plantId);
     return (
@@ -2766,6 +2952,186 @@ function App() {
               </section>
             )}
           </div>
+          <section className="plant-timeline" aria-labelledby="plant-timeline-heading">
+            <div className="timeline-heading">
+              <div>
+                <p className="detail-eyebrow">Unified history</p>
+                <h3 id="plant-timeline-heading">Plant Health Timeline</h3>
+              </div>
+              <div className="timeline-heading-actions">
+                {timelinePhotoEntries.length >= 2 && (
+                  <button type="button" className="secondary-button" onClick={() => {
+                    setComparisonPhotoIds({
+                      before: comparisonPhotoIds.before || timelinePhotoEntries[0].id,
+                      after: comparisonPhotoIds.after || timelinePhotoEntries.at(-1).id,
+                    });
+                    setShowPhotoComparison(true);
+                  }}>
+                    Compare photos
+                  </button>
+                )}
+                <button type="button" onClick={() => {
+                  setShowTimelineForm((isVisible) => !isVisible);
+                  if (!showTimelineForm) {
+                    setEditingTimelineEntryId('');
+                    setTimelineDraft(emptyTimelineEntry());
+                    clearTimelineEntryImageSelection();
+                  }
+                }}>
+                  Add Timeline Entry
+                </button>
+              </div>
+            </div>
+            <dl className="timeline-summary">
+              <div><dt>Total entries</dt><dd>{timelineSummary.total}</dd></div>
+              <div><dt>Photos</dt><dd>{timelineSummary.photos}</dd></div>
+              {timelineSummary.firstDate && <div><dt>First recorded</dt><dd>{timelineSummary.firstDate}</dd></div>}
+              {timelineSummary.latestDate && <div><dt>Most recent</dt><dd>{timelineSummary.latestDate}</dd></div>}
+            </dl>
+            {showTimelineForm && (
+              <form className="timeline-entry-form" onSubmit={saveManualTimelineEntry}>
+                {timelineEntryUploadError && (
+                  <p className="form-error-message timeline-form-message" role="alert">{timelineEntryUploadError}</p>
+                )}
+                {timelineEntrySubmitStatus && (
+                  <p className="form-status-message timeline-form-message" role="status">{timelineEntrySubmitStatus}</p>
+                )}
+                <div className="form-field">
+                  <label htmlFor="timeline-entry-type">Entry type</label>
+                  <select id="timeline-entry-type" value={timelineDraft.type}
+                    onChange={(event) => setTimelineDraft((draft) => ({ ...draft, type: event.target.value }))}>
+                    {timelineTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="timeline-entry-date">Date</label>
+                  <input id="timeline-entry-date" type="date" required value={timelineDraft.date}
+                    onChange={(event) => setTimelineDraft((draft) => ({ ...draft, date: event.target.value }))} />
+                </div>
+                <div className="form-field">
+                  <label htmlFor="timeline-entry-title">Title</label>
+                  <input id="timeline-entry-title" required value={timelineDraft.title}
+                    onChange={(event) => setTimelineDraft((draft) => ({ ...draft, title: event.target.value }))} />
+                </div>
+                <div className="form-field timeline-note-field">
+                  <label htmlFor="timeline-entry-note">Note (optional)</label>
+                  <textarea id="timeline-entry-note" rows="3" value={timelineDraft.note}
+                    onChange={(event) => setTimelineDraft((draft) => ({ ...draft, note: event.target.value }))} />
+                </div>
+                <ImageUploadField id="timeline-entry-photo" className="timeline-photo-field" label="Photo URL (optional)"
+                  value={timelineDraft.photoUrl}
+                  onChange={(photoUrl) => {
+                    clearTimelineEntryImageSelection();
+                    setTimelineDraft((draft) => ({ ...draft, photoUrl }));
+                  }}
+                  onFileSelected={selectTimelineEntryImageFile}
+                  selectedFileName={timelineEntryFile?.name || ''}
+                  previewUrl={timelineEntryPreviewUrl}
+                  disabled={isTimelineEntrySubmitting}
+                  message={timelineEntryUploadError}
+                  messageType={timelineEntryUploadError ? 'error' : 'status'} />
+                <div className="form-actions timeline-form-actions">
+                  <button type="submit" disabled={isTimelineEntrySubmitting}>
+                    {isTimelineEntrySubmitting ? (timelineEntryFile ? 'Uploading photo...' : 'Saving entry...') : editingTimelineEntryId ? 'Save timeline entry' : 'Add timeline entry'}
+                  </button>
+                  <button className="secondary-button" type="button" disabled={isTimelineEntrySubmitting}
+                    onClick={resetTimelineEntryForm}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+            <div className="timeline-tools">
+              <div className="form-field">
+                <label htmlFor="timeline-search">Search timeline</label>
+                <input id="timeline-search" type="search" value={timelineSearch}
+                  placeholder="Search title, note, or type"
+                  onChange={(event) => setTimelineSearch(event.target.value)} />
+              </div>
+              <div className="form-field">
+                <label htmlFor="timeline-filter">Filter</label>
+                <select id="timeline-filter" value={timelineFilter}
+                  onChange={(event) => setTimelineFilter(event.target.value)}>
+                  {timelineFilters.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}
+                </select>
+              </div>
+              <div className="timeline-sort" role="group" aria-label="Timeline sort order">
+                <span>Sort</span>
+                <button type="button" aria-pressed={timelineSortOrder === 'newest'}
+                  className={timelineSortOrder === 'newest' ? 'timeline-sort-active' : ''}
+                  onClick={() => setTimelineSortOrder('newest')}>
+                  Newest first
+                </button>
+                <button type="button" aria-pressed={timelineSortOrder === 'oldest'}
+                  className={timelineSortOrder === 'oldest' ? 'timeline-sort-active' : ''}
+                  onClick={() => setTimelineSortOrder('oldest')}>
+                  Oldest first
+                </button>
+              </div>
+              {hasActiveTimelineFilters && (
+                <button type="button" className="secondary-button timeline-reset-button"
+                  onClick={() => {
+                    setTimelineFilter('all');
+                    setTimelineSearch('');
+                  }}>
+                  Reset
+                </button>
+              )}
+            </div>
+            <p className="timeline-count" aria-live="polite">
+              {visibleTimelineEntries.length} matching timeline entr{visibleTimelineEntries.length === 1 ? 'y' : 'ies'}
+            </p>
+            {timelineMonthGroups.length ? (
+              <div className="timeline-months">
+                {timelineMonthGroups.map(([monthKey, entries]) => (
+                  <section className="timeline-month" key={monthKey} aria-labelledby={`timeline-${monthKey}`}>
+                    <h4 id={`timeline-${monthKey}`}>{formatTimelineMonth(monthKey)}</h4>
+                    <ol className="timeline-list">
+                      {entries.map((entry) => {
+                        const typeConfig = timelineTypes[entry.type] || timelineTypes.generalNote;
+                        return (
+                          <li className="timeline-entry" key={entry.id}>
+                            <div className="timeline-entry-icon" aria-hidden="true">{typeConfig.icon}</div>
+                            <div className="timeline-entry-body">
+                              <div className="timeline-entry-heading">
+                                <div>
+                                  <span className="timeline-type">{typeConfig.label}</span>
+                                  <h5>{entry.title}</h5>
+                                </div>
+                                <time dateTime={entry.date}>{entry.date}</time>
+                              </div>
+                              {entry.note && <p>{entry.note}</p>}
+                              {entry.photoUrl && (
+                                <button type="button" className="timeline-photo-button"
+                                  onClick={() => setTimelineLightboxPhoto(entry)}
+                                  aria-label={`Open larger photo for ${entry.title}`}>
+                                  <SafeImage src={entry.photoUrl} alt={`${entry.title} photo`}
+                                    fallback={<span>Photo unavailable</span>} />
+                                </button>
+                              )}
+                              <div className="timeline-entry-meta">
+                                {timelineSourceLabels[entry.source] && <span>{timelineSourceLabels[entry.source]}</span>}
+                                {entry.source === 'manual' ? (
+                                  <>
+                                    <button type="button" onClick={() => startEditingTimelineEntry(entry)}>Edit</button>
+                                    <button type="button" onClick={() => deleteManualTimelineEntry(entry)}>Delete</button>
+                                  </>
+                                ) : (
+                                  <button type="button" onClick={() => openTimelineSource(entry)}>Open source record</button>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <p className="activity-empty-message">No matching timeline entries yet.</p>
+            )}
+          </section>
           <section className="plant-checkins-panel" aria-labelledby="plant-checkins-heading">
             <div className="plant-checkins-heading">
               <div>
@@ -3044,6 +3410,83 @@ function App() {
               <p className="activity-empty-message">No activity logged yet.</p>
             )}
           </section>
+          {timelineLightboxPhoto && (
+            <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Timeline photo preview">
+              <div className="image-lightbox-panel">
+                <button type="button" className="image-lightbox-close"
+                  onClick={() => setTimelineLightboxPhoto(null)}
+                  aria-label="Close photo preview">
+                  Close
+                </button>
+                <SafeImage src={timelineLightboxPhoto.photoUrl} alt={`${timelineLightboxPhoto.title} larger view`}
+                  fallback={<p>Photo unavailable.</p>} />
+                <div>
+                  <strong>{timelineLightboxPhoto.title}</strong>
+                  <span>{timelineLightboxPhoto.date}</span>
+                  {timelineLightboxPhoto.note && <p>{timelineLightboxPhoto.note}</p>}
+                </div>
+              </div>
+            </div>
+          )}
+          {showPhotoComparison && (
+            <div className="photo-comparison" role="dialog" aria-modal="true" aria-labelledby="photo-comparison-heading">
+              <div className="photo-comparison-panel">
+                <div className="photo-comparison-heading">
+                  <div>
+                    <p className="detail-eyebrow">Progress photos</p>
+                    <h3 id="photo-comparison-heading">Compare Photos</h3>
+                  </div>
+                  <button type="button" className="secondary-button"
+                    onClick={() => setShowPhotoComparison(false)}>
+                    Close
+                  </button>
+                </div>
+                <div className="photo-comparison-selectors">
+                  <div className="form-field">
+                    <label htmlFor="comparison-before">Before photo</label>
+                    <select id="comparison-before" value={comparisonPhotoIds.before}
+                      onChange={(event) => setComparisonPhotoIds((current) => ({ ...current, before: event.target.value }))}>
+                      {timelinePhotoEntries.map((entry) => (
+                        <option key={entry.id} value={entry.id}>{entry.date} · {entry.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label htmlFor="comparison-after">After photo</label>
+                    <select id="comparison-after" value={comparisonPhotoIds.after}
+                      onChange={(event) => setComparisonPhotoIds((current) => ({ ...current, after: event.target.value }))}>
+                      {timelinePhotoEntries.map((entry) => (
+                        <option key={entry.id} value={entry.id}>{entry.date} · {entry.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {selectedComparisonPhotos.before && selectedComparisonPhotos.after && (
+                  <>
+                    <p className="comparison-days">
+                      {comparisonDaysBetween} day{comparisonDaysBetween === 1 ? '' : 's'} between photos
+                    </p>
+                    <div className="photo-comparison-grid">
+                      {[
+                        ['Before', selectedComparisonPhotos.before],
+                        ['After', selectedComparisonPhotos.after],
+                      ].map(([label, entry]) => (
+                        <figure className="comparison-photo" key={`${label}-${entry.id}`}>
+                          <figcaption>
+                            <strong>{label}</strong>
+                            <span>{entry.date}</span>
+                          </figcaption>
+                          <SafeImage src={entry.photoUrl} alt={`${label}: ${entry.title}`}
+                            fallback={<div className="image-preview-fallback">Photo unavailable</div>} />
+                          {(entry.note || entry.title) && <p>{entry.note || entry.title}</p>}
+                        </figure>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </article>
         ) : showForm || isEditing ? (
         <form className="plant-form" onSubmit={handleSubmit}>

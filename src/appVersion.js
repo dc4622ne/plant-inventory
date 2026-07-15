@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.16.0',
+  version: 'v0.17.0',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Check-ins & Reminders',
+  releaseName: 'Plant Health Timeline',
 };
 
 export const changelog = [
+  {
+    version: 'v0.17.0',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added an automatic Plant Health Timeline to plant details.',
+      'Integrated existing activity, photo log, check-in, tracker, and dated plant history.',
+      'Added manual timeline entries with optional timeline photos.',
+      'Added timeline filters, text search, summary counts, and sort controls.',
+      'Added in-app before/after photo comparison for plant progress photos.',
+    ],
+  },
   {
     version: 'v0.16.0',
     releaseDate: '2026-07-15',
