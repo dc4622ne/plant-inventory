@@ -1,10 +1,17 @@
 export const currentAppVersion = {
-  version: 'v0.18.0',
+  version: 'v0.18.1',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Plant Spaces and Plant Wall',
+  releaseName: 'Plant Spaces Mobile Tile Photos',
 };
 
 export const changelog = [
+  {
+    version: 'v0.18.1',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Fixed Plant Space tile photos disappearing on mobile by giving tile image containers an explicit responsive height.',
+    ],
+  },
   {
     version: 'v0.18.0',
     releaseDate: '2026-07-15',
