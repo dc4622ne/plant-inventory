@@ -74,7 +74,7 @@ with check (id = 'primary');
 
 The app always uses the fixed record ID `primary`. Because this phase intentionally has no login, anyone with your project URL and anon key can access that record. Use this only as a personal, single-user setup and do not put sensitive information in the tracker. Authentication should be added before sharing the deployed app broadly.
 
-If you already created `public.app_backups` for an earlier version, no migration is needed for v0.17.0. Saving to Cloud after upgrading writes reminders and manual timeline entries into the existing `data` JSONB column.
+If you already created `public.app_backups` for an earlier version, no migration is needed for v0.17.1. Saving to Cloud writes the full backup envelope into the existing `data` JSONB column.
 
 ### 2. Configure the app
 
@@ -87,7 +87,38 @@ Never commit `.env` or real credentials. Vite exposes variables prefixed with `V
 
 ### 3. Use manual cloud sync
 
-Open **Settings → Cloud Sync**. **Save to Cloud** writes the same complete data shape used by JSON Export. **Load from Cloud** asks for confirmation before replacing local browser data. **Check Cloud Status** checks for the backup and displays its last-save time.
+Open **Settings → Cloud Sync**. **Save cloud backup** writes the same complete data shape used by JSON backup. **Preview cloud backup** shows contents before restore. **Restore cloud backup** warns when the cloud backup appears older than local browser changes and creates a local safety snapshot first. **Check cloud status** checks the fixed `primary` backup record and displays its last-save time.
+
+## Backup schema and data inventory
+
+The shared backup logic lives in `src/backupUtils.js`. Backups use this envelope:
+
+```json
+{
+  "app": "plant-inventory",
+  "schemaVersion": 2,
+  "appVersion": "v0.17.1",
+  "exportedAt": "ISO timestamp",
+  "deviceId": "browser client id",
+  "data": {}
+}
+```
+
+The `data` object includes these registered user-data collections:
+
+- `plants`: active, archived, and graveyard plants, including plant detail fields, quarantine fields, rehab/progress notes, tissue culture tracker fields, LECA tracker fields, corm/propagation status, Activity Log entries, Plant Photo Log entries, manual Plant Health Timeline entries, and image URLs.
+- `dropdownOptions`: custom dropdown values, including old/custom soil mix values.
+- `wishlistItems`: wishlist, purchase, order, shipping, conversion, notes, and wishlist image URL data.
+- `gardenBeds`: garden beds plus nested crops, activity, harvests, notes, and image URLs.
+- `reminders`: active, dismissed, and completed reminders/check-ins with completion history and notes.
+- `preferences`: intentionally persistent settings such as plant view mode and page sizes.
+- `extraLocalStorage`: unknown future `plant-inventory-*` local storage keys, excluding backup metadata and safety snapshot keys.
+
+Backups preserve image URLs only. They do not embed image file blobs.
+
+Older v1 backups are normalized on import or cloud restore. Missing newer arrays and objects are restored to safe defaults, malformed backups are rejected before any local data is overwritten, and unknown fields inside collection records are preserved where practical. Before any successful restore, the app stores a local safety snapshot that can be used from Settings with **Undo last restore**.
+
+Cloud sync remains manual backup/restore sync rather than live real-time synchronization. The app reads and writes only the `app_backups` row with ID `primary`, uses upsert for saves, prevents overlapping cloud requests, and does not report save success until Supabase confirms the write.
 
 ## Build and deploy
 

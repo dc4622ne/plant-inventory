@@ -3,9 +3,24 @@ import './App.css';
 import Garden from './Garden';
 import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
-import { gardenStorageKey, getGardenMetrics, loadGardenBeds } from './gardenData';
+import { getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { uploadStoredImage } from './imageUploadUtils';
+import {
+  applyBackupToLocalStorage,
+  assembleBackup,
+  auditBackupCoverage,
+  backupHasZeroPlantsWarning,
+  backupSchemaVersion,
+  describeBackup,
+  formatBackupSummary,
+  getBackupSummary,
+  getLocalMetadata,
+  getRestoreSafetySnapshot,
+  markLocalDataChanged,
+  normalizeBackup,
+  storageKeys,
+} from './backupUtils';
 import {
   getSoilMixByValue,
   getSoilMixDisplayName,
@@ -250,14 +265,12 @@ const initialDropdownOptions = {
   lecaStressLevel: lecaStressOptions,
 };
 
-const plantsStorageKey = 'plant-inventory-plants';
-const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
-const wishlistStorageKey = 'plant-inventory-wishlist';
-const remindersStorageKey = 'plant-inventory-reminders';
-const plantViewModeStorageKey = 'plant-inventory-view-mode';
-const plantPageSizesStorageKey = 'plant-inventory-page-sizes';
-const appStoragePrefix = 'plant-inventory-';
-const backupFormatVersion = 1;
+const plantsStorageKey = storageKeys.plants;
+const dropdownOptionsStorageKey = storageKeys.dropdownOptions;
+const wishlistStorageKey = storageKeys.wishlistItems;
+const remindersStorageKey = storageKeys.reminders;
+const plantViewModeStorageKey = storageKeys.plantViewMode;
+const plantPageSizesStorageKey = storageKeys.plantPageSizes;
 const cloudBackupTable = 'app_backups';
 const cloudBackupId = 'primary';
 const defaultPlantPageSizes = { cards: 12, gallery: 18, compact: 25 };
@@ -277,14 +290,6 @@ function loadPlantPageSizes() {
   } catch {
     return { ...defaultPlantPageSizes };
   }
-}
-
-function getAppStorageData() {
-  return Object.fromEntries(
-    Object.keys(localStorage)
-      .filter((key) => key.startsWith(appStoragePrefix))
-      .map((key) => [key, localStorage.getItem(key)]),
-  );
 }
 
 function csvCell(value) {
@@ -315,44 +320,6 @@ function exportDate() {
 
 function makeId(prefix = 'id') {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function validateBackup(backup) {
-  const hasValidPlants = Array.isArray(backup?.plants)
-    && backup.plants.every((plant) => plant && typeof plant === 'object' && !Array.isArray(plant));
-  const hasValidOptions = backup?.dropdownOptions
-    && typeof backup.dropdownOptions === 'object'
-    && !Array.isArray(backup.dropdownOptions)
-    && Object.values(backup.dropdownOptions).every((options) => (
-      Array.isArray(options) && options.every((option) => typeof option === 'string')
-    ));
-  const hasValidStorage = backup?.storage
-    && typeof backup.storage === 'object'
-    && !Array.isArray(backup.storage)
-    && Object.entries(backup.storage).every(([key, value]) => (
-      key.startsWith(appStoragePrefix) && typeof value === 'string'
-    ));
-  const hasValidWishlist = backup?.wishlistItems === undefined || (
-    Array.isArray(backup.wishlistItems)
-    && backup.wishlistItems.every((item) => item && typeof item === 'object' && !Array.isArray(item))
-  );
-  const hasValidGarden = backup?.gardenBeds === undefined || (
-    Array.isArray(backup.gardenBeds)
-    && backup.gardenBeds.every((bed) => bed && typeof bed === 'object' && !Array.isArray(bed))
-  );
-  const hasValidReminders = backup?.reminders === undefined || (
-    Array.isArray(backup.reminders)
-    && backup.reminders.every((reminder) => reminder && typeof reminder === 'object' && !Array.isArray(reminder))
-  );
-
-  return backup?.app === 'plant-inventory'
-    && backup.version === backupFormatVersion
-    && hasValidPlants
-    && hasValidOptions
-    && hasValidWishlist
-    && hasValidGarden
-    && hasValidReminders
-    && hasValidStorage;
 }
 
 function loadPlants() {
@@ -1024,7 +991,11 @@ function App() {
   const [cloudMessage, setCloudMessage] = useState('');
   const [cloudMessageType, setCloudMessageType] = useState('success');
   const [cloudUpdatedAt, setCloudUpdatedAt] = useState('');
+  const [cloudRestoredAt, setCloudRestoredAt] = useState('');
+  const [cloudPreview, setCloudPreview] = useState(null);
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [backupPreview, setBackupPreview] = useState(null);
+  const [restoreSnapshotInfo, setRestoreSnapshotInfo] = useState(() => getRestoreSafetySnapshot());
   const [wishlistItems, setWishlistItems] = useState(loadWishlistItems);
   const [wishlistDraft, setWishlistDraft] = useState(emptyWishlistItem);
   const [editingWishlistId, setEditingWishlistId] = useState('');
@@ -1045,11 +1016,15 @@ function App() {
   const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft || Boolean(plantImageFile));
   const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft || Boolean(wishlistImageFile));
   const hasUnsavedFormChanges = plantFormDirty || wishlistFormDirty || gardenFormDirty;
+  const localBackupSummary = getBackupSummary(createBackup());
+  const localMetadata = getLocalMetadata();
+  const backupAudit = useMemo(() => auditBackupCoverage(), []);
 
   function changePlantViewMode(nextViewMode) {
     setPlantViewMode(nextViewMode);
     setPlantPage(1);
     localStorage.setItem(plantViewModeStorageKey, nextViewMode);
+    markLocalDataChanged('preference');
   }
 
   function changePlantPageSize(nextPageSize) {
@@ -1057,6 +1032,7 @@ function App() {
     setPlantPageSizes(updatedPageSizes);
     setPlantPage(1);
     localStorage.setItem(plantPageSizesStorageKey, JSON.stringify(updatedPageSizes));
+    markLocalDataChanged('preference');
   }
 
   function isMobilePlantLayout() {
@@ -1087,6 +1063,7 @@ function App() {
 
   function saveReminders(nextReminders) {
     localStorage.setItem(remindersStorageKey, JSON.stringify(nextReminders));
+    markLocalDataChanged('reminders');
     setReminders(nextReminders);
   }
 
@@ -1110,6 +1087,7 @@ function App() {
         if (!isActiveReminderDuplicate(nextReminders, candidate)) nextReminders.push(candidate);
       });
       localStorage.setItem(remindersStorageKey, JSON.stringify(nextReminders));
+      markLocalDataChanged('reminders');
       return nextReminders;
     });
   }
@@ -1814,6 +1792,7 @@ function App() {
 
   function saveWishlist(nextItems) {
     localStorage.setItem(wishlistStorageKey, JSON.stringify(nextItems));
+    markLocalDataChanged('wishlist');
     setWishlistItems(nextItems);
   }
 
@@ -1892,6 +1871,7 @@ function App() {
     };
     const updatedPlants = [...plants, newInventoryPlant];
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('plants');
     setPlants(updatedPlants);
     createAutomaticRemindersForPlant(newInventoryPlant);
     saveWishlist(wishlistItems.map((current) => current.id === item.id
@@ -1971,21 +1951,37 @@ function App() {
   }
 
   function createBackup() {
-    return {
-      app: 'plant-inventory',
-      version: backupFormatVersion,
-      exportedAt: new Date().toISOString(),
+    return assembleBackup({
       plants,
       dropdownOptions,
       wishlistItems,
       gardenBeds,
       reminders,
-      storage: getAppStorageData(),
-    };
+      appVersion: currentAppVersion.version,
+    });
+  }
+
+  function refreshRestoredState(returnToDashboard = true) {
+    setPlants(loadPlants());
+    setReminders(loadReminders());
+    setDropdownOptions(loadDropdownOptions());
+    setWishlistItems(loadWishlistItems());
+    setGardenBeds(loadGardenBeds());
+    setPlantViewMode(loadPlantViewMode());
+    setPlantPageSizes(loadPlantPageSizes());
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    if (returnToDashboard) setAppView('dashboard');
+    clearAllFilters();
+    setLifecycleView('active');
+    setRestoreSnapshotInfo(getRestoreSafetySnapshot());
   }
 
   function exportData() {
     const backup = createBackup();
+    const summary = getBackupSummary(backup);
+    if (!window.confirm(`Download JSON backup?\n\n${describeBackup(backup)}`)) return;
     const date = new Date().toISOString().slice(0, 10);
     const url = URL.createObjectURL(new Blob(
       [JSON.stringify(backup, null, 2)],
@@ -1998,53 +1994,55 @@ function App() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+    setBackupPreview(summary);
     setBackupMessageType('success');
-    setBackupMessage('Backup exported successfully.');
+    setBackupMessage(`Backup exported successfully.\n${formatBackupSummary(summary)}`);
   }
 
   function restoreBackup(backup, returnToDashboard = true) {
-    const previousStorage = getAppStorageData();
+    const currentBackup = createBackup();
     try {
-      Object.keys(previousStorage).forEach((key) => localStorage.removeItem(key));
-      Object.entries(backup.storage).forEach(([key, value]) => localStorage.setItem(key, value));
-      // These named values are the source of truth, even if a backup contains stale storage copies.
-      localStorage.setItem(plantsStorageKey, JSON.stringify(backup.plants));
-      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(backup.dropdownOptions));
-      if (Array.isArray(backup.wishlistItems)) {
-        localStorage.setItem(wishlistStorageKey, JSON.stringify(backup.wishlistItems));
-      }
-      if (Array.isArray(backup.gardenBeds)) {
-        localStorage.setItem(gardenStorageKey, JSON.stringify(backup.gardenBeds));
-      }
-      if (Array.isArray(backup.reminders)) {
-        localStorage.setItem(remindersStorageKey, JSON.stringify(backup.reminders));
-      }
-
-      setPlants(loadPlants());
-      setReminders(loadReminders());
-      setDropdownOptions(loadDropdownOptions());
-      setWishlistItems(loadWishlistItems());
-      setGardenBeds(loadGardenBeds());
-      setSelectedPlant(null);
-      setShowForm(false);
-      setIsEditing(false);
-      if (returnToDashboard) setAppView('dashboard');
-      clearAllFilters();
-      setLifecycleView('active');
+      applyBackupToLocalStorage(backup, { createSnapshot: true, currentBackup });
+      refreshRestoredState(returnToDashboard);
       return true;
-    } catch {
-      Object.keys(getAppStorageData()).forEach((key) => localStorage.removeItem(key));
-      Object.entries(previousStorage).forEach(([key, value]) => localStorage.setItem(key, value));
-      setPlants(loadPlants());
-      setReminders(loadReminders());
-      setDropdownOptions(loadDropdownOptions());
-      setWishlistItems(loadWishlistItems());
-      setGardenBeds(loadGardenBeds());
+    } catch (error) {
+      console.error('Backup restore failed:', error);
+      applyBackupToLocalStorage(currentBackup, { createSnapshot: false });
+      refreshRestoredState(returnToDashboard);
       return false;
     }
   }
 
+  function undoLastRestore() {
+    const snapshot = getRestoreSafetySnapshot();
+    if (!snapshot) {
+      setBackupMessageType('error');
+      setBackupMessage('No restore safety snapshot is available yet.');
+      return;
+    }
+    if (!window.confirm(`Undo the most recent restore and return to the local data saved on ${new Date(snapshot.createdAt).toLocaleString()}?`)) return;
+    try {
+      applyBackupToLocalStorage(snapshot.backup, { createSnapshot: false });
+      refreshRestoredState(true);
+      setBackupMessageType('success');
+      setBackupMessage('Restore undone. Your safety snapshot is still available until the next successful restore replaces it.');
+    } catch (error) {
+      console.error('Restore undo failed:', error);
+      setBackupMessageType('error');
+      setBackupMessage('The restore could not be undone. Your current data was not changed.');
+    }
+  }
+
+  async function fetchCloudBackup() {
+    return supabase
+      .from(cloudBackupTable)
+      .select('data, updated_at')
+      .eq('id', cloudBackupId)
+      .maybeSingle();
+  }
+
   async function checkCloudStatus() {
+    if (cloudBusy) return;
     if (!isSupabaseConfigured) {
       setCloudMessageType('error');
       setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
@@ -2052,83 +2050,143 @@ function App() {
     }
     setCloudBusy(true);
     setCloudMessage('');
-    const { data, error } = await supabase
-      .from(cloudBackupTable)
-      .select('updated_at')
-      .eq('id', cloudBackupId)
-      .maybeSingle();
+    const { data, error } = await fetchCloudBackup();
     setCloudBusy(false);
     if (error) {
+      console.error('Cloud status check failed:', error);
       setCloudMessageType('error');
       setCloudMessage('Cloud status could not be checked. Confirm the Supabase table and access policy are set up.');
       return;
     }
     setCloudUpdatedAt(data?.updated_at || '');
+    const normalized = data ? normalizeBackup(data.data) : null;
+    setCloudPreview(normalized?.ok ? getBackupSummary(normalized.backup) : null);
     setCloudMessageType('success');
-    setCloudMessage(data ? 'Cloud backup is available.' : 'Supabase is connected, but no cloud backup has been saved yet.');
+    setCloudMessage(data && normalized?.ok
+      ? `Cloud backup is available.\n${formatBackupSummary(getBackupSummary(normalized.backup))}`
+      : 'Supabase is connected, but no valid cloud backup has been saved yet.');
   }
 
   async function saveToCloud() {
+    if (cloudBusy) return;
     if (!isSupabaseConfigured) {
       setCloudMessageType('error');
       setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
       return;
     }
+    const backup = createBackup();
+    if (!window.confirm(`Save current local data to cloud?\n\n${describeBackup(backup)}`)) return;
     setCloudBusy(true);
     setCloudMessage('');
     const updatedAt = new Date().toISOString();
     const { error } = await supabase.from(cloudBackupTable).upsert({
       id: cloudBackupId,
-      data: createBackup(),
+      data: backup,
       updated_at: updatedAt,
     });
     setCloudBusy(false);
     if (error) {
+      console.error('Cloud backup save failed:', error);
       setCloudMessageType('error');
       setCloudMessage('Your data could not be saved to the cloud. Your local data is unchanged. Check the Supabase setup and try again.');
       return;
     }
     setCloudUpdatedAt(updatedAt);
+    setCloudPreview(getBackupSummary(backup));
     setCloudMessageType('success');
     setCloudMessage('Cloud backup saved successfully. Your local data is still here.');
   }
 
-  async function loadFromCloud() {
+  async function previewCloudBackup() {
+    if (cloudBusy) return;
     if (!isSupabaseConfigured) {
       setCloudMessageType('error');
       setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
       return;
     }
-    if (!window.confirm(
-      'Loading from cloud will replace the current local browser data. This cannot be undone unless you have another backup. Continue?',
-    )) return;
-
     setCloudBusy(true);
     setCloudMessage('');
-    const { data, error } = await supabase
-      .from(cloudBackupTable)
-      .select('data, updated_at')
-      .eq('id', cloudBackupId)
-      .maybeSingle();
+    const { data, error } = await fetchCloudBackup();
     setCloudBusy(false);
     if (error) {
+      console.error('Cloud backup preview failed:', error);
+      setCloudMessageType('error');
+      setCloudMessage('The cloud backup could not be previewed.');
+      return;
+    }
+    const normalized = data ? normalizeBackup(data.data) : { ok: false, error: 'No cloud backup was found.' };
+    if (!normalized.ok) {
+      setCloudPreview(null);
+      setCloudMessageType('error');
+      setCloudMessage(normalized.error);
+      return;
+    }
+    const summary = getBackupSummary(normalized.backup);
+    setCloudUpdatedAt(data.updated_at || normalized.backup.exportedAt);
+    setCloudPreview(summary);
+    setCloudMessageType('success');
+    setCloudMessage(`Cloud backup preview:\n${formatBackupSummary(summary)}`);
+  }
+
+  async function loadFromCloud() {
+    if (cloudBusy) return;
+    if (!isSupabaseConfigured) {
+      setCloudMessageType('error');
+      setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
+      return;
+    }
+    setCloudBusy(true);
+    setCloudMessage('');
+    const { data, error } = await fetchCloudBackup();
+    setCloudBusy(false);
+    if (error) {
+      console.error('Cloud backup restore read failed:', error);
       setCloudMessageType('error');
       setCloudMessage('The cloud backup could not be loaded. Your local data was not changed.');
       return;
     }
-    if (!data || !validateBackup(data.data)) {
+    const normalized = data ? normalizeBackup(data.data) : { ok: false, error: 'No cloud backup was found.' };
+    if (!normalized.ok) {
       setCloudMessageType('error');
-      setCloudMessage('No valid cloud backup was found. Your local data was not changed.');
+      setCloudMessage(`${normalized.error} Your local data was not changed.`);
       return;
     }
-    if (!restoreBackup(data.data, false)) {
+    const backup = normalized.backup;
+    const warning = backupHasZeroPlantsWarning(backup, plants.length);
+    const localModifiedAt = getLocalMetadata().lastModifiedAt;
+    const cloudTime = data.updated_at || backup.exportedAt;
+    const cloudLooksOlder = localModifiedAt && cloudTime && new Date(cloudTime) < new Date(localModifiedAt);
+    const choice = window.prompt(
+      [
+        'Restore cloud backup?',
+        '',
+        describeBackup(backup),
+        warning,
+        cloudLooksOlder ? `Warning: the cloud backup appears older than local changes from ${new Date(localModifiedAt).toLocaleString()}.` : '',
+        '',
+        'Type RESTORE to overwrite local data, SAVE to save current local data to cloud first, or leave blank to cancel.',
+      ].filter(Boolean).join('\n'),
+    );
+    if (!choice) return;
+    if (choice.trim().toUpperCase() === 'SAVE') {
+      await saveToCloud();
+      return;
+    }
+    if (choice.trim().toUpperCase() !== 'RESTORE') {
+      setCloudMessageType('error');
+      setCloudMessage('Cloud restore canceled. Your local data was not changed.');
+      return;
+    }
+    if (!restoreBackup(backup, false)) {
       setCloudMessageType('error');
       setCloudMessage('The cloud backup could not be restored. Your previous local data has been put back.');
       return;
     }
     setCloudUpdatedAt(data.updated_at || '');
+    setCloudRestoredAt(new Date().toISOString());
+    setCloudPreview(getBackupSummary(backup));
     setCloudMessageType('success');
-    setCloudMessage('Cloud backup loaded successfully. Your local browser data has been restored.');
+    setCloudMessage('Cloud backup restored. A local safety snapshot was created so you can undo this restore.');
   }
 
   function exportPlantsCsv() {
@@ -2241,28 +2299,40 @@ function App() {
     event.target.value = '';
     if (!file) return;
 
-    let backup;
+    let parsedBackup;
     try {
-      backup = JSON.parse(await file.text());
+      parsedBackup = JSON.parse(await file.text());
     } catch {
       setBackupMessageType('error');
       setBackupMessage('That file is not valid JSON. Please choose a backup exported from this app.');
       return;
     }
 
-    if (!validateBackup(backup)) {
+    const normalized = normalizeBackup(parsedBackup);
+    if (!normalized.ok) {
       setBackupMessageType('error');
-      setBackupMessage('That file is not a valid Plant Inventory backup. Your current data was not changed.');
+      setBackupMessage(`${normalized.error} Your current data was not changed.`);
       return;
     }
 
+    const warning = backupHasZeroPlantsWarning(normalized.backup, plants.length);
     if (!window.confirm(
-      'Importing this backup will replace your current local Plant Inventory data. Continue?',
+      [
+        'Importing this backup will replace your current local Plant Tracker data.',
+        'A local safety snapshot will be created first so you can undo this restore.',
+        '',
+        describeBackup(normalized.backup),
+        warning,
+        '',
+        'Continue?',
+      ].filter(Boolean).join('\n'),
     )) return;
 
-    if (restoreBackup(backup)) {
+    if (restoreBackup(normalized.backup)) {
+      const summary = getBackupSummary(normalized.backup);
+      setBackupPreview(summary);
       setBackupMessageType('success');
-      setBackupMessage('Backup imported successfully. Your restored plants are ready.');
+      setBackupMessage(`Backup imported successfully. Your restored plants are ready.\n${formatBackupSummary(summary)}`);
     } else {
       setBackupMessageType('error');
       setBackupMessage('The backup could not be imported. Your previous data has been restored.');
@@ -2306,6 +2376,7 @@ function App() {
         : [...plants, savedPlant];
 
       localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+      markLocalDataChanged('plants');
       setPlants(updatedPlants);
       createAutomaticRemindersForPlant(savedPlant, isEditing ? selectedPlant : null);
 
@@ -2363,6 +2434,7 @@ function App() {
       };
 
       localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedOptions));
+      markLocalDataChanged('dropdown-options');
       return updatedOptions;
     });
     if (formName === 'wishlist') {
@@ -2418,6 +2490,7 @@ function App() {
 
     const updatedPlants = plants.filter((plant) => plant !== selectedPlant);
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('plants');
     setPlants(updatedPlants);
     setSelectedPlant(null);
   }
@@ -2435,6 +2508,7 @@ function App() {
     const updatedPlant = { ...selectedPlant, lifecycleStatus: nextStatus };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('plants');
     setPlants(updatedPlants);
     setSelectedPlant(nextStatus === 'active' ? updatedPlant : null);
     setLifecycleView(nextStatus);
@@ -2459,6 +2533,7 @@ function App() {
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('activity-log');
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
     setNewLogEntry(emptyLogEntry());
@@ -2480,6 +2555,7 @@ function App() {
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('activity-log');
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
     setQuickCheckMessage("Checked in today — you're all set.");
@@ -2519,6 +2595,7 @@ function App() {
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('activity-log');
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
     cancelEditingLogEntry();
@@ -2539,6 +2616,7 @@ function App() {
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('activity-log');
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
     if (editingLogEntry === entryToDelete) cancelEditingLogEntry();
@@ -2549,6 +2627,7 @@ function App() {
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('photo-log');
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
   }
@@ -2651,6 +2730,7 @@ function App() {
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
+    markLocalDataChanged('timeline');
     setPlants(updatedPlants);
     setSelectedPlant(updatedPlant);
   }
@@ -4117,14 +4197,33 @@ function App() {
 
           <section className="settings-card" aria-labelledby="cloud-sync-heading">
             <h3 id="cloud-sync-heading">Cloud Sync</h3>
-            <p>Supabase configuration: <strong>{isSupabaseConfigured ? 'Configured' : 'Not configured'}</strong></p>
-            <p>Last cloud save: <strong>{cloudUpdatedAt ? new Date(cloudUpdatedAt).toLocaleString() : 'Not checked'}</strong></p>
-            <p>Local browser storage is still used. Cloud sync is manual.</p>
+            <p className="settings-card-intro">Cloud sync is manual backup and restore, not live real-time sync across devices.</p>
+            <dl className="backup-meta-grid">
+              <div><dt>Supabase</dt><dd>{isSupabaseConfigured ? 'Configured' : 'Not configured'}</dd></div>
+              <div><dt>Sync status</dt><dd>{cloudBusy ? 'Working...' : 'Ready'}</dd></div>
+              <div><dt>Last cloud backup</dt><dd>{cloudUpdatedAt ? new Date(cloudUpdatedAt).toLocaleString() : 'Not checked'}</dd></div>
+              <div><dt>Last cloud restore</dt><dd>{cloudRestoredAt ? new Date(cloudRestoredAt).toLocaleString() : 'Not restored'}</dd></div>
+              <div><dt>Local changes</dt><dd>{localMetadata.lastModifiedAt ? new Date(localMetadata.lastModifiedAt).toLocaleString() : 'Not recorded yet'}</dd></div>
+              <div><dt>Schema</dt><dd>v{backupSchemaVersion}</dd></div>
+            </dl>
             <div className="cloud-sync-actions">
-              <button type="button" onClick={saveToCloud} disabled={cloudBusy}>Save to Cloud</button>
-              <button type="button" onClick={loadFromCloud} disabled={cloudBusy}>Load from Cloud</button>
-              <button type="button" onClick={checkCloudStatus} disabled={cloudBusy}>Check Cloud Status</button>
+              <button type="button" onClick={saveToCloud} disabled={cloudBusy}>Save cloud backup</button>
+              <button type="button" onClick={previewCloudBackup} disabled={cloudBusy}>Preview cloud backup</button>
+              <button type="button" onClick={loadFromCloud} disabled={cloudBusy}>Restore cloud backup</button>
+              <button type="button" onClick={checkCloudStatus} disabled={cloudBusy}>Check cloud status</button>
             </div>
+            {cloudPreview && (
+              <dl className="backup-summary-grid" aria-label="Cloud backup contents">
+                <div><dt>Plants</dt><dd>{cloudPreview.plants}</dd></div>
+                <div><dt>Wishlist</dt><dd>{cloudPreview.wishlistItems}</dd></div>
+                <div><dt>Reminders</dt><dd>{cloudPreview.reminders}</dd></div>
+                <div><dt>Timeline</dt><dd>{cloudPreview.timelineEntries}</dd></div>
+                <div><dt>Photo Log</dt><dd>{cloudPreview.photoLogEntries}</dd></div>
+                <div><dt>Garden beds</dt><dd>{cloudPreview.gardenBeds}</dd></div>
+                <div><dt>Garden crops</dt><dd>{cloudPreview.gardenCrops}</dd></div>
+                <div><dt>Trackers</dt><dd>{cloudPreview.trackerRecords}</dd></div>
+              </dl>
+            )}
             {cloudMessage && (
               <p className={`backup-message backup-message-${cloudMessageType}`}
                 role={cloudMessageType === 'error' ? 'alert' : 'status'}>
@@ -4170,23 +4269,49 @@ function App() {
 
           <section className="settings-card" aria-labelledby="data-tools-heading">
             <h3 id="data-tools-heading">Data Backup</h3>
+            <p className="settings-card-intro">JSON backup includes plants, logs, reminders, timeline entries, photos as URLs, garden data, wishlist items, dropdown values, and preferences.</p>
+            <dl className="backup-summary-grid" aria-label="Current local backup contents">
+              <div><dt>Plants</dt><dd>{localBackupSummary.plants}</dd></div>
+              <div><dt>Wishlist</dt><dd>{localBackupSummary.wishlistItems}</dd></div>
+              <div><dt>Reminders</dt><dd>{localBackupSummary.reminders}</dd></div>
+              <div><dt>Timeline</dt><dd>{localBackupSummary.timelineEntries}</dd></div>
+              <div><dt>Photo Log</dt><dd>{localBackupSummary.photoLogEntries}</dd></div>
+              <div><dt>Garden beds</dt><dd>{localBackupSummary.gardenBeds}</dd></div>
+              <div><dt>Garden crops</dt><dd>{localBackupSummary.gardenCrops}</dd></div>
+              <div><dt>Trackers</dt><dd>{localBackupSummary.trackerRecords}</dd></div>
+            </dl>
             <div className="data-tool-row">
               <div>
-                <h4>Export Data</h4>
-                <p>Export creates a backup JSON file containing your local app data.</p>
+                <h4>Download JSON backup</h4>
+                <p>Creates a complete local file backup without image file blobs.</p>
               </div>
-              <button type="button" onClick={exportData}>Export Data</button>
+              <button type="button" onClick={exportData}>Download JSON backup</button>
             </div>
             <div className="data-tool-row">
               <div>
-                <h4>Import Data</h4>
-                <p>Import replaces current local app data with the selected backup.</p>
+                <h4>Import JSON backup</h4>
+                <p>Validates the file, shows a summary, then creates a safety snapshot before restore.</p>
               </div>
-              <button type="button" onClick={() => importInputRef.current?.click()}>Import Data</button>
+              <button type="button" onClick={() => importInputRef.current?.click()}>Import JSON backup</button>
               <input ref={importInputRef} className="visually-hidden" type="file"
                 accept=".json,application/json" onChange={importData}
                 aria-label="Choose a Plant Inventory backup file" />
             </div>
+            <div className="data-tool-row">
+              <div>
+                <h4>Undo last restore</h4>
+                <p>{restoreSnapshotInfo ? `Available from ${new Date(restoreSnapshotInfo.createdAt).toLocaleString()}.` : 'Available after a restore creates a safety snapshot.'}</p>
+              </div>
+              <button type="button" onClick={undoLastRestore} disabled={!restoreSnapshotInfo}>Undo last restore</button>
+            </div>
+            <p className={`backup-audit-note${backupAudit.ok ? '' : ' backup-audit-warning'}`}>
+              Backup audit: {backupAudit.ok ? 'all registered collections are included.' : `missing ${backupAudit.missing.join(', ')}.`}
+            </p>
+            {backupPreview && (
+              <p className="backup-audit-note">
+                Latest JSON action: {backupPreview.plants} plants, {backupPreview.reminders} reminders, {backupPreview.timelineEntries} timeline entries.
+              </p>
+            )}
             {backupMessage && (
               <p className={`backup-message backup-message-${backupMessageType}`}
                 role={backupMessageType === 'error' ? 'alert' : 'status'}>

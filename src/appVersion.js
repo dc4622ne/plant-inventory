@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.17.0',
+  version: 'v0.17.1',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Plant Health Timeline',
+  releaseName: 'Backup Reliability',
 };
 
 export const changelog = [
+  {
+    version: 'v0.17.1',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added a centralized backup schema audit for all registered data collections.',
+      'Added safer restore validation with a local safety snapshot and undo restore.',
+      'Added cloud backup status, preview, and older-backup conflict warnings.',
+      'Kept reminders, completed check-ins, manual timeline entries, and custom dropdown values in complete backups.',
+    ],
+  },
   {
     version: 'v0.17.0',
     releaseDate: '2026-07-15',

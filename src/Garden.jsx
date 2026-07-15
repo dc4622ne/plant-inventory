@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { gardenStorageKey } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { uploadStoredImage } from './imageUploadUtils';
+import { markLocalDataChanged } from './backupUtils';
 
 const cropStatuses = ['Not set', 'Planned', 'Planted', 'Growing', 'Flowering', 'Fruiting', 'Ready to harvest', 'Harvested', 'Failed / removed'];
 const sunOptions = ['Not set', 'Full sun', 'Partial sun', 'Partial shade', 'Full shade'];
@@ -62,7 +63,11 @@ export default function Garden({ beds, onChange, initialFilter, onDirtyChange })
   const [locationFilter, setLocationFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState(initialFilter?.status || '');
 
-  const save = (next) => { localStorage.setItem(gardenStorageKey, JSON.stringify(next)); onChange(next); };
+  const save = (next) => {
+    localStorage.setItem(gardenStorageKey, JSON.stringify(next));
+    markLocalDataChanged('garden');
+    onChange(next);
+  };
   const selectedBed = beds.find((bed) => bed.id === selectedId);
   const updateSelected = (updates) => save(beds.map((bed) => bed.id === selectedId ? { ...bed, ...updates } : bed));
   const locations = [...new Set(beds.map((bed) => bed.location).filter(Boolean))].sort();

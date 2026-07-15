@@ -651,6 +651,51 @@
   margin: -6px 0 14px;
 }
 
+.backup-meta-grid,
+.backup-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.backup-meta-grid div,
+.backup-summary-grid div {
+  min-width: 0;
+  padding: 11px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.backup-meta-grid dt,
+.backup-summary-grid dt {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.backup-meta-grid dd,
+.backup-summary-grid dd {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.86rem;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.backup-audit-note {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.backup-audit-warning {
+  color: #8f2525 !important;
+}
+
 .app-version-card {
   display: grid;
   gap: 16px;
@@ -1318,6 +1363,11 @@
   .app-version-details {
     grid-template-columns: 1fr;
   }
+
+  .backup-meta-grid,
+  .backup-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .data-tool-row button:focus-visible {
@@ -1326,6 +1376,7 @@
 }
 
 .backup-message {
+  white-space: pre-line;
   margin: 14px 0 0;
   padding: 9px 11px;
   font-size: 0.84rem;
