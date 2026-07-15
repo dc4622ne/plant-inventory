@@ -1,4 +1,4 @@
-export const backupSchemaVersion = 2;
+export const backupSchemaVersion = 3;
 export const appStoragePrefix = 'plant-inventory-';
 
 export const storageKeys = {
@@ -7,6 +7,7 @@ export const storageKeys = {
   wishlistItems: 'plant-inventory-wishlist',
   reminders: 'plant-inventory-reminders',
   gardenBeds: 'plant-inventory-garden-beds',
+  plantSpaces: 'plant-inventory-plant-spaces',
   plantViewMode: 'plant-inventory-view-mode',
   plantPageSizes: 'plant-inventory-page-sizes',
   localMeta: 'plant-inventory-local-meta',
@@ -20,6 +21,7 @@ export const backupCollectionRegistry = [
   { id: 'wishlistItems', label: 'Wishlist', storageKey: storageKeys.wishlistItems, kind: 'array' },
   { id: 'reminders', label: 'Reminders and completed check-ins', storageKey: storageKeys.reminders, kind: 'array' },
   { id: 'gardenBeds', label: 'Garden beds, crops, activity, and harvests', storageKey: storageKeys.gardenBeds, kind: 'array' },
+  { id: 'plantSpaces', label: 'Plant spaces and visual placements', storageKey: storageKeys.plantSpaces, kind: 'array' },
   { id: 'preferences', label: 'Settings and user preferences', storageKey: null, kind: 'object' },
 ];
 
@@ -97,6 +99,7 @@ export function assembleBackup({
   dropdownOptions,
   wishlistItems,
   gardenBeds,
+  plantSpaces,
   reminders,
   appVersion,
 }) {
@@ -112,6 +115,7 @@ export function assembleBackup({
       dropdownOptions: objectValue(dropdownOptions),
       wishlistItems: arrayValue(wishlistItems),
       gardenBeds: arrayValue(gardenBeds),
+      plantSpaces: arrayValue(plantSpaces),
       reminders: arrayValue(reminders),
       preferences: {
         plantViewMode: localStorage.getItem(storageKeys.plantViewMode) || 'cards',
@@ -136,6 +140,7 @@ function normalizeNewBackup(rawBackup) {
       dropdownOptions: objectValue(data.dropdownOptions),
       wishlistItems: arrayValue(data.wishlistItems),
       gardenBeds: arrayValue(data.gardenBeds),
+      plantSpaces: arrayValue(data.plantSpaces),
       reminders: arrayValue(data.reminders),
       preferences: {
         ...objectValue(data.preferences),
@@ -170,6 +175,7 @@ function normalizeLegacyBackup(rawBackup) {
       dropdownOptions: objectValue(rawBackup.dropdownOptions),
       wishlistItems: arrayValue(rawBackup.wishlistItems),
       gardenBeds: arrayValue(rawBackup.gardenBeds),
+      plantSpaces: arrayValue(rawBackup.plantSpaces),
       reminders: arrayValue(rawBackup.reminders),
       preferences,
       extraLocalStorage,
@@ -186,6 +192,7 @@ function validateNormalizedBackup(backup) {
   if (!isPlainObject(backup.data.dropdownOptions)) return 'The dropdown values collection is malformed.';
   if (!Array.isArray(backup.data.wishlistItems)) return 'The wishlist collection is malformed.';
   if (!Array.isArray(backup.data.gardenBeds)) return 'The garden collection is malformed.';
+  if (!Array.isArray(backup.data.plantSpaces)) return 'The plant spaces collection is malformed.';
   if (!Array.isArray(backup.data.reminders)) return 'The reminders collection is malformed.';
   if (!isPlainObject(backup.data.preferences)) return 'The preferences collection is malformed.';
   if (!isPlainObject(backup.data.extraLocalStorage)) return 'The extra local storage collection is malformed.';
@@ -194,6 +201,7 @@ function validateNormalizedBackup(backup) {
     ['plants', backup.data.plants],
     ['wishlistItems', backup.data.wishlistItems],
     ['gardenBeds', backup.data.gardenBeds],
+    ['plantSpaces', backup.data.plantSpaces],
     ['reminders', backup.data.reminders],
   ].every(([, items]) => items.every((item) => isPlainObject(item)));
   if (!arraysAreObjects) return 'One or more backup records is malformed.';
@@ -224,6 +232,7 @@ export function getBackupSummary(backup) {
   const data = backup.data || {};
   const plants = arrayValue(data.plants);
   const gardenBeds = arrayValue(data.gardenBeds);
+  const plantSpaces = arrayValue(data.plantSpaces);
   const trackerFields = [
     'tcStage', 'tcDeflaskDate', 'tcAcclimationStartDate', 'tcAcclimationEndDate', 'tcSetup', 'tcHumidityLevel', 'tcNotes',
     'lecaStatus', 'lecaConversionStartDate', 'lecaRootStatus', 'lecaReservoirSetup', 'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes',
@@ -238,6 +247,8 @@ export function getBackupSummary(backup) {
     photoLogEntries: plants.reduce((count, plant) => count + arrayValue(plant.photoLog).length, 0),
     gardenBeds: gardenBeds.length,
     gardenCrops: gardenBeds.reduce((count, bed) => count + arrayValue(bed.crops).length, 0),
+    plantSpaces: plantSpaces.length,
+    plantSpacePlacements: plantSpaces.reduce((count, space) => count + arrayValue(space.placements).length, 0),
     trackerRecords: plants.filter((plant) => trackerFields.some((fieldName) => {
       const value = plant[fieldName];
       return Array.isArray(value) ? value.length : Boolean(String(value ?? '').trim());
@@ -258,6 +269,8 @@ export function formatBackupSummary(summary) {
     `Photo Log entries: ${summary.photoLogEntries}`,
     `Garden beds: ${summary.gardenBeds}`,
     `Garden crops: ${summary.gardenCrops}`,
+    `Plant spaces: ${summary.plantSpaces}`,
+    `Plant placements: ${summary.plantSpacePlacements}`,
     `Tracker records: ${summary.trackerRecords}`,
   ].join('\n');
 }
@@ -300,6 +313,7 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
     storageKeys.wishlistItems,
     storageKeys.reminders,
     storageKeys.gardenBeds,
+    storageKeys.plantSpaces,
     storageKeys.plantViewMode,
     storageKeys.plantPageSizes,
   ];
@@ -310,6 +324,7 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
   localStorage.setItem(storageKeys.wishlistItems, JSON.stringify(backup.data.wishlistItems));
   localStorage.setItem(storageKeys.reminders, JSON.stringify(backup.data.reminders));
   localStorage.setItem(storageKeys.gardenBeds, JSON.stringify(backup.data.gardenBeds));
+  localStorage.setItem(storageKeys.plantSpaces, JSON.stringify(backup.data.plantSpaces));
   localStorage.setItem(storageKeys.plantViewMode, backup.data.preferences.plantViewMode || 'cards');
   localStorage.setItem(storageKeys.plantPageSizes, JSON.stringify(objectValue(backup.data.preferences.plantPageSizes)));
 

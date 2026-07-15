@@ -96,8 +96,8 @@ The shared backup logic lives in `src/backupUtils.js`. Backups use this envelope
 ```json
 {
   "app": "plant-inventory",
-  "schemaVersion": 2,
-  "appVersion": "v0.17.1",
+  "schemaVersion": 3,
+  "appVersion": "v0.18.0",
   "exportedAt": "ISO timestamp",
   "deviceId": "browser client id",
   "data": {}
@@ -110,6 +110,7 @@ The `data` object includes these registered user-data collections:
 - `dropdownOptions`: custom dropdown values, including old/custom soil mix values.
 - `wishlistItems`: wishlist, purchase, order, shipping, conversion, notes, and wishlist image URL data.
 - `gardenBeds`: garden beds plus nested crops, activity, harvests, notes, and image URLs.
+- `plantSpaces`: visual Plant Spaces, including Plant Wall background URLs, dimming settings, percentage-based placements, z-index, shelf/zone labels, and unknown future placement fields.
 - `reminders`: active, dismissed, and completed reminders/check-ins with completion history and notes.
 - `preferences`: intentionally persistent settings such as plant view mode and page sizes.
 - `extraLocalStorage`: unknown future `plant-inventory-*` local storage keys, excluding backup metadata and safety snapshot keys.

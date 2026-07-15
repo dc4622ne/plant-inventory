@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import Garden from './Garden';
+import PlantSpaces from './PlantSpaces';
 import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
 import { getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { uploadStoredImage } from './imageUploadUtils';
+import { loadPlantSpaces, plantSpacesStorageKey, plantWallSpaceId } from './plantSpacesData';
 import {
   applyBackupToLocalStorage,
   assembleBackup,
@@ -917,7 +919,9 @@ function App() {
   const [plants, setPlants] = useState(loadPlants);
   const [reminders, setReminders] = useState(loadReminders);
   const [gardenBeds, setGardenBeds] = useState(loadGardenBeds);
+  const [plantSpaces, setPlantSpaces] = useState(loadPlantSpaces);
   const [gardenFilter, setGardenFilter] = useState({});
+  const [focusedPlantSpace, setFocusedPlantSpace] = useState({ spaceId: plantWallSpaceId, plantId: '' });
   const [appView, setAppView] = useState('dashboard');
   const [selectedResourceId, setSelectedResourceId] = useState('');
   const [selectedSoilMixRecipeId, setSelectedSoilMixRecipeId] = useState('');
@@ -1526,6 +1530,11 @@ function App() {
   const selectedPlantTimelineEntries = useMemo(() => (
     selectedPlant ? buildPlantTimelineEntries(selectedPlant, reminders) : []
   ), [selectedPlant, reminders]);
+  const selectedPlantSpacePlacement = selectedPlant
+    ? plantSpaces
+      .map((space) => ({ space, placement: (space.placements || []).find((item) => item.plantId === selectedPlant.id) }))
+      .find((item) => item.placement)
+    : null;
   const visibleTimelineEntries = useMemo(() => (
     sortTimelineEntries(
       filterTimelineEntries(selectedPlantTimelineEntries, timelineFilter, timelineSearch),
@@ -1716,6 +1725,18 @@ function App() {
     setAppView('reminders');
   }
 
+  function openPlantSpaces(spaceId = plantWallSpaceId, plantId = '') {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setAddPlantMessage('');
+    setQuickCheckMessage('');
+    setFocusedPlantSpace({ spaceId, plantId });
+    setAppView('plant-spaces');
+  }
+
   function openSoilMixRecipeForPlant(recipeId) {
     if (!confirmDiscardChanges()) return;
     resetMajorFormDrafts();
@@ -1795,6 +1816,21 @@ function App() {
     localStorage.setItem(wishlistStorageKey, JSON.stringify(nextItems));
     markLocalDataChanged('wishlist');
     setWishlistItems(nextItems);
+  }
+
+  function savePlants(nextPlants, reason = 'plants') {
+    localStorage.setItem(plantsStorageKey, JSON.stringify(nextPlants));
+    markLocalDataChanged(reason);
+    setPlants(nextPlants);
+    if (selectedPlant) {
+      setSelectedPlant(nextPlants.find((plant) => plant.id === selectedPlant.id) || selectedPlant);
+    }
+  }
+
+  function savePlantSpaces(nextSpaces) {
+    localStorage.setItem(plantSpacesStorageKey, JSON.stringify(nextSpaces));
+    markLocalDataChanged('plant-spaces');
+    setPlantSpaces(nextSpaces);
   }
 
   async function submitWishlistItem(event) {
@@ -1957,6 +1993,7 @@ function App() {
       dropdownOptions,
       wishlistItems,
       gardenBeds,
+      plantSpaces,
       reminders,
       appVersion: currentAppVersion.version,
     });
@@ -1968,6 +2005,7 @@ function App() {
     setDropdownOptions(loadDropdownOptions());
     setWishlistItems(loadWishlistItems());
     setGardenBeds(loadGardenBeds());
+    setPlantSpaces(loadPlantSpaces());
     setPlantViewMode(loadPlantViewMode());
     setPlantPageSizes(loadPlantPageSizes());
     setSelectedPlant(null);
@@ -2490,9 +2528,11 @@ function App() {
     if (!shouldDelete) return;
 
     const updatedPlants = plants.filter((plant) => plant !== selectedPlant);
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('plants');
-    setPlants(updatedPlants);
+    savePlants(updatedPlants);
+    savePlantSpaces(plantSpaces.map((space) => ({
+      ...space,
+      placements: (space.placements || []).filter((placement) => placement.plantId !== selectedPlant.id),
+    })));
     setSelectedPlant(null);
   }
 
@@ -2887,6 +2927,10 @@ function App() {
           aria-current={appView === 'garden' ? 'page' : undefined} onClick={() => openGarden()}>
           Garden Beds
         </button>
+        <button type="button" className={appView === 'plant-spaces' ? 'active' : ''}
+          aria-current={appView === 'plant-spaces' ? 'page' : undefined} onClick={() => openPlantSpaces()}>
+          Plant Spaces
+        </button>
         <button type="button" className={appView === 'reminders' ? 'active' : ''}
           aria-current={appView === 'reminders' ? 'page' : undefined} onClick={openReminders}>
           Check-ins
@@ -2916,6 +2960,12 @@ function App() {
               ← Back to Plant List
             </button>
             <div className="plant-change-actions">
+              {selectedPlantSpacePlacement && (
+                <button className="secondary-button" type="button"
+                  onClick={() => openPlantSpaces(selectedPlantSpacePlacement.space.id, selectedPlant.id)}>
+                  Find in Plant Space
+                </button>
+              )}
               <button className="edit-plant-button" type="button" onClick={startEditing}
                 aria-label="Edit plant" title="Edit plant">
                 ✏️
@@ -3836,6 +3886,9 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => openPlantList()}>
                 View Plant List
               </button>
+              <button className="secondary-button" type="button" onClick={() => openPlantSpaces()}>
+                Plant Spaces
+              </button>
               <button className="secondary-button" type="button" onClick={openReminders}>
                 Today&apos;s Check-ins
               </button>
@@ -4014,6 +4067,19 @@ function App() {
         ) : appView === 'garden' ? (
           <Garden key={JSON.stringify(gardenFilter)} beds={gardenBeds} onChange={setGardenBeds}
             initialFilter={gardenFilter} onDirtyChange={setGardenFormDirty} />
+        ) : appView === 'plant-spaces' ? (
+          <PlantSpaces
+            spaces={plantSpaces}
+            plants={plants}
+            reminders={reminders}
+            dropdownOptions={dropdownOptions}
+            focusSpaceId={focusedPlantSpace.spaceId}
+            focusPlantId={focusedPlantSpace.plantId}
+            onChange={savePlantSpaces}
+            onPlantsChange={(nextPlants) => savePlants(nextPlants)}
+            onOpenPlant={openPlantDetails}
+            onFocusHandled={() => setFocusedPlantSpace((current) => ({ ...current, plantId: '' }))}
+          />
         ) : appView === 'resources' ? (
           <Resources
             selectedResourceId={selectedResourceId}
@@ -4222,6 +4288,8 @@ function App() {
                 <div><dt>Photo Log</dt><dd>{cloudPreview.photoLogEntries}</dd></div>
                 <div><dt>Garden beds</dt><dd>{cloudPreview.gardenBeds}</dd></div>
                 <div><dt>Garden crops</dt><dd>{cloudPreview.gardenCrops}</dd></div>
+                <div><dt>Plant spaces</dt><dd>{cloudPreview.plantSpaces}</dd></div>
+                <div><dt>Placements</dt><dd>{cloudPreview.plantSpacePlacements}</dd></div>
                 <div><dt>Trackers</dt><dd>{cloudPreview.trackerRecords}</dd></div>
               </dl>
             )}
@@ -4286,7 +4354,7 @@ function App() {
 
           <section className="settings-card" aria-labelledby="data-tools-heading">
             <h3 id="data-tools-heading">Data Backup</h3>
-            <p className="settings-card-intro">JSON backup includes plants, logs, reminders, timeline entries, photos as URLs, garden data, wishlist items, dropdown values, and preferences.</p>
+            <p className="settings-card-intro">JSON backup includes plants, Plant Spaces, placements, logs, reminders, timeline entries, photos as URLs, garden data, wishlist items, dropdown values, and preferences.</p>
             <dl className="backup-summary-grid" aria-label="Current local backup contents">
               <div><dt>Plants</dt><dd>{localBackupSummary.plants}</dd></div>
               <div><dt>Wishlist</dt><dd>{localBackupSummary.wishlistItems}</dd></div>
@@ -4295,6 +4363,8 @@ function App() {
               <div><dt>Photo Log</dt><dd>{localBackupSummary.photoLogEntries}</dd></div>
               <div><dt>Garden beds</dt><dd>{localBackupSummary.gardenBeds}</dd></div>
               <div><dt>Garden crops</dt><dd>{localBackupSummary.gardenCrops}</dd></div>
+              <div><dt>Plant spaces</dt><dd>{localBackupSummary.plantSpaces}</dd></div>
+              <div><dt>Placements</dt><dd>{localBackupSummary.plantSpacePlacements}</dd></div>
               <div><dt>Trackers</dt><dd>{localBackupSummary.trackerRecords}</dd></div>
             </dl>
             <div className="data-tool-row">

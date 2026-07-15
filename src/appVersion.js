@@ -1,10 +1,23 @@
 export const currentAppVersion = {
-  version: 'v0.17.2',
+  version: 'v0.18.0',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Settings Changelog Usability',
+  releaseName: 'Plant Spaces and Plant Wall',
 };
 
 export const changelog = [
+  {
+    version: 'v0.18.0',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added a new Plant Spaces section with the first default Plant Wall space.',
+      'Added an interactive Plant Wall canvas with view and edit layout modes.',
+      'Added Plant Wall background photo support with dimming controls.',
+      'Added drag-and-drop plant placement with resize, bring-forward, remove, and keyboard nudge controls.',
+      'Added Find in Plant Space from plant details and Plant Wall search highlighting.',
+      'Added Location syncing between the Plant Wall space and the existing Location field.',
+      'Included Plant Spaces and placements in JSON, local, cloud, restore, and safety-snapshot backups.',
+    ],
+  },
   {
     version: 'v0.17.2',
     releaseDate: '2026-07-15',
