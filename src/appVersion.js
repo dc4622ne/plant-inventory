@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.15.1',
+  version: 'v0.16.0',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Mobile Header Spacing Fix',
+  releaseName: 'Check-ins & Reminders',
 };
 
 export const changelog = [
+  {
+    version: 'v0.16.0',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Added automatic quarantine and TC check-ins for time-sensitive plant stages.',
+      'Added manual reminders from plant details.',
+      'Added due now, upcoming, no-date, and recently completed reminder views.',
+      'Added reminder actions, snoozing, next check dates, and observation notes.',
+    ],
+  },
   {
     version: 'v0.15.1',
     releaseDate: '2026-07-15',

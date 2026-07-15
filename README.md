@@ -10,6 +10,8 @@ Install dependencies with `npm install`, then start the development app with `np
 
 Local browser storage remains the app's main working storage. Supabase holds one manual backup record; the app does not auto-sync.
 
+Check-ins and reminders are included in the same JSON backup record as plants, wishlist items, and garden beds. No separate reminders table is required for the current offline-first/manual-sync architecture.
+
 ## Supabase plant image storage setup
 
 Photos chosen in the Add New Plant form upload to Supabase Storage before the plant is saved locally. The app currently has no sign-in flow, so it uses Supabase's `anon` role.
@@ -65,6 +67,8 @@ with check (id = 'primary');
 ```
 
 The app always uses the fixed record ID `primary`. Because this phase intentionally has no login, anyone with your project URL and anon key can access that record. Use this only as a personal, single-user setup and do not put sensitive information in the tracker. Authentication should be added before sharing the deployed app broadly.
+
+If you already created `public.app_backups` for an earlier version, no migration is needed for v0.16.0. Saving to Cloud after upgrading writes reminders into the existing `data` JSONB column.
 
 ### 2. Configure the app
 

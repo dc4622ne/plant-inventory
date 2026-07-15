@@ -12,6 +12,7 @@ import {
   soilMixGuideResourceId,
   soilMixOptions,
 } from './resources';
+import { reminderRules } from './reminderRules';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const initialPlants = [
@@ -119,6 +120,7 @@ const emptyPlant = {
   wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   potSize: '', thirstLevel: '', soilMix: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
   propagationStatus: '', pestQuarantineStartDate: '', pestQuarantineEndDate: '',
+  doNotTouchUntil: '',
   pestNotes: '', growthNotes: '', activityLog: [], photoLog: [],
   tcStage: '', tcDeflaskDate: '', tcAcclimationStartDate: '', tcAcclimationEndDate: '',
   tcSetup: '', tcHumidityLevel: '', tcNotes: '',
@@ -235,6 +237,7 @@ const initialDropdownOptions = {
 const plantsStorageKey = 'plant-inventory-plants';
 const dropdownOptionsStorageKey = 'plant-inventory-dropdown-options';
 const wishlistStorageKey = 'plant-inventory-wishlist';
+const remindersStorageKey = 'plant-inventory-reminders';
 const plantViewModeStorageKey = 'plant-inventory-view-mode';
 const plantPageSizesStorageKey = 'plant-inventory-page-sizes';
 const appStoragePrefix = 'plant-inventory-';
@@ -294,6 +297,10 @@ function exportDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function makeId(prefix = 'id') {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function validateBackup(backup) {
   const hasValidPlants = Array.isArray(backup?.plants)
     && backup.plants.every((plant) => plant && typeof plant === 'object' && !Array.isArray(plant));
@@ -317,6 +324,10 @@ function validateBackup(backup) {
     Array.isArray(backup.gardenBeds)
     && backup.gardenBeds.every((bed) => bed && typeof bed === 'object' && !Array.isArray(bed))
   );
+  const hasValidReminders = backup?.reminders === undefined || (
+    Array.isArray(backup.reminders)
+    && backup.reminders.every((reminder) => reminder && typeof reminder === 'object' && !Array.isArray(reminder))
+  );
 
   return backup?.app === 'plant-inventory'
     && backup.version === backupFormatVersion
@@ -324,13 +335,14 @@ function validateBackup(backup) {
     && hasValidOptions
     && hasValidWishlist
     && hasValidGarden
+    && hasValidReminders
     && hasValidStorage;
 }
 
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
-  const plantsWithLogs = initialPlants.map((plant) => ({
-    ...plant, activityLog: [], photoLog: [],
+  const plantsWithLogs = initialPlants.map((plant, index) => ({
+    ...plant, id: plant.id || makeId(`starter-${index}`), activityLog: [], photoLog: [],
   }));
 
   if (!savedPlants) return plantsWithLogs;
@@ -339,9 +351,10 @@ function loadPlants() {
     const parsedPlants = JSON.parse(savedPlants);
     if (!Array.isArray(parsedPlants)) return plantsWithLogs;
 
-    return parsedPlants.map((plant) => {
+    return parsedPlants.map((plant, index) => {
       return {
         ...plant,
+        id: plant.id || makeId(`plant-${index}`),
         lifecycleStatus: plant.lifecycleStatus || 'active',
         activityLog: Array.isArray(plant.activityLog) ? plant.activityLog : [],
         photoLog: Array.isArray(plant.photoLog) ? plant.photoLog : [],
@@ -349,6 +362,15 @@ function loadPlants() {
     });
   } catch {
     return plantsWithLogs;
+  }
+}
+
+function loadReminders() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(remindersStorageKey) || '[]');
+    return Array.isArray(saved) ? saved.map(normalizeReminder).filter(Boolean) : [];
+  } catch {
+    return [];
   }
 }
 
@@ -586,6 +608,45 @@ function addDaysToDate(dateValue, numberOfDays) {
   return date.toISOString().slice(0, 10);
 }
 
+function normalizeReminder(reminder) {
+  if (!reminder || typeof reminder !== 'object' || Array.isArray(reminder)) return null;
+  return {
+    id: reminder.id || makeId('reminder'),
+    plantId: reminder.plantId || '',
+    reminderType: reminder.reminderType || 'manual',
+    title: reminder.title || 'Check plant',
+    dueDate: dateInputValue(reminder.dueDate),
+    status: ['active', 'completed', 'dismissed'].includes(reminder.status) ? reminder.status : 'active',
+    source: reminder.source === 'automatic' ? 'automatic' : 'manual',
+    createdAt: reminder.createdAt || new Date().toISOString(),
+    completedAt: reminder.completedAt || '',
+    note: reminder.note || '',
+    nextCheckDate: dateInputValue(reminder.nextCheckDate),
+    linkedTracker: reminder.linkedTracker || '',
+    linkedStage: reminder.linkedStage || '',
+  };
+}
+
+function formatReminderTiming(dueDate) {
+  if (!dateInputValue(dueDate)) return 'No date yet';
+  const due = new Date(`${dueDate}T00:00:00`);
+  const today = new Date(`${todayDate()}T00:00:00`);
+  const diffDays = Math.round((due - today) / 86400000);
+  if (diffDays < 0) return `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} late`;
+  if (diffDays === 0) return 'Due today';
+  if (diffDays === 1) return 'Due tomorrow';
+  return `Due in ${diffDays} days`;
+}
+
+function isActiveReminderDuplicate(reminders, reminder) {
+  return reminders.some((existingReminder) => (
+    existingReminder.status === 'active'
+    && existingReminder.plantId === reminder.plantId
+    && existingReminder.reminderType === reminder.reminderType
+    && existingReminder.dueDate === reminder.dueDate
+  ));
+}
+
 function getLastCheckedDate(plant) {
   return (plant.activityLog || [])
     .filter((entry) => checkInActivityTypes.includes(entry.activityType))
@@ -637,6 +698,81 @@ function getQuarantineStatus(plant, today = todayDate()) {
     newPlantQuarantineEnd,
     pestQuarantineEnd,
   };
+}
+
+function isPlantInNewPlantQuarantine(plant) {
+  return getQuarantineStatus(plant).isInNewPlantQuarantine;
+}
+
+function isPlantInPestQuarantine(plant) {
+  return getQuarantineStatus(plant).isInPestQuarantine;
+}
+
+function isPlantTcAcclimating(plant) {
+  return isTissueCulture(plant)
+    && plant.tcStage !== 'Venting'
+    && (acclimatingTcStages.includes(plant.tcStage) || normalizedFilterValue(plant.status) === 'Acclimating');
+}
+
+function isPlantTcVenting(plant) {
+  return isTissueCulture(plant) && plant.tcStage === 'Venting';
+}
+
+function isPlantLecaTransitioning(plant) {
+  return lecaTransitionStatuses.includes(plant.lecaStatus);
+}
+
+function isPlantInRehab(plant) {
+  return normalizedFilterValue(plant.careDifficulty).toLowerCase() === 'rehab / watch closely';
+}
+
+function isPlantCormOrPropagation(plant) {
+  const propagationText = [
+    plant.type,
+    plant.status,
+    plant.propagationStatus,
+  ].map((value) => normalizedFilterValue(value).toLowerCase()).join(' ');
+
+  return /\b(corm|propagat|rooting|cutting|node)\b/.test(propagationText);
+}
+
+function getAutomaticReminderCandidates(plant, today = todayDate()) {
+  if ((plant.lifecycleStatus || 'active') !== 'active') return [];
+  const plantId = plant.id;
+  const candidates = [];
+  const addRule = (ruleKey, linkedTracker = '', linkedStage = '', exactDueDate = '') => {
+    const rule = reminderRules[ruleKey];
+    const dueDate = exactDueDate || addDaysToDate(today, rule.delayDays);
+    if (!plantId || !dateInputValue(dueDate)) return;
+    candidates.push({
+      id: makeId('reminder'),
+      plantId,
+      reminderType: rule.reminderType,
+      title: rule.title,
+      dueDate,
+      status: 'active',
+      source: 'automatic',
+      createdAt: new Date().toISOString(),
+      completedAt: '',
+      note: '',
+      nextCheckDate: '',
+      linkedTracker,
+      linkedStage,
+    });
+  };
+
+  if (isPlantInNewPlantQuarantine(plant)) addRule('newPlantQuarantine', 'quarantine', 'new plant');
+  if (isPlantInPestQuarantine(plant)) addRule('pestQuarantine', 'quarantine', 'pest');
+  if (isPlantTcVenting(plant)) addRule('tcVenting', 'tcStage', plant.tcStage);
+  else if (isPlantTcAcclimating(plant)) addRule('tcAcclimating', 'tcStage', plant.tcStage || plant.status);
+  if (isPlantLecaTransitioning(plant)) addRule('lecaTransitioning', 'lecaStatus', plant.lecaStatus);
+  if (isPlantInRehab(plant)) addRule('rehab', 'careDifficulty', plant.careDifficulty);
+  if (isPlantCormOrPropagation(plant)) addRule('cormPropagation', 'propagationStatus', plant.propagationStatus || plant.status || plant.type);
+  if (dateInputValue(plant.doNotTouchUntil)) {
+    addRule('doNotTouchUntil', 'doNotTouchUntil', plant.doNotTouchUntil, plant.doNotTouchUntil);
+  }
+
+  return candidates;
 }
 
 function getPlantBadges(plant) {
@@ -726,6 +862,7 @@ const detailSections = [
       ['wishlistStatus', 'Collection'], ['propagationStatus', 'Propagation'],
       ['pestQuarantineStartDate', 'Pest quarantine start'],
       ['pestQuarantineEndDate', 'Pest quarantine end'],
+      ['doNotTouchUntil', 'Do not touch until'],
     ],
   },
   {
@@ -794,6 +931,7 @@ function getWishlistDetailFields(item) {
 
 function App() {
   const [plants, setPlants] = useState(loadPlants);
+  const [reminders, setReminders] = useState(loadReminders);
   const [gardenBeds, setGardenBeds] = useState(loadGardenBeds);
   const [gardenFilter, setGardenFilter] = useState({});
   const [appView, setAppView] = useState('dashboard');
@@ -848,6 +986,8 @@ function App() {
   const [photoEditSubmitStatus, setPhotoEditSubmitStatus] = useState('');
   const [isPhotoEditSubmitting, setIsPhotoEditSubmitting] = useState(false);
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
+  const [manualReminderDraft, setManualReminderDraft] = useState({ title: '', dueDate: todayDate(), note: '' });
+  const [showManualReminderForm, setShowManualReminderForm] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
   const [backupMessageType, setBackupMessageType] = useState('success');
   const [cloudMessage, setCloudMessage] = useState('');
@@ -903,8 +1043,137 @@ function App() {
     setAppView('plants');
     setSelectedPlant(plant);
     setNewLogEntry(emptyLogEntry());
+    setManualReminderDraft({ title: '', dueDate: todayDate(), note: '' });
+    setShowManualReminderForm(false);
     setQuickCheckMessage('');
     cancelEditingLogEntry();
+  }
+
+  function saveReminders(nextReminders) {
+    localStorage.setItem(remindersStorageKey, JSON.stringify(nextReminders));
+    setReminders(nextReminders);
+  }
+
+  function createAutomaticRemindersForPlant(plant, previousPlant = null) {
+    const candidates = getAutomaticReminderCandidates(plant);
+    if (!candidates.length) return;
+
+    const previousKeys = new Set(
+      previousPlant
+        ? getAutomaticReminderCandidates(previousPlant).map((reminder) => `${reminder.reminderType}|${reminder.dueDate}`)
+        : [],
+    );
+    const remindersToCreate = candidates.filter((candidate) => (
+      !previousKeys.has(`${candidate.reminderType}|${candidate.dueDate}`)
+    ));
+    if (!remindersToCreate.length) return;
+
+    setReminders((currentReminders) => {
+      const nextReminders = [...currentReminders];
+      remindersToCreate.forEach((candidate) => {
+        if (!isActiveReminderDuplicate(nextReminders, candidate)) nextReminders.push(candidate);
+      });
+      localStorage.setItem(remindersStorageKey, JSON.stringify(nextReminders));
+      return nextReminders;
+    });
+  }
+
+  function createManualReminder(event) {
+    event.preventDefault();
+    if (!selectedPlant || !manualReminderDraft.title.trim()) return;
+    const reminder = normalizeReminder({
+      id: makeId('reminder'),
+      plantId: selectedPlant.id,
+      reminderType: 'manual',
+      title: manualReminderDraft.title.trim(),
+      dueDate: dateInputValue(manualReminderDraft.dueDate),
+      status: 'active',
+      source: 'manual',
+      createdAt: new Date().toISOString(),
+      completedAt: '',
+      note: manualReminderDraft.note.trim(),
+      nextCheckDate: '',
+    });
+    saveReminders([...reminders, reminder]);
+    setManualReminderDraft({ title: '', dueDate: todayDate(), note: '' });
+    setShowManualReminderForm(false);
+  }
+
+  function updateReminder(updatedReminder) {
+    const nextReminders = reminders.map((reminder) => reminder.id === updatedReminder.id ? updatedReminder : reminder);
+    saveReminders(nextReminders);
+  }
+
+  function completeReminder(reminder) {
+    const note = window.prompt('Observation note (optional)', reminder.note || '') ?? reminder.note;
+    const nextCheckDate = window.prompt('Next check date (YYYY-MM-DD, optional)', '') || '';
+    const completedReminder = {
+      ...reminder,
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      note: note.trim(),
+      nextCheckDate: dateInputValue(nextCheckDate),
+    };
+    const nextReminders = reminders.map((item) => item.id === reminder.id ? completedReminder : item);
+
+    if (dateInputValue(nextCheckDate)) {
+      const followUpReminder = normalizeReminder({
+        id: makeId('reminder'),
+        plantId: reminder.plantId,
+        reminderType: reminder.reminderType,
+        title: reminder.title,
+        dueDate: nextCheckDate,
+        status: 'active',
+        source: reminder.source,
+        createdAt: new Date().toISOString(),
+        note: '',
+        linkedTracker: reminder.linkedTracker,
+        linkedStage: reminder.linkedStage,
+      });
+      if (!isActiveReminderDuplicate(nextReminders, followUpReminder)) nextReminders.push(followUpReminder);
+    }
+
+    saveReminders(nextReminders);
+  }
+
+  function dismissReminder(reminder) {
+    updateReminder({ ...reminder, status: 'dismissed' });
+  }
+
+  function snoozeReminder(reminder, option) {
+    const customDate = option === 'custom'
+      ? window.prompt('Snooze until (YYYY-MM-DD)', reminder.dueDate || todayDate())
+      : '';
+    const dueDate = option === 'tomorrow'
+      ? addDaysToDate(todayDate(), 1)
+      : option === '3-days'
+        ? addDaysToDate(todayDate(), 3)
+        : option === '1-week'
+          ? addDaysToDate(todayDate(), 7)
+          : dateInputValue(customDate);
+    if (!dateInputValue(dueDate)) return;
+    updateReminder({ ...reminder, dueDate });
+  }
+
+  function setReminderNextCheck(reminder) {
+    const nextCheckDate = window.prompt('Next check date (YYYY-MM-DD)', reminder.nextCheckDate || reminder.dueDate || todayDate());
+    if (!dateInputValue(nextCheckDate)) return;
+    const followUpReminder = normalizeReminder({
+      id: makeId('reminder'),
+      plantId: reminder.plantId,
+      reminderType: reminder.reminderType,
+      title: reminder.title,
+      dueDate: nextCheckDate,
+      status: 'active',
+      source: reminder.source,
+      createdAt: new Date().toISOString(),
+      note: '',
+      nextCheckDate,
+      linkedTracker: reminder.linkedTracker,
+      linkedStage: reminder.linkedStage,
+    });
+    if (isActiveReminderDuplicate(reminders, followUpReminder)) return;
+    saveReminders([...reminders, followUpReminder]);
   }
 
   useEffect(() => {
@@ -1172,6 +1441,37 @@ function App() {
     getQuarantineStatus(plant).isAnyQuarantineEndingSoon
   );
   const selectedPlantQuarantine = selectedPlant ? getQuarantineStatus(selectedPlant) : null;
+  const activeReminders = reminders.filter((reminder) => reminder.status === 'active');
+  const completedReminders = reminders.filter((reminder) => reminder.status === 'completed');
+  const reminderPlantById = new Map(plants.map((plant) => [plant.id, plant]));
+  const sortRemindersByDueDate = (firstReminder, secondReminder) => {
+    if (!firstReminder.dueDate && !secondReminder.dueDate) return secondReminder.createdAt.localeCompare(firstReminder.createdAt);
+    if (!firstReminder.dueDate) return 1;
+    if (!secondReminder.dueDate) return -1;
+    return firstReminder.dueDate.localeCompare(secondReminder.dueDate);
+  };
+  const dueNowReminders = activeReminders
+    .filter((reminder) => reminder.dueDate && reminder.dueDate <= todayDate())
+    .sort(sortRemindersByDueDate);
+  const overdueReminders = dueNowReminders.filter((reminder) => reminder.dueDate < todayDate());
+  const upcomingReminders = activeReminders
+    .filter((reminder) => reminder.dueDate && reminder.dueDate > todayDate())
+    .sort(sortRemindersByDueDate);
+  const noDateReminders = activeReminders.filter((reminder) => !reminder.dueDate);
+  const recentlyCompletedReminders = completedReminders
+    .sort((firstReminder, secondReminder) => (secondReminder.completedAt || '').localeCompare(firstReminder.completedAt || ''))
+    .slice(0, 12);
+  const thisWeekReminders = upcomingReminders.filter((reminder) => reminder.dueDate <= addDaysToDate(todayDate(), 7));
+  const selectedPlantReminders = selectedPlant
+    ? reminders
+      .filter((reminder) => reminder.plantId === selectedPlant.id && ['active', 'completed', 'dismissed'].includes(reminder.status))
+      .sort((firstReminder, secondReminder) => {
+        if (firstReminder.status === 'active' && secondReminder.status !== 'active') return -1;
+        if (firstReminder.status !== 'active' && secondReminder.status === 'active') return 1;
+        return sortRemindersByDueDate(firstReminder, secondReminder);
+      })
+      .slice(0, 8)
+    : [];
   const keyMetrics = [
     { label: 'Active plants', count: activePlants.length, lifecycle: 'active' },
     { label: 'Total plants', count: plants.length, lifecycle: 'all' },
@@ -1319,6 +1619,17 @@ function App() {
     setQuickCheckMessage('');
     setSelectedResourceId(resourceId);
     setAppView('resources');
+  }
+
+  function openReminders() {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setAddPlantMessage('');
+    setQuickCheckMessage('');
+    setAppView('reminders');
   }
 
   function openSoilMixRecipeForPlant(recipeId) {
@@ -1477,6 +1788,7 @@ function App() {
     const updatedPlants = [...plants, newInventoryPlant];
     localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
     setPlants(updatedPlants);
+    createAutomaticRemindersForPlant(newInventoryPlant);
     saveWishlist(wishlistItems.map((current) => current.id === item.id
       ? { ...current, converted: true, convertedPlantId: plantId, desiredStatus: 'Converted' }
       : current));
@@ -1562,6 +1874,7 @@ function App() {
       dropdownOptions,
       wishlistItems,
       gardenBeds,
+      reminders,
       storage: getAppStorageData(),
     };
   }
@@ -1598,8 +1911,12 @@ function App() {
       if (Array.isArray(backup.gardenBeds)) {
         localStorage.setItem(gardenStorageKey, JSON.stringify(backup.gardenBeds));
       }
+      if (Array.isArray(backup.reminders)) {
+        localStorage.setItem(remindersStorageKey, JSON.stringify(backup.reminders));
+      }
 
       setPlants(loadPlants());
+      setReminders(loadReminders());
       setDropdownOptions(loadDropdownOptions());
       setWishlistItems(loadWishlistItems());
       setGardenBeds(loadGardenBeds());
@@ -1614,6 +1931,7 @@ function App() {
       Object.keys(getAppStorageData()).forEach((key) => localStorage.removeItem(key));
       Object.entries(previousStorage).forEach(([key, value]) => localStorage.setItem(key, value));
       setPlants(loadPlants());
+      setReminders(loadReminders());
       setDropdownOptions(loadDropdownOptions());
       setWishlistItems(loadWishlistItems());
       setGardenBeds(loadGardenBeds());
@@ -1864,13 +2182,14 @@ function App() {
 
       const savedPlant = {
         ...newPlant,
+        id: newPlant.id || makeId('plant'),
         imageUrl: uploadedImageUrl,
         image: getPlantImage(newPlant.name, newPlant.type),
       };
 
       // Keep older text values unless the user chooses a replacement date.
       if (isEditing) {
-        ['lastWatered', 'repotDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate'].forEach((fieldName) => {
+        ['lastWatered', 'repotDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate', 'doNotTouchUntil'].forEach((fieldName) => {
           const previousValue = selectedPlant[fieldName];
           const isLegacyText = previousValue && !dateInputValue(previousValue);
 
@@ -1883,6 +2202,7 @@ function App() {
 
       localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
       setPlants(updatedPlants);
+      createAutomaticRemindersForPlant(savedPlant, isEditing ? selectedPlant : null);
 
       if (isEditing) setSelectedPlant(savedPlant);
       setNewPlant(emptyPlant);
@@ -1970,6 +2290,7 @@ function App() {
       acquiredDate: dateInputValue(selectedPlant.acquiredDate),
       pestQuarantineStartDate: dateInputValue(selectedPlant.pestQuarantineStartDate),
       pestQuarantineEndDate: dateInputValue(selectedPlant.pestQuarantineEndDate),
+      doNotTouchUntil: dateInputValue(selectedPlant.doNotTouchUntil),
       tcDeflaskDate: dateInputValue(selectedPlant.tcDeflaskDate),
       tcAcclimationStartDate: dateInputValue(selectedPlant.tcAcclimationStartDate),
       tcAcclimationEndDate: dateInputValue(selectedPlant.tcAcclimationEndDate),
@@ -2220,6 +2541,60 @@ function App() {
     if (editingPhotoEntry === entryToDelete) cancelEditingPhotoEntry();
   }
 
+  function renderReminderCard(reminder, compact = false) {
+    const plant = reminderPlantById.get(reminder.plantId);
+    return (
+      <article className={`reminder-card${compact ? ' reminder-card-compact' : ''}`} key={reminder.id}>
+        <div className="reminder-card-main">
+          <div>
+            <span className={`reminder-status reminder-status-${reminder.status}`}>{reminder.status}</span>
+            <h4>{reminder.title}</h4>
+            <p>{plant?.name || 'Plant not found'}{reminder.linkedStage ? ` · ${reminder.linkedStage}` : ''}</p>
+          </div>
+          <div className="reminder-date">
+            <strong>{reminder.dueDate || 'No date'}</strong>
+            <span>{formatReminderTiming(reminder.dueDate)}</span>
+          </div>
+        </div>
+        {reminder.note && <p className="reminder-note">{reminder.note}</p>}
+        {reminder.status === 'active' && (
+          <div className="reminder-actions">
+            {plant && <button type="button" onClick={() => openPlantDetails(plant)}>Open plant</button>}
+            <button type="button" onClick={() => completeReminder(reminder)}>Mark complete</button>
+            <select aria-label={`Snooze ${reminder.title}`} defaultValue=""
+              onChange={(event) => {
+                if (!event.target.value) return;
+                snoozeReminder(reminder, event.target.value);
+                event.target.value = '';
+              }}>
+              <option value="" disabled>Snooze</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="3-days">3 days</option>
+              <option value="1-week">1 week</option>
+              <option value="custom">Custom date</option>
+            </select>
+            <button type="button" onClick={() => setReminderNextCheck(reminder)}>Set next check</button>
+            <button type="button" onClick={() => dismissReminder(reminder)}>Dismiss</button>
+          </div>
+        )}
+      </article>
+    );
+  }
+
+  function renderReminderGroup(title, items, emptyText) {
+    return (
+      <section className="reminder-group" aria-labelledby={`${title.toLowerCase().replaceAll(' ', '-')}-heading`}>
+        <div className="dashboard-section-heading">
+          <h3 id={`${title.toLowerCase().replaceAll(' ', '-')}-heading`}>{title}</h3>
+          <p>{items.length} item{items.length === 1 ? '' : 's'}</p>
+        </div>
+        <div className="reminder-list">
+          {items.length ? items.map((reminder) => renderReminderCard(reminder)) : <p className="empty-message">{emptyText}</p>}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="plant-inventory">
       <header className="brand-header">
@@ -2244,6 +2619,10 @@ function App() {
         <button type="button" className={appView === 'garden' ? 'active' : ''}
           aria-current={appView === 'garden' ? 'page' : undefined} onClick={() => openGarden()}>
           Garden Beds
+        </button>
+        <button type="button" className={appView === 'reminders' ? 'active' : ''}
+          aria-current={appView === 'reminders' ? 'page' : undefined} onClick={openReminders}>
+          Check-ins
         </button>
         <button type="button" className={appView === 'resources' ? 'active' : ''}
           aria-current={appView === 'resources' ? 'page' : undefined} onClick={() => openResources()}>
@@ -2387,6 +2766,45 @@ function App() {
               </section>
             )}
           </div>
+          <section className="plant-checkins-panel" aria-labelledby="plant-checkins-heading">
+            <div className="plant-checkins-heading">
+              <div>
+                <h3 id="plant-checkins-heading">Check-ins</h3>
+                <p>{selectedPlantReminders.length ? 'Active and recent observations for this plant.' : 'No check-ins for this plant yet.'}</p>
+              </div>
+              <button type="button" onClick={() => setShowManualReminderForm((isVisible) => !isVisible)}>
+                Add reminder
+              </button>
+            </div>
+            {showManualReminderForm && (
+              <form className="manual-reminder-form" onSubmit={createManualReminder}>
+                <div className="form-field">
+                  <label htmlFor="manual-reminder-title">Title</label>
+                  <input id="manual-reminder-title" required value={manualReminderDraft.title}
+                    onChange={(event) => setManualReminderDraft((draft) => ({ ...draft, title: event.target.value }))} />
+                </div>
+                <div className="form-field">
+                  <label htmlFor="manual-reminder-due">Due date</label>
+                  <input id="manual-reminder-due" type="date" value={manualReminderDraft.dueDate}
+                    onChange={(event) => setManualReminderDraft((draft) => ({ ...draft, dueDate: event.target.value }))} />
+                </div>
+                <div className="form-field manual-reminder-note">
+                  <label htmlFor="manual-reminder-note">Note (optional)</label>
+                  <textarea id="manual-reminder-note" rows="2" value={manualReminderDraft.note}
+                    onChange={(event) => setManualReminderDraft((draft) => ({ ...draft, note: event.target.value }))} />
+                </div>
+                <div className="form-actions">
+                  <button type="submit">Save reminder</button>
+                  <button className="secondary-button" type="button" onClick={() => setShowManualReminderForm(false)}>Cancel</button>
+                </div>
+              </form>
+            )}
+            <div className="reminder-list reminder-list-compact">
+              {selectedPlantReminders.length
+                ? selectedPlantReminders.map((reminder) => renderReminderCard(reminder, true))
+                : <p className="empty-message">Add a reminder when you want to review this plant later.</p>}
+            </div>
+          </section>
           <section className="photo-log" aria-labelledby="photo-log-heading">
             <h3 id="photo-log-heading">Photo Log</h3>
             <form className="photo-form" onSubmit={addPhotoEntry}>
@@ -2748,6 +3166,7 @@ function App() {
               ['acquiredDate', 'Acquired date'],
               ['pestQuarantineStartDate', 'Pest quarantine start date'],
               ['pestQuarantineEndDate', 'Pest quarantine end date'],
+              ['doNotTouchUntil', 'Do not touch until'],
             ].map(([fieldName, label]) => (
               <div className="form-field" key={fieldName}>
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
@@ -2893,10 +3312,48 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => openPlantList()}>
                 View Plant List
               </button>
+              <button className="secondary-button" type="button" onClick={openReminders}>
+                Today&apos;s Check-ins
+              </button>
               <button className="secondary-button" type="button" onClick={openSettings}>
                 Settings / Tools
               </button>
             </div>
+          </section>
+          <section className="dashboard-section" aria-labelledby="check-in-metrics-heading">
+            <div className="dashboard-section-heading">
+              <h3 id="check-in-metrics-heading">Check-ins</h3>
+              <p>Observation reminders due now and coming up.</p>
+            </div>
+            <div className="dashboard-metrics">
+              {[
+                ['Due now', dueNowReminders.length],
+                ['Overdue', overdueReminders.length],
+                ['Upcoming this week', thisWeekReminders.length],
+              ].map(([label, count]) => (
+                <button className="dashboard-metric-card" type="button" key={label} onClick={openReminders}>
+                  <strong>{count}</strong><span>{label}</span><small>Open check-ins →</small>
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="dashboard-section dashboard-checkins-panel" aria-labelledby="today-checkins-heading">
+            <div className="dashboard-section-heading">
+              <h3 id="today-checkins-heading">Today&apos;s Check-ins</h3>
+              <p>{dueNowReminders.length ? 'Sorted with overdue items first.' : 'Nothing due right now.'}</p>
+            </div>
+            <button className="today-checkins-button" type="button" onClick={openReminders}>
+              {dueNowReminders.slice(0, 4).map((reminder) => {
+                const plant = reminderPlantById.get(reminder.plantId);
+                return (
+                  <span className="today-checkin-row" key={reminder.id}>
+                    <strong>{reminder.title}</strong>
+                    <small>{plant?.name || 'Plant not found'} · {formatReminderTiming(reminder.dueDate)}</small>
+                  </span>
+                );
+              })}
+              {!dueNowReminders.length && <span className="today-checkin-row"><strong>No due check-ins</strong><small>Open upcoming reminders</small></span>}
+            </button>
           </section>
           {[
             ['key-metrics-heading', 'Key Metrics', 'A simple snapshot of your collection.', keyMetrics],
@@ -3015,6 +3472,20 @@ function App() {
             })}
             </div>
           </section>
+        </section>
+        ) : appView === 'reminders' ? (
+        <section className="reminders-view" aria-labelledby="reminders-heading">
+          <div className="section-heading">
+            <div>
+              <p className="detail-eyebrow">Observations</p>
+              <h2 id="reminders-heading" className="section-title">Check-ins</h2>
+              <p>Review time-sensitive plant stages without changing plant status automatically.</p>
+            </div>
+          </div>
+          {renderReminderGroup('Due now', dueNowReminders, 'No check-ins due right now.')}
+          {renderReminderGroup('Upcoming', upcomingReminders, 'No upcoming check-ins yet.')}
+          {renderReminderGroup('No date yet', noDateReminders, 'No undated check-ins.')}
+          {renderReminderGroup('Recently completed', recentlyCompletedReminders, 'No completed check-ins yet.')}
         </section>
         ) : appView === 'garden' ? (
           <Garden key={JSON.stringify(gardenFilter)} beds={gardenBeds} onChange={setGardenBeds}
