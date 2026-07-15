@@ -996,6 +996,7 @@ function App() {
   const [cloudBusy, setCloudBusy] = useState(false);
   const [backupPreview, setBackupPreview] = useState(null);
   const [restoreSnapshotInfo, setRestoreSnapshotInfo] = useState(() => getRestoreSafetySnapshot());
+  const [isChangelogExpanded, setIsChangelogExpanded] = useState(false);
   const [wishlistItems, setWishlistItems] = useState(loadWishlistItems);
   const [wishlistDraft, setWishlistDraft] = useState(emptyWishlistItem);
   const [editingWishlistId, setEditingWishlistId] = useState('');
@@ -4251,20 +4252,36 @@ function App() {
           </section>
 
           <section className="settings-card changelog-card" aria-labelledby="changelog-heading">
-            <h3 id="changelog-heading">Changelog</h3>
-            <div className="changelog-list">
-              {changelog.map((release) => (
-                <article className="changelog-entry" key={release.version}>
-                  <div className="changelog-entry-heading">
-                    <h4>{release.version}</h4>
-                    <time dateTime={release.releaseDate}>{release.releaseDate}</time>
-                  </div>
-                  <ul>
-                    {release.changes.map((change) => <li key={change}>{change}</li>)}
-                  </ul>
-                </article>
-              ))}
+            <div className="changelog-card-heading">
+              <div>
+                <h3 id="changelog-heading">Changelog</h3>
+                <p>{changelog.length} releases</p>
+              </div>
+              <button
+                className="changelog-toggle-button"
+                type="button"
+                aria-expanded={isChangelogExpanded}
+                aria-controls="settings-changelog-list"
+                onClick={() => setIsChangelogExpanded((isExpanded) => !isExpanded)}
+              >
+                {isChangelogExpanded ? 'Hide Changelog' : 'Show Changelog'}
+              </button>
             </div>
+            {isChangelogExpanded && (
+              <div className="changelog-list" id="settings-changelog-list">
+                {changelog.map((release) => (
+                  <article className="changelog-entry" key={release.version}>
+                    <div className="changelog-entry-heading">
+                      <h4>{release.version}</h4>
+                      <time dateTime={release.releaseDate}>{release.releaseDate}</time>
+                    </div>
+                    <ul>
+                      {release.changes.map((change) => <li key={change}>{change}</li>)}
+                    </ul>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="settings-card" aria-labelledby="data-tools-heading">

@@ -1,10 +1,18 @@
 export const currentAppVersion = {
-  version: 'v0.17.1',
+  version: 'v0.17.2',
   buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Backup Reliability',
+  releaseName: 'Settings Changelog Usability',
 };
 
 export const changelog = [
+  {
+    version: 'v0.17.2',
+    releaseDate: '2026-07-15',
+    changes: [
+      'Made the Settings changelog collapsed by default with an accessible Show Changelog control.',
+      'Kept the current App Version card, release summary, update check, and compact version footer visible.',
+    ],
+  },
   {
     version: 'v0.17.1',
     releaseDate: '2026-07-15',
