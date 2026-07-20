@@ -1,10 +1,22 @@
 export const currentAppVersion = {
-  version: 'v0.18.3',
-  buildDateTime: '2026-07-15 00:00:00 -04:00',
-  releaseName: 'Smart Plant Space Tile Display',
+  version: 'v0.19.0',
+  buildDateTime: '2026-07-20 09:39:36 -04:00',
+  releaseName: 'Plant List Sorting',
 };
 
 export const changelog = [
+  {
+    version: 'v0.19.0',
+    releaseDate: '2026-07-20',
+    changes: [
+      'Made the Plant List default to alphabetical A–Z order.',
+      'Added 11 Plant List sort options for names, acquisition and creation dates, care priority, check-ins, location, category, and genus.',
+      'Preserved the selected Plant List sort for the current app session.',
+      'Handled missing and duplicate sort values safely without changing stored plant order.',
+      'Added creation timestamps to newly added plants to support Recently added sorting.',
+      'Verified the sorting controls and layouts on desktop, tablet, and mobile.',
+    ],
+  },
   {
     version: 'v0.18.3',
     releaseDate: '2026-07-15',
