@@ -273,9 +273,29 @@ const wishlistStorageKey = storageKeys.wishlistItems;
 const remindersStorageKey = storageKeys.reminders;
 const plantViewModeStorageKey = storageKeys.plantViewMode;
 const plantPageSizesStorageKey = storageKeys.plantPageSizes;
+const plantSortSessionKey = 'plant-tracker-plant-sort';
 const cloudBackupTable = 'app_backups';
 const cloudBackupId = 'primary';
 const defaultPlantPageSizes = { cards: 12, gallery: 18, compact: 25 };
+const defaultPlantSort = 'name-asc';
+const plantSortOptions = [
+  ['name-asc', 'Alphabetical: A–Z'],
+  ['name-desc', 'Alphabetical: Z–A'],
+  ['acquired-desc', 'Newest acquired'],
+  ['acquired-asc', 'Oldest acquired'],
+  ['added-desc', 'Recently added'],
+  ['attention-first', 'Needs attention first'],
+  ['next-check', 'Next check due'],
+  ['checked-desc', 'Recently checked'],
+  ['location', 'Location'],
+  ['category', 'Category'],
+  ['genus', 'Genus'],
+];
+
+function loadPlantSort() {
+  const savedSort = sessionStorage.getItem(plantSortSessionKey);
+  return plantSortOptions.some(([value]) => value === savedSort) ? savedSort : defaultPlantSort;
+}
 
 function loadPlantViewMode() {
   const savedViewMode = localStorage.getItem(plantViewModeStorageKey);
@@ -810,6 +830,16 @@ function getPlantBadges(plant) {
   return badges;
 }
 
+function comparePresentValues(firstValue, secondValue, direction = 'asc') {
+  const first = String(firstValue || '').trim();
+  const second = String(secondValue || '').trim();
+  if (!first && !second) return 0;
+  if (!first) return 1;
+  if (!second) return -1;
+  return first.localeCompare(second, undefined, { sensitivity: 'base', numeric: true })
+    * (direction === 'desc' ? -1 : 1);
+}
+
 function PlantBadges({ plant }) {
   const badges = getPlantBadges(plant);
   if (!badges.length) return null;
@@ -949,6 +979,7 @@ function App() {
   const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
   const [activeQuickView, setActiveQuickView] = useState('all-active');
   const [plantViewMode, setPlantViewMode] = useState(loadPlantViewMode);
+  const [plantSort, setPlantSort] = useState(loadPlantSort);
   const [plantPageSizes, setPlantPageSizes] = useState(loadPlantPageSizes);
   const [plantPage, setPlantPage] = useState(1);
   const [addPlantMessage, setAddPlantMessage] = useState('');
@@ -1030,6 +1061,12 @@ function App() {
     setPlantPage(1);
     localStorage.setItem(plantViewModeStorageKey, nextViewMode);
     markLocalDataChanged('preference');
+  }
+
+  function changePlantSort(nextSort) {
+    setPlantSort(nextSort);
+    setPlantPage(1);
+    sessionStorage.setItem(plantSortSessionKey, nextSort);
   }
 
   function changePlantPageSize(nextPageSize) {
@@ -1417,6 +1454,34 @@ function App() {
       ].map(normalizedFilterValue).filter(Boolean)),
     ].sort((firstOption, secondOption) => firstOption.localeCompare(secondOption));
   };
+  const getPlantNextCheckDate = (plant) => reminders
+    .filter((reminder) => reminder.plantId === plant.id && reminder.status === 'active')
+    .map((reminder) => dateInputValue(reminder.dueDate || reminder.nextCheckDate))
+    .filter(Boolean)
+    .sort()[0] || '';
+  const plantNeedsAttention = (plant) => {
+    const attentionBadgeKinds = new Set(['attention', 'watch', 'rehab', 'leca-stress']);
+    const hasAttentionBadge = getPlantBadges(plant).some((badge) => attentionBadgeKinds.has(badge.kind));
+    const nextCheckDate = getPlantNextCheckDate(plant);
+    return hasAttentionBadge || (Boolean(nextCheckDate) && nextCheckDate < todayDate());
+  };
+  const comparePlants = (firstPlant, secondPlant) => {
+    let result = 0;
+    if (plantSort === 'name-asc') result = comparePresentValues(firstPlant.name, secondPlant.name);
+    if (plantSort === 'name-desc') result = comparePresentValues(firstPlant.name, secondPlant.name, 'desc');
+    if (plantSort === 'acquired-desc') result = comparePresentValues(firstPlant.acquiredDate, secondPlant.acquiredDate, 'desc');
+    if (plantSort === 'acquired-asc') result = comparePresentValues(firstPlant.acquiredDate, secondPlant.acquiredDate);
+    if (plantSort === 'added-desc') result = comparePresentValues(firstPlant.createdAt, secondPlant.createdAt, 'desc');
+    if (plantSort === 'next-check') result = comparePresentValues(getPlantNextCheckDate(firstPlant), getPlantNextCheckDate(secondPlant));
+    if (plantSort === 'checked-desc') result = comparePresentValues(getLastCheckedDate(firstPlant), getLastCheckedDate(secondPlant), 'desc');
+    if (plantSort === 'location') result = comparePresentValues(firstPlant.location, secondPlant.location);
+    if (plantSort === 'category') result = comparePresentValues(firstPlant.type, secondPlant.type);
+    if (plantSort === 'genus') result = comparePresentValues(firstPlant.genus, secondPlant.genus);
+    if (plantSort === 'attention-first') {
+      result = Number(plantNeedsAttention(secondPlant)) - Number(plantNeedsAttention(firstPlant));
+    }
+    return result || comparePresentValues(firstPlant.name, secondPlant.name);
+  };
   const visiblePlants = plants
     .filter((plant) => {
       const matchesLifecycle = lifecycleView === 'all'
@@ -1460,7 +1525,7 @@ function App() {
       return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine
         && matchesRecentlyChecked && matchesRecentlyAcquired;
     })
-    .sort((firstPlant, secondPlant) => (firstPlant.genus || '').localeCompare(secondPlant.genus || ''));
+    .sort(comparePlants);
 
   const plantPageSize = plantPageSizes[plantViewMode];
   const plantPageCount = plantPageSize === 'all'
@@ -1478,7 +1543,7 @@ function App() {
   useEffect(() => {
     setPlantPage(1);
   }, [searchText, plantFilters, lifecycleView, quarantineFilter, recentlyCheckedFilter,
-    recentlyAcquiredFilter, plantViewMode]);
+    recentlyAcquiredFilter, plantViewMode, plantSort]);
 
   useEffect(() => {
     if (plantPage > plantPageCount) setPlantPage(plantPageCount);
@@ -2397,6 +2462,7 @@ function App() {
       const savedPlant = {
         ...newPlant,
         id: newPlant.id || makeId('plant'),
+        createdAt: newPlant.createdAt || new Date().toISOString(),
         imageUrl: uploadedImageUrl,
         image: getPlantImage(newPlant.name, newPlant.type),
       };
@@ -4520,6 +4586,15 @@ function App() {
                 setActiveQuickView('');
               }}
             />
+          </div>
+          <div className="plant-filter plant-sort-control">
+            <label htmlFor="plant-sort">Sort</label>
+            <select id="plant-sort" value={plantSort}
+              onChange={(event) => changePlantSort(event.target.value)}>
+              {plantSortOptions.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
           <div className="view-mode-control" role="group" aria-label="Plant display layout">
             <span>View</span>

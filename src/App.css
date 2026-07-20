@@ -2528,6 +2528,10 @@
   text-align: left;
 }
 
+.plant-sort-control {
+  width: min(100%, 280px);
+}
+
 .page-size-control {
   min-width: 130px;
   text-align: left;
