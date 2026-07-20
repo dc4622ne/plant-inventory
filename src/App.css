@@ -2395,6 +2395,17 @@
   margin-bottom: 20px;
 }
 
+.mobile-primary-controls,
+.mobile-secondary-controls {
+  display: contents;
+}
+
+.mobile-filter-label,
+.mobile-page-size-label,
+.mobile-clear-filters-button {
+  display: none;
+}
+
 .view-mode-control {
   display: flex;
   justify-content: flex-end;
@@ -4585,10 +4596,14 @@
   }
 
   .quick-views,
-  .plant-filter-panel {
+  .plant-filter-panel-open .plant-filter-controls {
     margin-bottom: var(--mobile-section-gap);
     padding: 8px 9px;
     border-radius: 10px;
+  }
+
+  .quick-views {
+    padding: 7px 8px;
   }
 
   .quick-views-heading {
@@ -4620,7 +4635,7 @@
     display: none;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
-    margin-top: 10px;
+    margin-top: 7px;
   }
 
   .quick-views-open .quick-view-list {
@@ -4636,8 +4651,60 @@
   }
 
   .plant-search-tools {
-    gap: var(--mobile-section-gap);
-    margin-bottom: var(--mobile-section-gap);
+    gap: 6px;
+    margin-bottom: 0;
+  }
+
+  .mobile-primary-controls,
+  .mobile-secondary-controls {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .mobile-primary-controls {
+    grid-template-columns: minmax(0, 2fr) minmax(104px, 1fr);
+    align-items: end;
+  }
+
+  .mobile-secondary-controls {
+    grid-template-columns: minmax(0, 1fr) 88px;
+    align-items: end;
+  }
+
+  .mobile-primary-controls .plant-filter-panel {
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+
+  .mobile-primary-controls .plant-filter-panel-open {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(104px, 1fr);
+    gap: 6px;
+  }
+
+  .mobile-primary-controls .plant-filter-panel-open .filter-panel-heading {
+    grid-column: 2;
+  }
+
+  .mobile-primary-controls .plant-filter-panel-open .plant-filter-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .mobile-filter-label,
+  .mobile-page-size-label {
+    display: inline;
+  }
+
+  .desktop-filter-label,
+  .desktop-page-size-label,
+  .filter-panel-heading > div:first-child,
+  .desktop-clear-filters-button {
+    display: none;
   }
 
   .plant-search label,
@@ -4658,9 +4725,9 @@
   }
 
   .view-mode-control {
-    flex-direction: row;
-    justify-content: space-between;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
   }
 
   .view-mode-buttons {
@@ -4673,44 +4740,50 @@
   }
 
   .view-mode-buttons button {
-    min-height: 38px;
-    padding: 6px 4px;
+    min-height: 40px;
+    padding: 5px 3px;
     font-size: 0.7rem;
     line-height: 1.1;
     white-space: nowrap;
   }
 
   .page-size-control {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 92px;
-    gap: 8px;
-    align-items: center;
+    display: block;
     min-width: 0;
   }
 
   .page-size-control label {
-    margin: 0;
+    margin-bottom: 4px;
   }
 
   .filter-panel-heading {
-    align-items: center;
-    flex-direction: row;
+    display: block;
     margin-bottom: 0;
   }
 
   .filter-actions {
-    display: flex;
-    flex: 0 0 auto;
-    gap: 6px;
+    display: block;
+  }
+
+  .filter-actions .more-filters-button {
+    width: 100%;
+    min-height: var(--mobile-control-height);
   }
 
   .plant-filter-controls {
     display: none;
-    margin-top: 10px;
+    margin-top: 0;
   }
 
   .plant-filter-panel-open .plant-filter-controls {
     display: block;
+    background: color-mix(in srgb, var(--brand-cream) 48%, #fff);
+    border: 1px solid var(--border);
+  }
+
+  .mobile-clear-filters-button {
+    width: 100%;
+    margin-top: 8px;
   }
 
   .plant-filter-dropdowns {
@@ -4723,7 +4796,7 @@
   }
 
   .plant-list-divider {
-    margin: 12px 0 8px;
+    margin: 8px 0 6px;
   }
 
   .plant-result-summary {
@@ -4892,42 +4965,8 @@
     white-space: normal;
   }
 
-  .quick-views-heading,
-  .filter-panel-heading,
-  .view-mode-control {
-    align-items: stretch;
-  }
-
-  .quick-views-heading {
-    flex-direction: column;
-  }
-
-  .quick-views-toggle {
-    width: 100%;
-  }
-
-  .filter-panel-heading {
-    flex-direction: column;
-  }
-
-  .filter-actions {
-    width: 100%;
-  }
-
-  .filter-actions button {
-    flex: 1;
-  }
-
   .plant-filter-dropdowns {
     grid-template-columns: 1fr;
-  }
-
-  .view-mode-control {
-    flex-direction: column;
-  }
-
-  .page-size-control {
-    grid-template-columns: minmax(0, 1fr) 84px;
   }
 
   .plant-list-gallery {

@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.19.0',
-  buildDateTime: '2026-07-20 09:39:36 -04:00',
-  releaseName: 'Plant List Sorting',
+  version: 'v0.19.1',
+  buildDateTime: '2026-07-20 10:03:19 -04:00',
+  releaseName: 'Compact Mobile Plant List Controls',
 };
 
 export const changelog = [
+  {
+    version: 'v0.19.1',
+    releaseDate: '2026-07-20',
+    changes: [
+      'Compacted the mobile Plant List controls so results and plant cards appear higher on the page.',
+      'Placed Sort beside a concise Filters button with an active-filter count.',
+      'Placed the existing view selector beside the Plants per page control on phones.',
+      'Reduced mobile Quick Views, control, filter, and result spacing while preserving accessible touch targets.',
+      'Kept expanded filter fields full-width and preserved desktop and tablet layouts without horizontal overflow.',
+    ],
+  },
   {
     version: 'v0.19.0',
     releaseDate: '2026-07-20',

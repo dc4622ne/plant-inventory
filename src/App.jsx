@@ -4587,97 +4587,112 @@ function App() {
               }}
             />
           </div>
-          <div className="plant-filter plant-sort-control">
-            <label htmlFor="plant-sort">Sort</label>
-            <select id="plant-sort" value={plantSort}
-              onChange={(event) => changePlantSort(event.target.value)}>
-              {plantSortOptions.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="view-mode-control" role="group" aria-label="Plant display layout">
-            <span>View</span>
-            <div className="view-mode-buttons">
-              {[
-                ['cards', 'Cards'],
-                ['gallery', 'Gallery'],
-                ['compact', 'Compact List'],
-              ].map(([viewMode, label]) => (
-                <button key={viewMode} type="button"
-                  className={plantViewMode === viewMode ? 'view-mode-active' : ''}
-                  aria-pressed={plantViewMode === viewMode}
-                  onClick={() => changePlantViewMode(viewMode)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="page-size-control">
-            <label htmlFor="plant-page-size">Plants per page</label>
-            <select id="plant-page-size" value={plantPageSize}
-              onChange={(event) => changePlantPageSize(
-                event.target.value === 'all' ? 'all' : Number(event.target.value),
-              )}>
-              <option value={12}>12</option>
-              <option value={18}>18</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value="all">All</option>
-            </select>
-          </div>
-        </div>
-        <div className={`plant-filter-panel${areMoreFiltersVisible ? ' plant-filter-panel-open' : ''}`}
-          aria-label="Filter plants">
-          <div className="filter-panel-heading">
-            <div>
-              <h3>Filters</h3>
-              {hasActivePlantFilters && <p>{activePlantFilterCount} active</p>}
-            </div>
-            <div className="filter-actions">
-              <button className="more-filters-button" type="button"
-                aria-expanded={areMoreFiltersVisible} aria-controls="plant-filter-controls"
-                onClick={() => setAreMoreFiltersVisible((isVisible) => !isVisible)}>
-                {areMoreFiltersVisible ? 'Hide Filters' : 'More Filters'}
-              </button>
-              {hasActivePlantFilters && (
-                <button className="clear-filters-button" type="button" onClick={clearAllFilters}>
-                  Clear All
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="plant-filter-controls" id="plant-filter-controls">
-          <div className="plant-filter-dropdowns primary-filters">
-            <div className="plant-filter">
-              <label htmlFor="lifecycle-filter">Plant view</label>
-              <select id="lifecycle-filter" value={lifecycleView}
-                onChange={(event) => {
-                  setLifecycleView(event.target.value);
-                  setActiveQuickView('');
-                  scrollPlantResultsIntoView();
-                }}>
-                <option value="all">All Plants</option>
-                <option value="active">Active Plants</option>
-                <option value="archived">Archived Plants</option>
-                <option value="graveyard">Graveyard Plants</option>
+          <div className="mobile-primary-controls">
+            <div className="plant-filter plant-sort-control">
+              <label htmlFor="plant-sort">Sort</label>
+              <select id="plant-sort" value={plantSort}
+                onChange={(event) => changePlantSort(event.target.value)}>
+                {plantSortOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
               </select>
             </div>
-            {primaryFilterFields.map(([fieldName, label]) => (
-              <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
-                value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
-                onChange={(value) => updatePlantFilter(fieldName, value)} />
-            ))}
-          </div>
-          {areMoreFiltersVisible && (
-            <div className="plant-filter-dropdowns advanced-filters" id="advanced-plant-filters">
-              {advancedFilterFields.map(([fieldName, label]) => (
-                <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
-                  value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
-                  onChange={(value) => updatePlantFilter(fieldName, value)} />
-              ))}
+            <div className={`plant-filter-panel${areMoreFiltersVisible ? ' plant-filter-panel-open' : ''}`}
+              aria-label="Filter plants">
+              <div className="filter-panel-heading">
+                <div>
+                  <h3>Filters</h3>
+                  {hasActivePlantFilters && <p>{activePlantFilterCount} active</p>}
+                </div>
+                <div className="filter-actions">
+                  <button className="more-filters-button" type="button"
+                    aria-expanded={areMoreFiltersVisible} aria-controls="plant-filter-controls"
+                    onClick={() => setAreMoreFiltersVisible((isVisible) => !isVisible)}>
+                    <span className="desktop-filter-label">{areMoreFiltersVisible ? 'Hide Filters' : 'More Filters'}</span>
+                    <span className="mobile-filter-label">
+                      {areMoreFiltersVisible ? 'Hide' : 'Filters'}{hasActivePlantFilters ? ` (${activePlantFilterCount})` : ''}
+                    </span>
+                  </button>
+                  {hasActivePlantFilters && (
+                    <button className="clear-filters-button desktop-clear-filters-button" type="button" onClick={clearAllFilters}>
+                      Clear All
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="plant-filter-controls" id="plant-filter-controls">
+              <div className="plant-filter-dropdowns primary-filters">
+                <div className="plant-filter">
+                  <label htmlFor="lifecycle-filter">Plant view</label>
+                  <select id="lifecycle-filter" value={lifecycleView}
+                    onChange={(event) => {
+                      setLifecycleView(event.target.value);
+                      setActiveQuickView('');
+                      scrollPlantResultsIntoView();
+                    }}>
+                    <option value="all">All Plants</option>
+                    <option value="active">Active Plants</option>
+                    <option value="archived">Archived Plants</option>
+                    <option value="graveyard">Graveyard Plants</option>
+                  </select>
+                </div>
+                {primaryFilterFields.map(([fieldName, label]) => (
+                  <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
+                    value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
+                    onChange={(value) => updatePlantFilter(fieldName, value)} />
+                ))}
+              </div>
+              {areMoreFiltersVisible && (
+                <div className="plant-filter-dropdowns advanced-filters" id="advanced-plant-filters">
+                  {advancedFilterFields.map(([fieldName, label]) => (
+                    <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
+                      value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
+                      onChange={(value) => updatePlantFilter(fieldName, value)} />
+                  ))}
+                </div>
+              )}
+              {hasActivePlantFilters && (
+                <button className="clear-filters-button mobile-clear-filters-button" type="button" onClick={clearAllFilters}>
+                  Clear All Filters
+                </button>
+              )}
+              </div>
             </div>
-          )}
+          </div>
+          <div className="mobile-secondary-controls">
+            <div className="view-mode-control" role="group" aria-label="Plant display layout">
+              <span>View</span>
+              <div className="view-mode-buttons">
+                {[
+                  ['cards', 'Cards'],
+                  ['gallery', 'Gallery'],
+                  ['compact', 'Compact List'],
+                ].map(([viewMode, label]) => (
+                  <button key={viewMode} type="button"
+                    className={plantViewMode === viewMode ? 'view-mode-active' : ''}
+                    aria-pressed={plantViewMode === viewMode}
+                    onClick={() => changePlantViewMode(viewMode)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="page-size-control">
+              <label htmlFor="plant-page-size">
+                <span className="desktop-page-size-label">Plants per page</span>
+                <span className="mobile-page-size-label">Per page</span>
+              </label>
+              <select id="plant-page-size" value={plantPageSize}
+                onChange={(event) => changePlantPageSize(
+                  event.target.value === 'all' ? 'all' : Number(event.target.value),
+                )}>
+                <option value={12}>12</option>
+                <option value={18}>18</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value="all">All</option>
+              </select>
+            </div>
           </div>
         </div>
         <hr className="plant-list-divider" ref={plantResultsRef} />
