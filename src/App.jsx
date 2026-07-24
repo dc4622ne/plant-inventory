@@ -1019,6 +1019,9 @@ function App() {
   const [showPhotoComparison, setShowPhotoComparison] = useState(false);
   const [comparisonPhotoIds, setComparisonPhotoIds] = useState({ before: '', after: '' });
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
+  const [trackerEditor, setTrackerEditor] = useState('');
+  const [trackerDraft, setTrackerDraft] = useState({});
+  const [activeDetailSection, setActiveDetailSection] = useState('plant-overview');
   const [manualReminderDraft, setManualReminderDraft] = useState({ title: '', dueDate: todayDate(), note: '' });
   const [showManualReminderForm, setShowManualReminderForm] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
@@ -1890,6 +1893,35 @@ function App() {
     if (selectedPlant) {
       setSelectedPlant(nextPlants.find((plant) => plant.id === selectedPlant.id) || selectedPlant);
     }
+  }
+
+  function openTrackerEditor(tracker) {
+    setTrackerDraft({ ...selectedPlant });
+    setTrackerEditor(tracker);
+  }
+
+  function closeTrackerEditor() {
+    setTrackerEditor('');
+    setTrackerDraft({});
+  }
+
+  function saveTrackerUpdate(event) {
+    event.preventDefault();
+    const previousPlant = selectedPlant;
+    const fieldNames = trackerEditor === 'tc'
+      ? ['tcStage', 'tcDeflaskDate', 'tcAcclimationStartDate', 'tcAcclimationEndDate', 'tcSetup', 'tcHumidityLevel', 'tcNotes']
+      : ['trackLecaConversion', 'lecaStatus', 'lecaConversionStartDate', 'lecaRootStatus', 'lecaReservoirSetup',
+        'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes'];
+    const updates = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, trackerDraft[fieldName] ?? '']));
+    const updatedPlant = { ...selectedPlant, ...updates };
+    savePlants(plants.map((plant) => plant.id === selectedPlant.id ? updatedPlant : plant), `${trackerEditor}-tracker`);
+    createAutomaticRemindersForPlant(updatedPlant, previousPlant);
+    closeTrackerEditor();
+  }
+
+  function scrollToDetailSection(sectionId) {
+    setActiveDetailSection(sectionId);
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function savePlantSpaces(nextSpaces) {
@@ -3062,7 +3094,7 @@ function App() {
               </button>
             </div>
           </div>
-          <div className="detail-heading">
+          <div className="detail-heading" id="plant-overview">
             <PlantImage key={selectedPlant.imageUrl || 'placeholder'} plant={selectedPlant} detail />
             <div>
               <p className="detail-eyebrow">Plant details</p>
@@ -3074,6 +3106,25 @@ function App() {
               <PlantBadges plant={selectedPlant} />
             </div>
           </div>
+          <nav className="detail-section-nav" aria-label="Plant detail sections">
+            {[
+              ['plant-overview', 'Overview'],
+              ['plant-care', 'Care'],
+              ['plant-health', 'Health'],
+              ['plant-checkins', 'Check-ins'],
+              ...((isTissueCulture(selectedPlant) || hasTcTrackerData(selectedPlant)) ? [['plant-tissue-culture', 'Tissue Culture']] : []),
+              ...(shouldShowLecaTracker(selectedPlant) ? [['plant-leca', 'LECA']] : []),
+              ['plant-photos', 'Photos'],
+              ['plant-activity', 'Activity'],
+            ].map(([sectionId, label]) => (
+              <button type="button" key={sectionId}
+                className={activeDetailSection === sectionId ? 'active' : ''}
+                aria-current={activeDetailSection === sectionId ? 'location' : undefined}
+                onClick={() => scrollToDetailSection(sectionId)}>
+                {label}
+              </button>
+            ))}
+          </nav>
           <div className="quick-check-in-panel">
             <div>
               <strong>Last checked</strong>
@@ -3102,7 +3153,8 @@ function App() {
           )}
           <div className="detail-sections">
             {getDetailSections(selectedPlant).map((section) => (
-              <section className="detail-section" key={section.title}>
+              <section className="detail-section" key={section.title}
+                id={section.title === 'Care details' ? 'plant-care' : section.title === 'Plant information' ? 'plant-information' : undefined}>
                 <h3>{section.title}</h3>
                 <dl className="detail-list">
                   {section.fields.map(([fieldName, label]) => (
@@ -3115,8 +3167,15 @@ function App() {
               </section>
             ))}
             {(isTissueCulture(selectedPlant) || hasTcTrackerData(selectedPlant)) && (
-              <section className="detail-section tc-detail-section">
-                <h3>TC Acclimation</h3>
+              <section className="tracker-section-card tc-detail-section" id="plant-tissue-culture">
+                <div className="tracker-section-heading">
+                  <div>
+                    <p className="detail-eyebrow">Current stage · {displayValue(selectedPlant.tcStage)}</p>
+                    <h3>🧪 Tissue Culture Acclimation</h3>
+                    <p>{selectedPlant.tcHumidityLevel || selectedPlant.tcSetup || 'Add setup and humidity details to track progress.'}</p>
+                  </div>
+                  <button type="button" onClick={() => openTrackerEditor('tc')}>Update Acclimation</button>
+                </div>
                 {hasTcTrackerData(selectedPlant) ? (
                   <dl className="detail-list">
                     {[
@@ -3128,12 +3187,19 @@ function App() {
                       <div key={fieldName}><dt>{label}</dt><dd>{selectedPlant[fieldName]}</dd></div>
                     ))}
                   </dl>
-                ) : <p className="tc-empty-message">No TC acclimation details added yet.</p>}
+                ) : <p className="tracker-empty-state">No acclimation details yet. Add the current stage, dates, setup, humidity, and notes.</p>}
               </section>
             )}
             {shouldShowLecaTracker(selectedPlant) && (
-              <section className="detail-section leca-detail-section">
-                <h3>LECA Conversion</h3>
+              <section className="tracker-section-card leca-detail-section" id="plant-leca">
+                <div className="tracker-section-heading">
+                  <div>
+                    <p className="detail-eyebrow">Current status · {displayValue(selectedPlant.lecaStatus)}</p>
+                    <h3>⚗️ LECA Conversion</h3>
+                    <p>{selectedPlant.lecaRootStatus || selectedPlant.lecaStressLevel || 'Add root and stress details to track progress.'}</p>
+                  </div>
+                  <button type="button" onClick={() => openTrackerEditor('leca')}>Update LECA Conversion</button>
+                </div>
                 {hasLecaTrackerData(selectedPlant) ? (
                   <dl className="detail-list">
                     {[
@@ -3145,11 +3211,11 @@ function App() {
                       <div key={fieldName}><dt>{label}</dt><dd>{selectedPlant[fieldName]}</dd></div>
                     ))}
                   </dl>
-                ) : <p className="tc-empty-message">No LECA conversion details added yet.</p>}
+                ) : <p className="tracker-empty-state">No LECA conversion details yet. Add the status, start date, roots, reservoir, nutrients, and notes.</p>}
               </section>
             )}
           </div>
-          <section className="plant-timeline" aria-labelledby="plant-timeline-heading">
+          <section className="plant-timeline tracker-section-card" id="plant-health" aria-labelledby="plant-timeline-heading">
             <div className="timeline-heading">
               <div>
                 <p className="detail-eyebrow">Unified history</p>
@@ -3329,7 +3395,7 @@ function App() {
               <p className="activity-empty-message">No matching timeline entries yet.</p>
             )}
           </section>
-          <section className="plant-checkins-panel" aria-labelledby="plant-checkins-heading">
+          <section className="plant-checkins-panel tracker-section-card" id="plant-checkins" aria-labelledby="plant-checkins-heading">
             <div className="plant-checkins-heading">
               <div>
                 <h3 id="plant-checkins-heading">Check-ins</h3>
@@ -3368,7 +3434,7 @@ function App() {
                 : <p className="empty-message">Add a reminder when you want to review this plant later.</p>}
             </div>
           </section>
-          <section className="photo-log" aria-labelledby="photo-log-heading">
+          <section className="photo-log tracker-section-card" id="plant-photos" aria-labelledby="photo-log-heading">
             <h3 id="photo-log-heading">Photo Log</h3>
             <form className="photo-form" onSubmit={addPhotoEntry}>
               {photoEntryUploadError && (
@@ -3507,7 +3573,7 @@ function App() {
               <p className="activity-empty-message">No photos logged yet.</p>
             )}
           </section>
-          <section className="activity-log" aria-labelledby="activity-log-heading">
+          <section className="activity-log tracker-section-card" id="plant-activity" aria-labelledby="activity-log-heading">
             <h3 id="activity-log-heading">Activity Log</h3>
             <form className="activity-form" onSubmit={addLogEntry}>
               <div className="form-field">
@@ -3607,6 +3673,68 @@ function App() {
               <p className="activity-empty-message">No activity logged yet.</p>
             )}
           </section>
+          {trackerEditor && (
+            <div className="tracker-modal-backdrop" role="presentation" onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeTrackerEditor();
+            }}>
+              <section className="tracker-modal" role="dialog" aria-modal="true" aria-labelledby="tracker-editor-heading">
+                <div className="tracker-modal-heading">
+                  <div>
+                    <p className="detail-eyebrow">Focused update</p>
+                    <h3 id="tracker-editor-heading">
+                      {trackerEditor === 'tc' ? 'Update Tissue Culture Acclimation' : 'Update LECA Conversion'}
+                    </h3>
+                  </div>
+                  <button type="button" className="secondary-button" onClick={closeTrackerEditor}>Close</button>
+                </div>
+                <form onSubmit={saveTrackerUpdate}>
+                  {trackerEditor === 'leca' && (
+                    <label className="tracker-modal-checkbox">
+                      <input type="checkbox" checked={Boolean(trackerDraft.trackLecaConversion)}
+                        onChange={(event) => setTrackerDraft((draft) => ({ ...draft, trackLecaConversion: event.target.checked }))} />
+                      Track LECA conversion
+                    </label>
+                  )}
+                  <div className="tracker-modal-grid">
+                    {(trackerEditor === 'tc'
+                      ? [
+                        ['tcStage', 'TC stage', 'select'], ['tcSetup', 'Current acclimation setup', 'select'],
+                        ['tcHumidityLevel', 'Humidity level', 'select'], ['tcDeflaskDate', 'Deflask date', 'date'],
+                        ['tcAcclimationStartDate', 'Acclimation start date', 'date'],
+                        ['tcAcclimationEndDate', 'Acclimation end date', 'date'], ['tcNotes', 'Acclimation notes', 'textarea'],
+                      ]
+                      : [
+                        ['lecaStatus', 'LECA conversion status', 'select'], ['lecaRootStatus', 'Root status', 'select'],
+                        ['lecaReservoirSetup', 'Reservoir setup', 'select'], ['lecaNutrientStatus', 'Nutrient status', 'select'],
+                        ['lecaFlushRhythm', 'Flush / rinse rhythm', 'select'], ['lecaStressLevel', 'Stress level', 'select'],
+                        ['lecaConversionStartDate', 'Conversion start date', 'date'], ['lecaNotes', 'Conversion notes', 'textarea'],
+                      ]).map(([fieldName, label, fieldType]) => (
+                      <div className={`form-field${fieldType === 'textarea' ? ' tracker-modal-wide' : ''}`} key={fieldName}>
+                        <label htmlFor={`tracker-${fieldName}`}>{label}</label>
+                        {fieldType === 'select' ? (
+                          <select id={`tracker-${fieldName}`} value={trackerDraft[fieldName] || ''}
+                            onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))}>
+                            <option value="">Not set</option>
+                            {(dropdownOptions[fieldName] || []).map((option) => <option key={option}>{option}</option>)}
+                          </select>
+                        ) : fieldType === 'textarea' ? (
+                          <textarea id={`tracker-${fieldName}`} rows="4" value={trackerDraft[fieldName] || ''}
+                            onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
+                        ) : (
+                          <input id={`tracker-${fieldName}`} type="date" value={trackerDraft[fieldName] || ''}
+                            onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="form-actions">
+                    <button type="submit">Save update</button>
+                    <button type="button" className="secondary-button" onClick={closeTrackerEditor}>Cancel</button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          )}
           {timelineLightboxPhoto && (
             <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Timeline photo preview">
               <div className="image-lightbox-panel">

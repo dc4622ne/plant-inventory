@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.19.1',
-  buildDateTime: '2026-07-20 10:03:19 -04:00',
-  releaseName: 'Compact Mobile Plant List Controls',
+  version: 'v0.20.0',
+  buildDateTime: '2026-07-24',
+  releaseName: 'Streamlined Plant Tracking',
 };
 
 export const changelog = [
+  {
+    version: 'v0.20.0',
+    releaseDate: '2026-07-24',
+    changes: [
+      'Tissue Culture Acclimation can now be updated directly from Plant Details.',
+      'LECA Conversion can now be updated directly from Plant Details.',
+      'Added a Plant Detail section navigator for faster access to tracking areas.',
+      'Standardized Health, Check-ins, Tissue Culture, LECA, Photos, and Activity with a consistent section-card layout.',
+      'Improved the Plant Detail experience across mobile and desktop layouts.',
+    ],
+  },
   {
     version: 'v0.19.1',
     releaseDate: '2026-07-20',
