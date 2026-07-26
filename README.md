@@ -1,5 +1,19 @@
 # Plant Tracker
 
+## v0.21.0 — Origins, Corms & Plant Journal
+
+- Plant Journal entries can be captured from the Plant List or Plant Detail with automatic timestamps, an optional plant, and an optional stored photo. Unfiled entries remain intact until a destination save succeeds.
+- Plant `origin` is permanent history and is independent from `lifecycleStage`. Older records are normalized conservatively from existing values without overwriting category, status, or tracker data.
+- Lifecycle transitions retain the plant ID and append dated, reversible history entries. Tissue Culture, Corm, LECA, health, check-in, photo, and activity data stay on the same record.
+- Corm-origin and Corm-stage plants receive a directly editable Corm Tracker with growth methods, milestone phases and dates, phase history, notes, photos, and outcome.
+- Every categorical Plant List filter supports multiple values. Selections use OR logic within one group and AND logic across different groups, including predictable “Unknown or not recorded” matching.
+- The Plant List uses a compact Quick View selector with Active/Modified status, Save as Quick View, and Restore Default. Editing, renaming, duplicating, and confirmed deletion live in the dedicated Settings → Quick Views section.
+- Previously seeded or built-in views normalize into ordinary saved Quick Views with preserved IDs and criteria, so every view can be edited or deleted.
+- Settings includes responsive section navigation for Quick Views, cloud sync, backup and restore, import/export, version information, and general app details.
+- Backup schema v4 retains the existing internal journal collection and storage key for backward compatibility, and now registers the additive Quick Views collection without requiring a schema-version increase.
+
+Migration is additive: missing arrays become empty arrays, old singular filter values normalize into one-item arrays, malformed saved views are ignored or repaired safely, and missing origin/stage values receive sensible inferred defaults.
+
 A mobile-friendly React app for tracking plants, care activity, wishlists, purchases, and garden beds. Data stays in the current browser using local storage.
 
 ## Run locally

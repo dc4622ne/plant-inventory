@@ -1,10 +1,29 @@
 export const currentAppVersion = {
-  version: 'v0.20.0',
-  buildDateTime: '2026-07-24',
-  releaseName: 'Streamlined Plant Tracking',
+  version: 'v0.21.0',
+  buildDateTime: '2026-07-26',
+  releaseName: 'Origins, Corms & Plant Journal',
 };
 
 export const changelog = [
+  {
+    version: 'v0.21.0',
+    releaseDate: '2026-07-26',
+    changes: [
+      'Added Plant Journal with optional plant and photo association plus safe filing and conversion workflows.',
+      'Separated permanent plant origin from the current lifecycle stage with backward-compatible normalization.',
+      'Added a dedicated, directly editable Corm Tracker with milestone notes and progress photos.',
+      'Added lifecycle transition and correction history without changing plant IDs or removing tracker records.',
+      'Kept completed Tissue Culture, Corm, and LECA trackers visible as historical records.',
+      'Expanded JSON backup, restore, safety snapshots, and cloud backup serialization to include Plant Journal entries using the compatible pre-rename data collection.',
+      'Added Corm growth methods, milestone-based phases, phase history, and expanded milestone dates.',
+      'Made every categorical Plant List filter multi-select with OR matching within groups and AND matching across groups.',
+      'Added a compact Plant List Quick View selector with explicit create, apply, modified-state, reapply, and Restore Default workflows.',
+      'Moved Quick View editing, renaming, duplication, and confirmed deletion into a dedicated Settings section.',
+      'Normalized previously seeded or built-in views into the same editable collection while preserving IDs and criteria.',
+      'Added responsive Settings section navigation for Quick Views, cloud sync, backup/restore, import/export, version, and general information.',
+      'Registered Quick Views in local storage and backup schema v4 with safe legacy and malformed-data normalization.',
+    ],
+  },
   {
     version: 'v0.20.0',
     releaseDate: '2026-07-24',

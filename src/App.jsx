@@ -32,6 +32,38 @@ import {
 import { reminderRules } from './reminderRules';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import {
+  cormInitialConditionOptions,
+  cormOutcomeOptions,
+  cormPhaseOptions,
+  cormGrowthMethodOptions,
+  getCormPhaseStartedDate,
+  getNextCormPhase,
+  hasCormTrackerData,
+  isTrackerCompleted,
+  lifecycleStageOptions,
+  normalizePlantRecord,
+  plantOriginOptions,
+  shouldShowCormTracker,
+} from './plantData';
+import { loadQuickNotes, quickNotesStorageKey } from './quickNotesData';
+import {
+  activeFilterValueCount,
+  emptyPlantFilters,
+  matchesFilterValue,
+  matchesOriginLifecycleFilters,
+  missingFilterValue,
+} from './plantFilters';
+import {
+  defaultPlantListState,
+  duplicateQuickView,
+  loadQuickViews,
+  normalizePlantListState,
+  quickViewMatchesState,
+  removeQuickView,
+  saveQuickViews,
+  uniqueQuickViewName,
+} from './quickViewsData';
+import {
   buildPlantTimelineEntries,
   filterTimelineEntries,
   formatTimelineMonth,
@@ -143,6 +175,7 @@ const initialPlants = [
 
 const emptyPlant = {
   lifecycleStatus: 'active',
+  origin: 'Purchased plant', lifecycleStage: 'Juvenile Houseplant', lifecycleHistory: [],
   name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   wateringRhythm: '', moisturePreference: '', careDifficulty: '',
@@ -155,6 +188,12 @@ const emptyPlant = {
   tcSetup: '', tcHumidityLevel: '', tcNotes: '',
   trackLecaConversion: false, lecaStatus: '', lecaConversionStartDate: '', lecaRootStatus: '',
   lecaReservoirSetup: '', lecaNutrientStatus: '', lecaFlushRhythm: '', lecaStressLevel: '', lecaNotes: '',
+  cormReceivedDate: '', cormStartedDate: '', cormParentPlantId: '', cormInitialCondition: '',
+  cormGrowthMethod: '', cormCustomGrowthMethod: '', cormSproutingMethod: '', cormMedium: '',
+  cormRootEmergenceDate: '', cormGrowthPointDate: '', cormFirstLeafEmergingDate: '',
+  cormFirstLeafOpenedDate: '', cormFirstLeafDate: '', cormTransferDate: '', cormEstablishedDate: '',
+  cormPhase: '', cormStage: '', cormPhaseHistory: [], cormProgressNotes: '',
+  cormProgressPhotos: [], cormOutcome: '',
 };
 
 const activityTypes = [
@@ -201,6 +240,22 @@ const lecaFlushOptions = ['Weekly', 'Every 2 weeks', 'Monthly', 'As needed'];
 const lecaStressOptions = ['No stress', 'Mild droop', 'Leaf yellowing', 'Leaf drop', 'Severe stress', 'Recovering'];
 const lecaTransitionStatuses = ['Transitioning', 'Rooting'];
 const lecaStressLevels = ['Leaf yellowing', 'Leaf drop', 'Severe stress'];
+const quickNoteDestinations = [
+  ['checkin', 'Convert Journal Entry to Check-in'],
+  ['activity', 'Convert Journal Entry to Activity Log'],
+  ['health', 'Convert Journal Entry to Health Timeline'],
+  ['care', 'Convert Journal Entry to Care Note'],
+  ['general', 'Keep as permanent journal entry'],
+];
+
+function trackerSelectOptions(fieldName, plants = []) {
+  if (fieldName === 'cormPhase') return cormPhaseOptions;
+  if (fieldName === 'cormGrowthMethod') return cormGrowthMethodOptions;
+  if (fieldName === 'cormInitialCondition') return cormInitialConditionOptions;
+  if (fieldName === 'cormOutcome') return cormOutcomeOptions;
+  if (fieldName === 'cormParentPlantId') return plants.map((plant) => ({ value: plant.id, label: plant.name }));
+  return null;
+}
 
 const summaryFieldByActivity = {
   Watered: 'lastWatered',
@@ -291,6 +346,14 @@ const plantSortOptions = [
   ['category', 'Category'],
   ['genus', 'Genus'],
 ];
+const settingsSections = [
+  ['quick-views', 'Quick Views'],
+  ['cloud', 'Cloud Sync'],
+  ['version', 'Version & Release'],
+  ['backup', 'Backup & Restore'],
+  ['export', 'Import & Export'],
+  ['general', 'General'],
+];
 
 function loadPlantSort() {
   const savedSort = sessionStorage.getItem(plantSortSessionKey);
@@ -346,9 +409,10 @@ function makeId(prefix = 'id') {
 
 function loadPlants() {
   const savedPlants = localStorage.getItem(plantsStorageKey);
-  const plantsWithLogs = initialPlants.map((plant, index) => ({
-    ...plant, id: plant.id || makeId(`starter-${index}`), activityLog: [], photoLog: [], timelineEntries: [],
-  }));
+  const plantsWithLogs = initialPlants.map((plant, index) => normalizePlantRecord(
+    plant,
+    plant.id || makeId(`starter-${index}`),
+  ));
 
   if (!savedPlants) return plantsWithLogs;
 
@@ -356,16 +420,7 @@ function loadPlants() {
     const parsedPlants = JSON.parse(savedPlants);
     if (!Array.isArray(parsedPlants)) return plantsWithLogs;
 
-    return parsedPlants.map((plant, index) => {
-      return {
-        ...plant,
-        id: plant.id || makeId(`plant-${index}`),
-        lifecycleStatus: plant.lifecycleStatus || 'active',
-        activityLog: Array.isArray(plant.activityLog) ? plant.activityLog : [],
-        photoLog: Array.isArray(plant.photoLog) ? plant.photoLog : [],
-        timelineEntries: Array.isArray(plant.timelineEntries) ? plant.timelineEntries : [],
-      };
-    });
+    return parsedPlants.map((plant, index) => normalizePlantRecord(plant, makeId(`plant-${index}`)));
   } catch {
     return plantsWithLogs;
   }
@@ -488,21 +543,14 @@ function displaySoilMixValue(value) {
   return displayValue(getSoilMixDisplayName(value));
 }
 
-const missingFilterValue = '__missing__';
-const emptyPlantFilters = {
-  genus: '', type: '', status: '', location: '',
-  medium: '', potSize: '', attention: '', thirstLevel: '', soilMix: '',
-  wateringRhythm: '', moisturePreference: '', careDifficulty: '',
-  tcStage: '',
-  lecaStatus: '', lecaStressLevel: '',
-};
-
 function normalizedFilterValue(value) {
   return String(value ?? '').trim();
 }
 
 function isTissueCulture(plant) {
-  return normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture';
+  return plant.origin === 'Tissue culture'
+    || plant.lifecycleStage === 'Tissue Culture'
+    || normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture';
 }
 
 function hasTcTrackerData(plant) {
@@ -576,23 +624,44 @@ function getDonutBackground(rows) {
   return `conic-gradient(${segments.join(', ')})`;
 }
 
-function FilterDropdown({ fieldName, label, value, options, onChange }) {
+function MultiValueFilter({ fieldName, label, value, options, onChange }) {
+  const selectedValues = Array.isArray(value) ? value : [];
+  const toggleValue = (option) => {
+    onChange(selectedValues.includes(option)
+      ? selectedValues.filter((item) => item !== option)
+      : [...selectedValues, option]);
+  };
+
   return (
-    <div className="plant-filter">
-      <label htmlFor={`${fieldName}-filter`}>{label}</label>
-      <select id={`${fieldName}-filter`} value={value}
-        onChange={(event) => onChange(event.target.value)}>
-        <option value="">All</option>
-        {fieldName === 'tcStage' && <option value="__acclimating__">Acclimating (all stages)</option>}
-        {fieldName === 'lecaStatus' && <option value="__leca__">All LECA tracked plants</option>}
-        {fieldName === 'lecaStatus' && <option value="__transitioning__">Transitioning or rooting</option>}
-        {fieldName === 'lecaStressLevel' && <option value="__stress__">Stress concern</option>}
-        {options.map((option) => (
-          <option key={option} value={option}>{option}</option>
+    <details className="plant-filter multi-value-filter">
+      <summary>{label}{selectedValues.length ? ` (${selectedValues.length})` : ''}</summary>
+      <div className="multi-value-filter-options">
+        {fieldName === 'tcStage' && <label><input type="checkbox"
+          checked={selectedValues.includes('__acclimating__')}
+          onChange={() => toggleValue('__acclimating__')} />Acclimating (all stages)</label>}
+        {fieldName === 'lecaStatus' && <label><input type="checkbox"
+          checked={selectedValues.includes('__leca__')}
+          onChange={() => toggleValue('__leca__')} />All LECA tracked plants</label>}
+        {fieldName === 'lecaStatus' && <label><input type="checkbox"
+          checked={selectedValues.includes('__transitioning__')}
+          onChange={() => toggleValue('__transitioning__')} />Transitioning or rooting</label>}
+        {fieldName === 'lecaStressLevel' && <label><input type="checkbox"
+          checked={selectedValues.includes('__stress__')}
+          onChange={() => toggleValue('__stress__')} />Stress concern</label>}
+        {[...options, missingFilterValue].map((option) => (
+          <label key={option}>
+            <input type="checkbox" checked={selectedValues.includes(option)}
+              onChange={() => toggleValue(option)} />
+            {option === missingFilterValue ? 'Unknown or not recorded' : option}
+          </label>
         ))}
-        <option value={missingFilterValue}>Not set</option>
-      </select>
-    </div>
+        {selectedValues.length > 0 && (
+          <button type="button" className="multi-value-filter-clear" onClick={() => onChange([])}>
+            Clear {label}
+          </button>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -948,6 +1017,8 @@ function getWishlistDetailFields(item) {
 function App() {
   const [plants, setPlants] = useState(loadPlants);
   const [reminders, setReminders] = useState(loadReminders);
+  const [quickNotes, setQuickNotes] = useState(loadQuickNotes);
+  const [userQuickViews, setUserQuickViews] = useState(loadQuickViews);
   const [gardenBeds, setGardenBeds] = useState(loadGardenBeds);
   const [plantSpaces, setPlantSpaces] = useState(loadPlantSpaces);
   const [gardenFilter, setGardenFilter] = useState({});
@@ -969,7 +1040,6 @@ function App() {
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
   const [areMoreFiltersVisible, setAreMoreFiltersVisible] = useState(false);
-  const [areQuickViewsVisible, setAreQuickViewsVisible] = useState(false);
   const [newPlant, setNewPlant] = useState(emptyPlant);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -977,7 +1047,10 @@ function App() {
   const [quarantineFilter, setQuarantineFilter] = useState('');
   const [recentlyCheckedFilter, setRecentlyCheckedFilter] = useState(false);
   const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
-  const [activeQuickView, setActiveQuickView] = useState('all-active');
+  const [activeQuickView, setActiveQuickView] = useState('');
+  const [quickViewEditor, setQuickViewEditor] = useState(null);
+  const [settingsSection, setSettingsSection] = useState('quick-views');
+  const [settingsQuickViewMessage, setSettingsQuickViewMessage] = useState('');
   const [plantViewMode, setPlantViewMode] = useState(loadPlantViewMode);
   const [plantSort, setPlantSort] = useState(loadPlantSort);
   const [plantPageSizes, setPlantPageSizes] = useState(loadPlantPageSizes);
@@ -1021,6 +1094,15 @@ function App() {
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
   const [trackerEditor, setTrackerEditor] = useState('');
   const [trackerDraft, setTrackerDraft] = useState({});
+  const [trackerPhotoFile, setTrackerPhotoFile] = useState(null);
+  const [trackerPhotoPreviewUrl, setTrackerPhotoPreviewUrl] = useState('');
+  const [quickNoteDraft, setQuickNoteDraft] = useState({ text: '', plantId: '', photoUrl: '' });
+  const [quickNoteFile, setQuickNoteFile] = useState(null);
+  const [quickNotePreviewUrl, setQuickNotePreviewUrl] = useState('');
+  const [quickNoteMessage, setQuickNoteMessage] = useState('');
+  const [isQuickNoteSubmitting, setIsQuickNoteSubmitting] = useState(false);
+  const [showQuickNoteForm, setShowQuickNoteForm] = useState(false);
+  const [quickNoteConversion, setQuickNoteConversion] = useState(null);
   const [activeDetailSection, setActiveDetailSection] = useState('plant-overview');
   const [manualReminderDraft, setManualReminderDraft] = useState({ title: '', dueDate: todayDate(), note: '' });
   const [showManualReminderForm, setShowManualReminderForm] = useState(false);
@@ -1058,6 +1140,8 @@ function App() {
   const localBackupSummary = getBackupSummary(createBackup());
   const localMetadata = getLocalMetadata();
   const backupAudit = useMemo(() => auditBackupCoverage(), []);
+  const unprocessedQuickNotes = quickNotes.filter((note) => note.status === 'unprocessed');
+  const filedQuickNotes = quickNotes.filter((note) => note.status === 'filed');
 
   function changePlantViewMode(nextViewMode) {
     setPlantViewMode(nextViewMode);
@@ -1419,12 +1503,14 @@ function App() {
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const searchableFields = [
-    'name', 'genus', 'type', 'status', 'location', 'lightNeeds',
+    'name', 'genus', 'type', 'status', 'location', 'lightNeeds', 'origin', 'lifecycleStage',
     'soilMix', 'careNote', 'watering', 'pestNotes', 'growthNotes',
     'wateringRhythm', 'moisturePreference', 'careDifficulty',
     'tcStage', 'tcSetup', 'tcHumidityLevel', 'tcNotes',
     'lecaStatus', 'lecaRootStatus', 'lecaReservoirSetup', 'lecaNutrientStatus',
     'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes',
+    'cormGrowthMethod', 'cormCustomGrowthMethod', 'cormMedium', 'cormPhase',
+    'cormProgressNotes', 'cormOutcome',
   ];
   const primaryFilterFields = [
     ['medium', 'Growing medium'], ['type', 'Type / category'], ['location', 'Location'],
@@ -1490,28 +1576,36 @@ function App() {
       const matchesLifecycle = lifecycleView === 'all'
         || (plant.lifecycleStatus || 'active') === lifecycleView;
       const matchesFilters = filterFields.every(([fieldName]) => {
-        const selectedFilter = plantFilters[fieldName];
+        const selectedFilters = Array.isArray(plantFilters[fieldName])
+          ? plantFilters[fieldName]
+          : plantFilters[fieldName] ? [plantFilters[fieldName]] : [];
         const plantValue = normalizedFilterValue(fieldName === 'soilMix'
           ? getSoilMixDisplayName(plant[fieldName])
           : plant[fieldName]);
 
-        if (!selectedFilter) return true;
-        if (selectedFilter === missingFilterValue) return !plantValue;
-        if (fieldName === 'attention' && selectedFilter === 'Watch list') {
-          return ['Watch', 'Watch list'].includes(plantValue);
-        }
-        if (fieldName === 'tcStage' && selectedFilter === '__acclimating__') {
-          return acclimatingTcStages.includes(plantValue);
-        }
-        if (fieldName === 'lecaStatus' && selectedFilter === '__leca__') return shouldShowLecaTracker(plant);
-        if (fieldName === 'lecaStatus' && selectedFilter === '__transitioning__') return lecaTransitionStatuses.includes(plantValue);
-        if (fieldName === 'lecaStressLevel' && selectedFilter === '__stress__') return hasLecaStress(plant);
-        return plantValue === selectedFilter;
+        if (!selectedFilters.length) return true;
+        return selectedFilters.some((selectedFilter) => {
+          if (selectedFilter === missingFilterValue) return !plantValue;
+          if (fieldName === 'attention' && selectedFilter === 'Watch list') {
+            return ['Watch', 'Watch list'].includes(plantValue);
+          }
+          if (fieldName === 'tcStage' && selectedFilter === '__acclimating__') {
+            return acclimatingTcStages.includes(plantValue);
+          }
+          if (fieldName === 'lecaStatus' && selectedFilter === '__leca__') return shouldShowLecaTracker(plant);
+          if (fieldName === 'lecaStatus' && selectedFilter === '__transitioning__') return lecaTransitionStatuses.includes(plantValue);
+          if (fieldName === 'lecaStressLevel' && selectedFilter === '__stress__') return hasLecaStress(plant);
+          return matchesFilterValue(plantValue, [selectedFilter]);
+        });
       });
-      const matchesSearch = !normalizedSearch || searchableFields.some((fieldName) => (
-        String(fieldName === 'soilMix' ? getSoilMixDisplayName(plant[fieldName]) : plant[fieldName] || '')
-          .toLowerCase().includes(normalizedSearch)
-      ));
+      const matchesSearch = !normalizedSearch
+        || searchableFields.some((fieldName) => (
+          String(fieldName === 'soilMix' ? getSoilMixDisplayName(plant[fieldName]) : plant[fieldName] || '')
+            .toLowerCase().includes(normalizedSearch)
+        ))
+        || quickNotes.some((entry) => (
+          entry.plantId === plant.id && entry.text.toLowerCase().includes(normalizedSearch)
+        ));
       const quarantineStatus = getQuarantineStatus(plant);
       const matchesQuarantine = !quarantineFilter
         || (quarantineFilter === 'current' && quarantineStatus.isInAnyQuarantine)
@@ -1525,7 +1619,8 @@ function App() {
         Boolean(acquiredDate) && acquiredDate >= fourteenDaysAgo && acquiredDate <= todayDate()
       );
 
-      return matchesLifecycle && matchesFilters && matchesSearch && matchesQuarantine
+      return matchesLifecycle && matchesFilters && matchesOriginLifecycleFilters(plant, plantFilters)
+        && matchesSearch && matchesQuarantine
         && matchesRecentlyChecked && matchesRecentlyAcquired;
     })
     .sort(comparePlants);
@@ -1551,6 +1646,15 @@ function App() {
   useEffect(() => {
     if (plantPage > plantPageCount) setPlantPage(plantPageCount);
   }, [plantPage, plantPageCount]);
+
+  useEffect(() => {
+    const handleSettingsHistory = () => {
+      const sectionId = window.location.hash.replace('#settings-', '');
+      if (settingsSections.some(([id]) => id === sectionId)) setSettingsSection(sectionId);
+    };
+    window.addEventListener('popstate', handleSettingsHistory);
+    return () => window.removeEventListener('popstate', handleSettingsHistory);
+  }, []);
 
   const countPlants = (matchesPlant) => plants.filter(matchesPlant).length;
   const lifecycleCounts = {
@@ -1765,7 +1869,17 @@ function App() {
     setIsEditing(false);
     setAddPlantMessage('');
     setQuickCheckMessage('');
+    const hashSection = window.location.hash.replace('#settings-', '');
+    setSettingsSection(settingsSections.some(([id]) => id === hashSection) ? hashSection : 'quick-views');
     setAppView('settings');
+  }
+
+  function navigateSettingsSection(sectionId) {
+    setSettingsSection(sectionId);
+    window.history.pushState(null, '', `#settings-${sectionId}`);
+    window.setTimeout(() => {
+      document.getElementById(`settings-${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   }
 
   function openResources(resourceId = '') {
@@ -1895,24 +2009,209 @@ function App() {
     }
   }
 
+  function saveQuickNotes(nextNotes, reason = 'quick-notes') {
+    localStorage.setItem(quickNotesStorageKey, JSON.stringify(nextNotes));
+    markLocalDataChanged(reason);
+    setQuickNotes(nextNotes);
+  }
+
+  function openQuickNote(plantId = '') {
+    setQuickNoteDraft({ text: '', plantId, photoUrl: '' });
+    setQuickNoteFile(null);
+    setQuickNotePreviewUrl('');
+    setQuickNoteMessage('');
+    setShowQuickNoteForm(true);
+  }
+
+  function closeQuickNote() {
+    if (quickNotePreviewUrl) URL.revokeObjectURL(quickNotePreviewUrl);
+    setQuickNoteFile(null);
+    setQuickNotePreviewUrl('');
+    setShowQuickNoteForm(false);
+  }
+
+  async function createQuickNote(event) {
+    event.preventDefault();
+    if (!quickNoteDraft.text.trim() || isQuickNoteSubmitting) return;
+    setIsQuickNoteSubmitting(true);
+    setQuickNoteMessage('');
+    try {
+      const photoUrl = quickNoteFile
+        ? await uploadStoredImage(quickNoteFile, 'quick-notes')
+        : quickNoteDraft.photoUrl;
+      const createdAt = new Date().toISOString();
+      saveQuickNotes([...quickNotes, {
+        id: makeId('quick-note'),
+        text: quickNoteDraft.text.trim(),
+        plantId: quickNoteDraft.plantId,
+        photoUrl,
+        createdAt,
+        observedAt: createdAt,
+        status: 'unprocessed',
+        filedAt: '',
+        filedAs: '',
+        destinationId: '',
+      }]);
+      closeQuickNote();
+    } catch (error) {
+      console.error('Quick note photo upload failed:', error);
+      setQuickNoteMessage(error.message || 'The journal entry could not be saved.');
+    } finally {
+      setIsQuickNoteSubmitting(false);
+    }
+  }
+
+  function fileQuickNote(note, filedAs = 'Filed', destinationId = '') {
+    saveQuickNotes(quickNotes.map((item) => item.id === note.id ? {
+      ...item,
+      status: 'filed',
+      filedAt: new Date().toISOString(),
+      filedAs,
+      destinationId,
+    } : item));
+  }
+
+  function startQuickNoteConversion(note, destination) {
+    setQuickNoteMessage('');
+    setQuickNoteConversion({
+      note,
+      destination,
+      text: note.text,
+      date: dateInputValue(note.observedAt) || todayDate(),
+      plantId: note.plantId,
+      photoUrl: note.photoUrl,
+    });
+  }
+
+  function convertQuickNote(event) {
+    event.preventDefault();
+    const conversion = quickNoteConversion;
+    if (!conversion) return;
+    const { note, destination } = conversion;
+    const plant = plants.find((item) => item.id === conversion.plantId);
+    if (destination !== 'general' && !plant) {
+      setQuickNoteMessage('Choose a plant before converting this note.');
+      return;
+    }
+    const entryId = makeId(`quick-note-${destination}`);
+    const entryDate = dateInputValue(conversion.date) || todayDate();
+    const entryText = conversion.text.trim();
+    let nextPlants = plants;
+    let nextReminders = reminders;
+
+    if (destination === 'checkin') {
+      nextReminders = [...reminders, normalizeReminder({
+        id: entryId,
+        plantId: plant.id,
+        reminderType: 'quick-note',
+        title: 'Plant Journal check-in',
+        dueDate: entryDate,
+        status: 'completed',
+        source: 'quick-note',
+        createdAt: note.createdAt,
+        completedAt: note.observedAt,
+        note: entryText,
+      })];
+    } else if (destination === 'health') {
+      nextPlants = plants.map((item) => item.id === plant.id ? {
+        ...item,
+        timelineEntries: [...(item.timelineEntries || []), {
+          id: entryId, type: 'generalNote', date: entryDate, title: 'Plant Journal entry',
+          note: entryText, photoUrl: conversion.photoUrl, createdAt: note.createdAt,
+        }],
+      } : item);
+    } else if (destination === 'care') {
+      nextPlants = plants.map((item) => item.id === plant.id ? {
+        ...item,
+        careNote: [item.careNote, `${entryDate}: ${entryText}`].filter(Boolean).join('\n'),
+      } : item);
+    } else if (destination === 'activity') {
+      nextPlants = plants.map((item) => item.id === plant.id ? {
+        ...item,
+        activityLog: [...(item.activityLog || []), {
+          id: entryId, activityType: 'General note', date: entryDate,
+          notes: entryText, createdAt: note.createdAt, photoUrl: conversion.photoUrl,
+        }],
+      } : item);
+    }
+
+    if (conversion.photoUrl && plant && !['health', 'activity'].includes(destination)) {
+      nextPlants = nextPlants.map((item) => item.id === plant.id ? {
+        ...item,
+        photoLog: [...(item.photoLog || []), {
+          id: makeId('quick-note-photo'), photoUrl: conversion.photoUrl, date: entryDate,
+          caption: entryText, photoType: 'General photo', createdAt: note.createdAt,
+        }],
+      } : item);
+    }
+
+    if (nextPlants !== plants) savePlants(nextPlants, 'quick-note-conversion');
+    if (nextReminders !== reminders) saveReminders(nextReminders);
+    fileQuickNote(note, destination === 'general' ? 'Permanent journal entry' : destination, entryId);
+    setQuickNoteConversion(null);
+    setQuickNoteMessage('Journal entry filed successfully.');
+  }
+
+  function deleteQuickNote(note) {
+    if (!window.confirm('Delete this journal entry? This cannot be undone.')) return;
+    saveQuickNotes(quickNotes.filter((item) => item.id !== note.id));
+  }
+
   function openTrackerEditor(tracker) {
-    setTrackerDraft({ ...selectedPlant });
+    setTrackerDraft({
+      ...selectedPlant,
+      cormPhase: selectedPlant.cormPhase || '',
+      cormPhaseDate: todayDate(),
+      cormPhaseNote: '',
+    });
+    setTrackerPhotoFile(null);
+    setTrackerPhotoPreviewUrl('');
     setTrackerEditor(tracker);
   }
 
   function closeTrackerEditor() {
+    if (trackerPhotoPreviewUrl) URL.revokeObjectURL(trackerPhotoPreviewUrl);
+    setTrackerPhotoFile(null);
+    setTrackerPhotoPreviewUrl('');
     setTrackerEditor('');
     setTrackerDraft({});
   }
 
-  function saveTrackerUpdate(event) {
+  async function saveTrackerUpdate(event) {
     event.preventDefault();
     const previousPlant = selectedPlant;
     const fieldNames = trackerEditor === 'tc'
       ? ['tcStage', 'tcDeflaskDate', 'tcAcclimationStartDate', 'tcAcclimationEndDate', 'tcSetup', 'tcHumidityLevel', 'tcNotes']
-      : ['trackLecaConversion', 'lecaStatus', 'lecaConversionStartDate', 'lecaRootStatus', 'lecaReservoirSetup',
-        'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes'];
+      : trackerEditor === 'corm'
+        ? ['cormReceivedDate', 'cormStartedDate', 'cormParentPlantId', 'cormInitialCondition',
+          'cormGrowthMethod', 'cormCustomGrowthMethod', 'cormSproutingMethod', 'cormMedium',
+          'cormRootEmergenceDate', 'cormGrowthPointDate', 'cormFirstLeafEmergingDate',
+          'cormFirstLeafOpenedDate', 'cormTransferDate', 'cormEstablishedDate',
+          'cormPhase', 'cormProgressNotes', 'cormOutcome']
+        : ['trackLecaConversion', 'lecaStatus', 'lecaConversionStartDate', 'lecaRootStatus', 'lecaReservoirSetup',
+          'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes'];
     const updates = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, trackerDraft[fieldName] ?? '']));
+    if (trackerEditor === 'corm') {
+      const photoUrl = trackerPhotoFile ? await uploadStoredImage(trackerPhotoFile, 'corm-progress') : '';
+      const phaseChanged = trackerDraft.cormPhase
+        && trackerDraft.cormPhase !== (selectedPlant.cormPhase || '');
+      updates.cormStage = selectedPlant.cormStage || trackerDraft.cormPhase;
+      updates.cormPhaseHistory = phaseChanged
+        ? [...(selectedPlant.cormPhaseHistory || []), {
+          id: makeId('corm-phase'),
+          phase: trackerDraft.cormPhase,
+          date: dateInputValue(trackerDraft.cormPhaseDate) || todayDate(),
+          note: trackerDraft.cormPhaseNote?.trim() || '',
+          photoUrl,
+          createdAt: new Date().toISOString(),
+        }].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        : (selectedPlant.cormPhaseHistory || []);
+      updates.cormProgressPhotos = photoUrl
+        ? [...(selectedPlant.cormProgressPhotos || []), {
+          id: makeId('corm-photo'), photoUrl, date: todayDate(), caption: trackerDraft.cormProgressNotes || '',
+        }]
+        : (selectedPlant.cormProgressPhotos || []);
+    }
     const updatedPlant = { ...selectedPlant, ...updates };
     savePlants(plants.map((plant) => plant.id === selectedPlant.id ? updatedPlant : plant), `${trackerEditor}-tracker`);
     createAutomaticRemindersForPlant(updatedPlant, previousPlant);
@@ -2020,7 +2319,7 @@ function App() {
     setRecentlyCheckedFilter(false);
     setRecentlyAcquiredFilter(false);
     setLifecycleView('active');
-    setActiveQuickView('all-active');
+    setActiveQuickView('');
     setPlantPage(1);
   }
 
@@ -2028,60 +2327,191 @@ function App() {
     setPlantFilters((currentFilters) => ({
       ...currentFilters, [fieldName]: value,
     }));
-    setActiveQuickView('');
     scrollPlantResultsIntoView();
   }
 
-  const quickViews = [
-    { id: 'all-active', label: 'All active plants', lifecycle: 'active' },
-    { id: 'leca', label: 'LECA plants', lifecycle: 'active', filter: ['lecaStatus', '__leca__'] },
-    { id: 'leca-transitioning', label: 'LECA transitioning', lifecycle: 'active', filter: ['lecaStatus', '__transitioning__'] },
-    { id: 'leca-stable', label: 'Stable LECA', lifecycle: 'active', filter: ['lecaStatus', 'Stable'] },
-    { id: 'leca-stress', label: 'LECA stress', lifecycle: 'active', filter: ['lecaStressLevel', '__stress__'] },
-    { id: 'leca-recovering', label: 'Recovering LECA', lifecycle: 'active', filter: ['lecaStressLevel', 'Recovering'] },
-    { id: 'tissue-cultures', label: 'Tissue cultures', lifecycle: 'active', filter: ['type', 'Tissue Culture'] },
-    { id: 'tc-acclimating', label: 'TC acclimating', lifecycle: 'active', filter: ['tcStage', '__acclimating__'] },
-    { id: 'tc-acclimated', label: 'Fully acclimated TC', lifecycle: 'active', filter: ['tcStage', 'Fully acclimated'] },
-    { id: 'tc-failed', label: 'Failed/lost TC', lifecycle: 'active', filter: ['tcStage', 'Failed / lost'] },
-    { id: 'new', label: 'New plants', lifecycle: 'active', recentlyAcquired: true },
-    { id: 'quarantine', label: 'In quarantine', lifecycle: 'active', quarantine: 'current' },
-    { id: 'pest-quarantine', label: 'Pest quarantine', lifecycle: 'active', quarantine: 'pest' },
-    { id: 'attention', label: 'Needs attention', lifecycle: 'active', filter: ['attention', 'High'] },
-    { id: 'watch-list', label: 'Watch list', lifecycle: 'active', filter: ['attention', 'Watch list'] },
-    { id: 'rehab', label: 'Rehab plants', lifecycle: 'active', filter: ['careDifficulty', 'Rehab / watch closely'] },
-    { id: 'fussy', label: 'Fussy plants', lifecycle: 'active', filter: ['careDifficulty', 'Fussy'] },
-    { id: 'keep-moist', label: 'Keep moist plants', lifecycle: 'active', filter: ['wateringRhythm', 'Keep moist'] },
-    { id: 'recently-checked', label: 'Recently checked', lifecycle: 'active', recentlyChecked: true },
-    { id: 'archived', label: 'Archived plants', lifecycle: 'archived' },
-    { id: 'graveyard', label: 'Graveyard plants', lifecycle: 'graveyard' },
-  ];
-  const activePlantFilterCount = Object.values(plantFilters).filter(Boolean).length
+  const quickViews = userQuickViews;
+  const currentPlantListState = normalizePlantListState({
+    searchText,
+    filters: plantFilters,
+    lifecycleView,
+    quarantineFilter,
+    recentlyCheckedFilter,
+    recentlyAcquiredFilter,
+    sort: plantSort,
+    viewMode: plantViewMode,
+    pageSize: plantPageSize,
+  });
+  const activePlantFilterCount = activeFilterValueCount(plantFilters)
     + (lifecycleView !== 'active' ? 1 : 0)
     + (quarantineFilter ? 1 : 0)
     + (recentlyCheckedFilter ? 1 : 0)
     + (recentlyAcquiredFilter ? 1 : 0)
     + (searchText.trim() ? 1 : 0);
-  const activeQuickViewLabel = quickViews.find((quickView) => quickView.id === activeQuickView)?.label || '';
+  const activeQuickViewRecord = quickViews.find((quickView) => quickView.id === activeQuickView);
+  const activeQuickViewLabel = activeQuickViewRecord?.name || '';
+  const activeQuickViewModified = Boolean(
+    activeQuickViewRecord && !quickViewMatchesState(activeQuickViewRecord, currentPlantListState),
+  );
   const hasActivePlantFilters = activePlantFilterCount > 0;
 
   function applyQuickView(quickView) {
-    const nextFilters = { ...emptyPlantFilters };
-    if (quickView.filter) nextFilters[quickView.filter[0]] = quickView.filter[1];
-
-    setSearchText('');
-    setPlantFilters(nextFilters);
-    setLifecycleView(quickView.lifecycle);
-    setQuarantineFilter(quickView.quarantine || '');
-    setRecentlyCheckedFilter(Boolean(quickView.recentlyChecked));
-    setRecentlyAcquiredFilter(Boolean(quickView.recentlyAcquired));
-    setAreMoreFiltersVisible(Boolean(
-      quickView.filter
-      && advancedFilterFields.some(([fieldName]) => fieldName === quickView.filter[0])
-    ));
+    const state = normalizePlantListState(quickView.state);
+    setSearchText(state.searchText);
+    setPlantFilters(state.filters);
+    setLifecycleView(state.lifecycleView);
+    setQuarantineFilter(state.quarantineFilter);
+    setRecentlyCheckedFilter(state.recentlyCheckedFilter);
+    setRecentlyAcquiredFilter(state.recentlyAcquiredFilter);
+    changePlantSort(state.sort);
+    changePlantViewMode(state.viewMode);
+    if (state.pageSize !== undefined) {
+      const updatedPageSizes = { ...plantPageSizes, [state.viewMode]: state.pageSize };
+      setPlantPageSizes(updatedPageSizes);
+      localStorage.setItem(plantPageSizesStorageKey, JSON.stringify(updatedPageSizes));
+    }
+    setAreMoreFiltersVisible(Object.entries(state.filters).some(([fieldName, values]) => (
+      values.length && advancedFilterFields.some(([advancedField]) => advancedField === fieldName)
+    )));
     setActiveQuickView(quickView.id);
     setPlantPage(1);
-    setAreQuickViewsVisible(false);
     scrollPlantResultsIntoView();
+  }
+
+  function restoreDefaultPlantList() {
+    const state = normalizePlantListState(defaultPlantListState);
+    setSearchText(state.searchText);
+    setPlantFilters(state.filters);
+    setLifecycleView(state.lifecycleView);
+    setQuarantineFilter('');
+    setRecentlyCheckedFilter(false);
+    setRecentlyAcquiredFilter(false);
+    changePlantSort(state.sort);
+    changePlantViewMode(state.viewMode);
+    const resetPageSizes = { ...plantPageSizes, cards: defaultPlantPageSizes.cards };
+    setPlantPageSizes(resetPageSizes);
+    localStorage.setItem(plantPageSizesStorageKey, JSON.stringify(resetPageSizes));
+    setActiveQuickView('');
+    setPlantPage(1);
+  }
+
+  function persistUserQuickViews(nextViews) {
+    const savedViews = saveQuickViews(nextViews);
+    setUserQuickViews(savedViews);
+    markLocalDataChanged('quick-views');
+    return savedViews;
+  }
+
+  function openQuickViewEditor(view = null, context = 'plant-list') {
+    setQuickViewEditor({
+      mode: view ? 'edit' : 'create',
+      context,
+      id: view?.id || '',
+      name: view?.name || '',
+      includeSearch: view ? Boolean(view.state.searchText) : Boolean(searchText.trim()),
+      includePageSize: view ? view.state.pageSize !== undefined : true,
+      state: view ? normalizePlantListState(view.state) : currentPlantListState,
+    });
+  }
+
+  function saveQuickViewEditor() {
+    if (!quickViewEditor) return;
+    const now = new Date().toISOString();
+    const state = normalizePlantListState({
+      ...quickViewEditor.state,
+      searchText: quickViewEditor.includeSearch ? quickViewEditor.state.searchText : '',
+      pageSize: quickViewEditor.includePageSize ? quickViewEditor.state.pageSize : undefined,
+    });
+    if (quickViewEditor.mode === 'edit') {
+      const existing = userQuickViews.find((view) => view.id === quickViewEditor.id);
+      if (!existing) return;
+      persistUserQuickViews(userQuickViews.map((view) => view.id === existing.id ? {
+        ...existing,
+        name: uniqueQuickViewName(quickViewEditor.name, userQuickViews, existing.id),
+        state,
+        updatedAt: now,
+      } : view));
+      if (activeQuickView === existing.id) {
+        setSettingsQuickViewMessage(`“${existing.name}” was updated. Reapply it from the Plant List to use the saved changes.`);
+      }
+    } else {
+      const id = `quick-view-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      persistUserQuickViews([...userQuickViews, {
+        id,
+        name: uniqueQuickViewName(quickViewEditor.name, quickViews),
+        state,
+        createdAt: now,
+        updatedAt: now,
+      }]);
+      setActiveQuickView(id);
+      setPlantPage(1);
+    }
+    setQuickViewEditor(null);
+  }
+
+  function updateQuickViewEditorState(patch) {
+    setQuickViewEditor((editor) => editor ? {
+      ...editor,
+      state: normalizePlantListState({ ...editor.state, ...patch }),
+    } : editor);
+  }
+
+  function updateQuickViewEditorFilter(fieldName, value) {
+    setQuickViewEditor((editor) => editor ? {
+      ...editor,
+      state: {
+        ...editor.state,
+        filters: { ...editor.state.filters, [fieldName]: value },
+      },
+    } : editor);
+  }
+
+  function duplicateSavedQuickView(view) {
+    const copy = duplicateQuickView(
+      view, quickViews, `quick-view-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    );
+    persistUserQuickViews([...userQuickViews, copy]);
+    setSettingsQuickViewMessage(`Created “${copy.name}”.`);
+  }
+
+  function deleteSavedQuickView(view) {
+    if (!window.confirm(`Delete the Quick View “${view.name}”?`)) return;
+    persistUserQuickViews(removeQuickView(userQuickViews, view.id));
+    if (activeQuickView === view.id) setActiveQuickView('');
+    setSettingsQuickViewMessage(`Deleted “${view.name}”.`);
+  }
+
+  function quickViewCriteriaSummary(view) {
+    const state = normalizePlantListState(view.state);
+    const filterLabels = Object.fromEntries([
+      ...primaryFilterFields,
+      ...advancedFilterFields,
+      ['origin', 'Plant origin'],
+      ['lifecycleStage', 'Lifecycle stage'],
+    ]);
+    const specialValueLabels = {
+      [missingFilterValue]: 'Unknown or not recorded',
+      __leca__: 'All LECA tracked plants',
+      __transitioning__: 'Transitioning or rooting',
+      __stress__: 'Stress concern',
+      __acclimating__: 'Acclimating',
+    };
+    const filters = Object.entries(state.filters)
+      .filter(([, values]) => values.length)
+      .map(([fieldName, values]) => (
+        `${filterLabels[fieldName] || fieldName}: ${values.map((value) => specialValueLabels[value] || value).join(', ')}`
+      ));
+    return [
+      ...filters,
+      state.searchText ? `search: “${state.searchText}”` : '',
+      state.lifecycleView !== 'active' ? `plant view: ${state.lifecycleView}` : '',
+      state.quarantineFilter ? `quarantine: ${state.quarantineFilter}` : '',
+      state.recentlyCheckedFilter ? 'recently checked' : '',
+      state.recentlyAcquiredFilter ? 'recently acquired' : '',
+      `sort: ${plantSortOptions.find(([value]) => value === state.sort)?.[1] || state.sort}`,
+      `layout: ${state.viewMode}`,
+      state.pageSize !== undefined ? `${state.pageSize} per page` : '',
+    ].filter(Boolean).join(' · ');
   }
 
   function createBackup() {
@@ -2092,6 +2522,8 @@ function App() {
       gardenBeds,
       plantSpaces,
       reminders,
+      quickNotes,
+      quickViews: userQuickViews,
       appVersion: currentAppVersion.version,
     });
   }
@@ -2099,6 +2531,8 @@ function App() {
   function refreshRestoredState(returnToDashboard = true) {
     setPlants(loadPlants());
     setReminders(loadReminders());
+    setQuickNotes(loadQuickNotes());
+    setUserQuickViews(loadQuickViews());
     setDropdownOptions(loadDropdownOptions());
     setWishlistItems(loadWishlistItems());
     setGardenBeds(loadGardenBeds());
@@ -2328,6 +2762,8 @@ function App() {
   function exportPlantsCsv() {
     const columns = [
       ['Plant Name', (plant) => plant.name],
+      ['Origin', (plant) => plant.origin],
+      ['Lifecycle Stage', (plant) => plant.lifecycleStage],
       ['Genus', (plant) => plant.genus],
       ['Type / Category', (plant) => plant.type],
       ['Status', (plant) => plant.status],
@@ -2498,6 +2934,16 @@ function App() {
         imageUrl: uploadedImageUrl,
         image: getPlantImage(newPlant.name, newPlant.type),
       };
+      if (isEditing && selectedPlant.lifecycleStage !== savedPlant.lifecycleStage) {
+        savedPlant.lifecycleHistory = [...(selectedPlant.lifecycleHistory || []), {
+          id: makeId('lifecycle-transition'),
+          previousStage: selectedPlant.lifecycleStage || '',
+          newStage: savedPlant.lifecycleStage,
+          transitionDate: todayDate(),
+          note: 'Stage updated from Edit Plant',
+          createdAt: new Date().toISOString(),
+        }];
+      }
 
       // Keep older text values unless the user chooses a replacement date.
       if (isEditing) {
@@ -2651,6 +3097,43 @@ function App() {
     setPlants(updatedPlants);
     setSelectedPlant(nextStatus === 'active' ? updatedPlant : null);
     setLifecycleView(nextStatus);
+  }
+
+  function transitionSelectedPlantStage(nextStage) {
+    if (!nextStage || nextStage === selectedPlant.lifecycleStage) return;
+    const note = window.prompt('Transition note (optional)', '') ?? '';
+    const transition = {
+      id: makeId('lifecycle-transition'),
+      previousStage: selectedPlant.lifecycleStage || '',
+      newStage: nextStage,
+      transitionDate: todayDate(),
+      note: note.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    const updatedPlant = {
+      ...selectedPlant,
+      lifecycleStage: nextStage,
+      lifecycleHistory: [...(selectedPlant.lifecycleHistory || []), transition],
+    };
+    savePlants(plants.map((plant) => plant.id === selectedPlant.id ? updatedPlant : plant), 'lifecycle-transition');
+  }
+
+  function reverseLifecycleTransition(transition) {
+    const correction = {
+      id: makeId('lifecycle-transition'),
+      previousStage: selectedPlant.lifecycleStage || transition.newStage,
+      newStage: transition.previousStage,
+      transitionDate: todayDate(),
+      note: `Correction of transition from ${transition.previousStage} to ${transition.newStage}`,
+      createdAt: new Date().toISOString(),
+      correctsTransitionId: transition.id,
+    };
+    const updatedPlant = {
+      ...selectedPlant,
+      lifecycleStage: transition.previousStage,
+      lifecycleHistory: [...(selectedPlant.lifecycleHistory || []), correction],
+    };
+    savePlants(plants.map((plant) => plant.id === selectedPlant.id ? updatedPlant : plant), 'lifecycle-correction');
   }
 
   function addLogEntry(event) {
@@ -3033,6 +3516,11 @@ function App() {
           aria-current={appView === 'reminders' ? 'page' : undefined} onClick={openReminders}>
           Check-ins
         </button>
+        <button type="button" className={appView === 'quick-notes' ? 'active' : ''}
+          aria-current={appView === 'quick-notes' ? 'page' : undefined}
+          onClick={() => { setSelectedPlant(null); setAppView('quick-notes'); }}>
+          Plant Journal{unprocessedQuickNotes.length ? <span className="nav-count">{unprocessedQuickNotes.length}</span> : null}
+        </button>
         <button type="button" className={appView === 'resources' ? 'active' : ''}
           aria-current={appView === 'resources' ? 'page' : undefined} onClick={() => openResources()}>
           Resources
@@ -3099,6 +3587,7 @@ function App() {
             <div>
               <p className="detail-eyebrow">Plant details</p>
               <h2 id="plant-detail-heading">{selectedPlant.name}</h2>
+              <p><strong>Origin:</strong> {selectedPlant.origin} · <strong>Stage:</strong> {selectedPlant.lifecycleStage}</p>
               <p>{displayValue(selectedPlant.genus)} · {displayValue(selectedPlant.type)}</p>
               <p className={`lifecycle-badge lifecycle-${selectedPlant.lifecycleStatus || 'active'}`}>
                 {lifecycleLabel(selectedPlant.lifecycleStatus)}
@@ -3113,6 +3602,7 @@ function App() {
               ['plant-health', 'Health'],
               ['plant-checkins', 'Check-ins'],
               ...((isTissueCulture(selectedPlant) || hasTcTrackerData(selectedPlant)) ? [['plant-tissue-culture', 'Tissue Culture']] : []),
+              ...(shouldShowCormTracker(selectedPlant) ? [['plant-corm', 'Corm Tracker']] : []),
               ...(shouldShowLecaTracker(selectedPlant) ? [['plant-leca', 'LECA']] : []),
               ['plant-photos', 'Photos'],
               ['plant-activity', 'Activity'],
@@ -3131,6 +3621,7 @@ function App() {
               <span>{displayValue(getLastCheckedDate(selectedPlant))}</span>
             </div>
             <button type="button" onClick={addQuickCheckIn}>✅ Quick Check-In</button>
+            <button type="button" onClick={() => openQuickNote(selectedPlant.id)}>New Journal Entry</button>
           </div>
           {quickCheckMessage && <p className="quick-check-message" role="status">{quickCheckMessage}</p>}
           {selectedPlantQuarantine?.isInAnyQuarantine && (
@@ -3152,6 +3643,32 @@ function App() {
             </aside>
           )}
           <div className="detail-sections">
+            <section className="detail-section lifecycle-section" id="plant-lifecycle">
+              <h3>Origin & lifecycle</h3>
+              <dl className="detail-list">
+                <div><dt>Permanent origin</dt><dd>{selectedPlant.origin}</dd></div>
+                <div><dt>Current lifecycle stage</dt><dd>{selectedPlant.lifecycleStage}</dd></div>
+              </dl>
+              <div className="lifecycle-transition-control">
+                <label htmlFor="plant-stage-transition">Transition to</label>
+                <select id="plant-stage-transition" value={selectedPlant.lifecycleStage}
+                  onChange={(event) => transitionSelectedPlantStage(event.target.value)}>
+                  {lifecycleStageOptions.map((stage) => <option key={stage}>{stage}</option>)}
+                </select>
+              </div>
+              {(selectedPlant.lifecycleHistory || []).length > 0 && (
+                <ol className="lifecycle-history">
+                  {[...(selectedPlant.lifecycleHistory || [])].reverse().map((transition) => (
+                    <li key={transition.id}>
+                      <div><strong>{transition.previousStage} → {transition.newStage}</strong><time>{transition.transitionDate}</time></div>
+                      {transition.note && <p>{transition.note}</p>}
+                      <button type="button" className="secondary-button"
+                        onClick={() => reverseLifecycleTransition(transition)}>Correct / reverse</button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
             {getDetailSections(selectedPlant).map((section) => (
               <section className="detail-section" key={section.title}
                 id={section.title === 'Care details' ? 'plant-care' : section.title === 'Plant information' ? 'plant-information' : undefined}>
@@ -3167,7 +3684,7 @@ function App() {
               </section>
             ))}
             {(isTissueCulture(selectedPlant) || hasTcTrackerData(selectedPlant)) && (
-              <section className="tracker-section-card tc-detail-section" id="plant-tissue-culture">
+              <section className={`tracker-section-card tc-detail-section${isTrackerCompleted('tc', selectedPlant) ? ' tracker-completed' : ''}`} id="plant-tissue-culture">
                 <div className="tracker-section-heading">
                   <div>
                     <p className="detail-eyebrow">Current stage · {displayValue(selectedPlant.tcStage)}</p>
@@ -3190,8 +3707,77 @@ function App() {
                 ) : <p className="tracker-empty-state">No acclimation details yet. Add the current stage, dates, setup, humidity, and notes.</p>}
               </section>
             )}
+            {shouldShowCormTracker(selectedPlant) && (
+              <section className={`tracker-section-card corm-detail-section${isTrackerCompleted('corm', selectedPlant) ? ' tracker-completed' : ''}`} id="plant-corm">
+                <div className="tracker-section-heading">
+                  <div>
+                    <p className="detail-eyebrow">{isTrackerCompleted('corm', selectedPlant) ? 'Completed history' : 'Active tracker'} · {displayValue(selectedPlant.cormPhase)}</p>
+                    <h3>Corm Tracker</h3>
+                    <p>{selectedPlant.cormProgressNotes || 'Record rooting, sprouting, leaf, and transfer milestones.'}</p>
+                  </div>
+                  <button type="button" onClick={() => openTrackerEditor('corm')}>Update Corm Tracker</button>
+                </div>
+                {hasCormTrackerData(selectedPlant) ? (
+                  <>
+                    <dl className="detail-list">
+                      {[
+                        ['cormPhase', 'Current phase'], ['cormGrowthMethod', 'Growth Method'],
+                        ['cormCustomGrowthMethod', 'Custom growth method'],
+                        ['cormSproutingMethod', 'Legacy sprouting method'], ['cormMedium', 'Medium'],
+                        ['cormStartedDate', 'Started date'], ['cormReceivedDate', 'Received / harvested'],
+                        ['cormParentPlantId', 'Parent plant'], ['cormInitialCondition', 'Initial condition'],
+                        ['cormRootEmergenceDate', 'First root date'],
+                        ['cormGrowthPointDate', 'Growth point date'],
+                        ['cormFirstLeafEmergingDate', 'First leaf emerging date'],
+                        ['cormFirstLeafOpenedDate', 'First leaf opened date'],
+                        ['cormTransferDate', 'Pot-up / transfer date'],
+                        ['cormEstablishedDate', 'Established date'],
+                        ['cormProgressNotes', 'Progress notes'], ['cormOutcome', 'Outcome'],
+                      ].filter(([fieldName]) => selectedPlant[fieldName]).map(([fieldName, label]) => (
+                        <div key={fieldName}><dt>{label}</dt><dd>
+                          {fieldName === 'cormParentPlantId'
+                            ? plants.find((plant) => plant.id === selectedPlant[fieldName])?.name || selectedPlant[fieldName]
+                            : selectedPlant[fieldName]}
+                        </dd></div>
+                      ))}
+                    </dl>
+                    <div className="corm-phase-summary">
+                      <div><strong>Time in current phase</strong><span>
+                        {getCormPhaseStartedDate(selectedPlant)
+                          ? `${daysBetweenTodayAnd(getCormPhaseStartedDate(selectedPlant))} days`
+                          : 'Start date not recorded'}
+                      </span></div>
+                      <div><strong>Upcoming likely milestone</strong><span>
+                        {getNextCormPhase(selectedPlant.cormPhase) || 'No next milestone'}
+                      </span></div>
+                    </div>
+                    {(selectedPlant.cormPhaseHistory || []).length > 0 && (
+                      <ol className="corm-milestone-timeline" aria-label="Completed Corm milestones">
+                        {selectedPlant.cormPhaseHistory.map((entry) => (
+                          <li key={entry.id}>
+                            <div><strong>{entry.phase}</strong><time dateTime={entry.date}>{entry.date}</time></div>
+                            {entry.note && <p>{entry.note}</p>}
+                            {entry.photoUrl && <SafeImage src={entry.photoUrl} alt={`${entry.phase} milestone`} fallback={<span>Photo unavailable</span>} />}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                    {(selectedPlant.cormProgressPhotos || []).length > 0 && (
+                      <div className="corm-photo-grid">
+                        {selectedPlant.cormProgressPhotos.map((photo) => (
+                          <figure key={photo.id}>
+                            <SafeImage src={photo.photoUrl} alt={`Corm progress on ${photo.date}`} fallback={<span>Photo unavailable</span>} />
+                            <figcaption>{photo.date}{photo.caption ? ` · ${photo.caption}` : ''}</figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : <p className="tracker-empty-state">No corm milestones yet. Add the started date, growth method, medium, and current phase.</p>}
+              </section>
+            )}
             {shouldShowLecaTracker(selectedPlant) && (
-              <section className="tracker-section-card leca-detail-section" id="plant-leca">
+              <section className={`tracker-section-card leca-detail-section${isTrackerCompleted('leca', selectedPlant) ? ' tracker-completed' : ''}`} id="plant-leca">
                 <div className="tracker-section-heading">
                   <div>
                     <p className="detail-eyebrow">Current status · {displayValue(selectedPlant.lecaStatus)}</p>
@@ -3682,7 +4268,8 @@ function App() {
                   <div>
                     <p className="detail-eyebrow">Focused update</p>
                     <h3 id="tracker-editor-heading">
-                      {trackerEditor === 'tc' ? 'Update Tissue Culture Acclimation' : 'Update LECA Conversion'}
+                      {trackerEditor === 'tc' ? 'Update Tissue Culture Acclimation'
+                        : trackerEditor === 'corm' ? 'Update Corm Tracker' : 'Update LECA Conversion'}
                     </h3>
                   </div>
                   <button type="button" className="secondary-button" onClick={closeTrackerEditor}>Close</button>
@@ -3703,22 +4290,46 @@ function App() {
                         ['tcAcclimationStartDate', 'Acclimation start date', 'date'],
                         ['tcAcclimationEndDate', 'Acclimation end date', 'date'], ['tcNotes', 'Acclimation notes', 'textarea'],
                       ]
-                      : [
+                      : trackerEditor === 'corm'
+                        ? [
+                          ['cormPhase', 'Current phase', 'select'], ['cormPhaseDate', 'Phase date', 'date'],
+                          ['cormPhaseNote', 'Phase note', 'textarea'],
+                          ['cormGrowthMethod', 'Growth Method', 'select'], ['cormCustomGrowthMethod', 'Custom growth method', 'text'],
+                          ['cormStartedDate', 'Started date', 'date'], ['cormReceivedDate', 'Received / harvested date', 'date'],
+                          ['cormParentPlantId', 'Parent plant', 'select'], ['cormInitialCondition', 'Initial condition', 'select'],
+                          ['cormMedium', 'Medium', 'text'], ['cormRootEmergenceDate', 'First root date', 'date'],
+                          ['cormGrowthPointDate', 'Growth point date', 'date'],
+                          ['cormFirstLeafEmergingDate', 'First leaf emerging date', 'date'],
+                          ['cormFirstLeafOpenedDate', 'First leaf opened date', 'date'],
+                          ['cormTransferDate', 'Pot-up / transfer date', 'date'],
+                          ['cormEstablishedDate', 'Established date', 'date'],
+                          ['cormOutcome', 'Outcome', 'select'], ['cormProgressNotes', 'Progress notes', 'textarea'],
+                        ]
+                        : [
                         ['lecaStatus', 'LECA conversion status', 'select'], ['lecaRootStatus', 'Root status', 'select'],
                         ['lecaReservoirSetup', 'Reservoir setup', 'select'], ['lecaNutrientStatus', 'Nutrient status', 'select'],
                         ['lecaFlushRhythm', 'Flush / rinse rhythm', 'select'], ['lecaStressLevel', 'Stress level', 'select'],
                         ['lecaConversionStartDate', 'Conversion start date', 'date'], ['lecaNotes', 'Conversion notes', 'textarea'],
-                      ]).map(([fieldName, label, fieldType]) => (
+                      ]).filter(([fieldName]) => (
+                        fieldName !== 'cormCustomGrowthMethod' || trackerDraft.cormGrowthMethod === 'Other'
+                      )).map(([fieldName, label, fieldType]) => (
                       <div className={`form-field${fieldType === 'textarea' ? ' tracker-modal-wide' : ''}`} key={fieldName}>
                         <label htmlFor={`tracker-${fieldName}`}>{label}</label>
                         {fieldType === 'select' ? (
                           <select id={`tracker-${fieldName}`} value={trackerDraft[fieldName] || ''}
                             onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))}>
                             <option value="">Not set</option>
-                            {(dropdownOptions[fieldName] || []).map((option) => <option key={option}>{option}</option>)}
+                            {(trackerSelectOptions(fieldName, plants) || dropdownOptions[fieldName] || []).map((option) => (
+                              typeof option === 'object'
+                                ? <option key={option.value} value={option.value}>{option.label}</option>
+                                : <option key={option}>{option}</option>
+                            ))}
                           </select>
                         ) : fieldType === 'textarea' ? (
                           <textarea id={`tracker-${fieldName}`} rows="4" value={trackerDraft[fieldName] || ''}
+                            onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
+                        ) : fieldType === 'text' ? (
+                          <input id={`tracker-${fieldName}`} type="text" value={trackerDraft[fieldName] || ''}
                             onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
                         ) : (
                           <input id={`tracker-${fieldName}`} type="date" value={trackerDraft[fieldName] || ''}
@@ -3727,6 +4338,18 @@ function App() {
                       </div>
                     ))}
                   </div>
+                  {trackerEditor === 'corm' && (
+                    <ImageUploadField id="corm-progress-photo" value=""
+                      onChange={() => {}}
+                      onFileSelected={(file) => {
+                        if (trackerPhotoPreviewUrl) URL.revokeObjectURL(trackerPhotoPreviewUrl);
+                        setTrackerPhotoFile(file);
+                        setTrackerPhotoPreviewUrl(file ? URL.createObjectURL(file) : '');
+                      }}
+                      selectedFileName={trackerPhotoFile?.name || ''}
+                      previewUrl={trackerPhotoPreviewUrl}
+                      label="Add progress photo" />
+                  )}
                   <div className="form-actions">
                     <button type="submit">Save update</button>
                     <button type="button" className="secondary-button" onClick={closeTrackerEditor}>Cancel</button>
@@ -3826,6 +4449,19 @@ function App() {
             <p className="form-status-message" role="status">{plantSubmitStatus}</p>
           )}
           <div className="form-grid">
+            <div className="form-field">
+              <label htmlFor="plant-origin">Plant origin</label>
+              <select id="plant-origin" name="origin" value={newPlant.origin} onChange={handleInputChange}>
+                {plantOriginOptions.map((option) => <option key={option}>{option}</option>)}
+              </select>
+              <small>Origin is permanent history and stays separate from the current stage.</small>
+            </div>
+            <div className="form-field">
+              <label htmlFor="plant-lifecycleStage">Current lifecycle stage</label>
+              <select id="plant-lifecycleStage" name="lifecycleStage" value={newPlant.lifecycleStage} onChange={handleInputChange}>
+                {lifecycleStageOptions.map((option) => <option key={option}>{option}</option>)}
+              </select>
+            </div>
             {[
               ['name', 'Plant name'],
               ['medium', 'Growing medium'], ['potSize', 'Pot size'],
@@ -4086,6 +4722,12 @@ function App() {
               <button className="secondary-button" type="button" onClick={openReminders}>
                 Today&apos;s Check-ins
               </button>
+              <button className="secondary-button" type="button" onClick={() => openQuickNote()}>
+                + New Journal Entry
+              </button>
+              <button className="secondary-button" type="button" onClick={() => setAppView('quick-notes')}>
+                Plant Journal{unprocessedQuickNotes.length ? ` (${unprocessedQuickNotes.length})` : ''}
+              </button>
               <button className="secondary-button" type="button" onClick={openSettings}>
                 Settings / Tools
               </button>
@@ -4243,6 +4885,76 @@ function App() {
             })}
             </div>
           </section>
+        </section>
+        ) : appView === 'quick-notes' ? (
+        <section className="quick-notes-view" aria-labelledby="quick-notes-heading">
+          <div className="section-heading">
+            <div>
+              <p className="detail-eyebrow">Low-friction capture</p>
+              <h2 id="quick-notes-heading">Plant Journal</h2>
+              <p>{unprocessedQuickNotes.length} unfiled entr{unprocessedQuickNotes.length === 1 ? 'y' : 'ies'}</p>
+            </div>
+            <button type="button" onClick={() => openQuickNote()}>+ New Journal Entry</button>
+          </div>
+          {quickNoteMessage && <p className="quick-note-message" role="status">{quickNoteMessage}</p>}
+          <div className="quick-note-list">
+            {unprocessedQuickNotes.length ? unprocessedQuickNotes.map((note) => {
+              const plant = plants.find((item) => item.id === note.plantId);
+              return (
+                <article className="quick-note-card" key={note.id}>
+                  <div className="quick-note-card-heading">
+                    <div>
+                      <time dateTime={note.observedAt}>{new Date(note.observedAt).toLocaleString()}</time>
+                      <strong>{plant?.name || 'General journal entry'}</strong>
+                    </div>
+                    <span>Unfiled</span>
+                  </div>
+                  <p>{note.text}</p>
+                  {note.photoUrl && <SafeImage src={note.photoUrl} alt="Journal entry attachment" fallback={<span>Photo unavailable</span>} />}
+                  {!plant && (
+                    <div className="form-field">
+                      <label htmlFor={`quick-note-plant-${note.id}`}>Associate plant to convert</label>
+                      <select id={`quick-note-plant-${note.id}`} value={note.plantId}
+                        onChange={(event) => saveQuickNotes(quickNotes.map((item) => item.id === note.id
+                          ? { ...item, plantId: event.target.value } : item))}>
+                        <option value="">No plant</option>
+                        {plants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <div className="quick-note-actions">
+                    {quickNoteDestinations.map(([destination, label]) => (
+                      <button type="button" key={destination} className={destination === 'general' ? 'secondary-button' : ''}
+                        onClick={() => startQuickNoteConversion(note, destination)}>{label}</button>
+                    ))}
+                    <button type="button" className="secondary-button" onClick={() => fileQuickNote(note)}>File Entry</button>
+                    <button type="button" className="delete-plant-button" onClick={() => deleteQuickNote(note)}>Delete</button>
+                  </div>
+                </article>
+              );
+            }) : <p className="empty-message">No unfiled entries. New journal observations will stay here until you file them.</p>}
+          </div>
+          <details className="filed-journal-entries">
+            <summary>Filed Entries ({filedQuickNotes.length})</summary>
+            {filedQuickNotes.length ? (
+              <div className="quick-note-list">
+                {[...filedQuickNotes].reverse().map((note) => (
+                  <article className="quick-note-card quick-note-card-filed" key={note.id}>
+                    <div className="quick-note-card-heading">
+                      <div>
+                        <time dateTime={note.observedAt}>{new Date(note.observedAt).toLocaleString()}</time>
+                        <strong>{plants.find((plant) => plant.id === note.plantId)?.name || 'General journal entry'}</strong>
+                      </div>
+                      <span>Filed</span>
+                    </div>
+                    <p>{note.text}</p>
+                    {note.photoUrl && <SafeImage src={note.photoUrl} alt="Filed journal entry attachment" fallback={<span>Photo unavailable</span>} />}
+                    <small>Filed as: {note.filedAs || 'Filed entry'}</small>
+                  </article>
+                ))}
+              </div>
+            ) : <p className="empty-message">No filed entries yet.</p>}
+          </details>
         </section>
         ) : appView === 'reminders' ? (
         <section className="reminders-view" aria-labelledby="reminders-heading">
@@ -4456,7 +5168,70 @@ function App() {
             <p>Manage your backups, cloud sync setup, and app information.</p>
           </div>
 
-          <section className="settings-card" aria-labelledby="cloud-sync-heading">
+          <nav className="settings-section-nav" aria-label="Settings sections">
+            <label htmlFor="settings-section-selector">Jump to section</label>
+            <select id="settings-section-selector" value={settingsSection}
+              onChange={(event) => navigateSettingsSection(event.target.value)}>
+              {settingsSections.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+            <div className="settings-section-links">
+              {settingsSections.map(([id, label]) => (
+                <button type="button" key={id}
+                  className={settingsSection === id ? 'settings-section-active' : ''}
+                  aria-current={settingsSection === id ? 'location' : undefined}
+                  onClick={() => navigateSettingsSection(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          <section className="settings-card quick-view-settings-card" id="settings-quick-views"
+            aria-labelledby="settings-quick-views-heading">
+            <div className="settings-card-heading">
+              <div>
+                <h3 id="settings-quick-views-heading">Quick Views</h3>
+                <p className="settings-card-intro">Edit and organize the saved Plant List views available in the Quick View selector.</p>
+              </div>
+              <button type="button" onClick={() => {
+                setAppView('plants');
+                setPlantPage(1);
+              }}>Create from Plant List</button>
+            </div>
+            {settingsQuickViewMessage && <p className="backup-message backup-message-success" role="status">{settingsQuickViewMessage}</p>}
+            <div className="settings-quick-view-list">
+              {quickViews.map((quickView) => (
+                <article className="settings-quick-view-row" key={quickView.id}>
+                  <div className="settings-quick-view-copy">
+                    <div className="settings-quick-view-title">
+                      <h4>{quickView.name}</h4>
+                      {activeQuickView === quickView.id && <span>Currently active</span>}
+                    </div>
+                    <p>{quickViewCriteriaSummary(quickView)}</p>
+                    <time dateTime={quickView.updatedAt}>
+                      Updated {new Date(quickView.updatedAt).toLocaleString()}
+                    </time>
+                  </div>
+                  <div className="settings-quick-view-controls">
+                    <button type="button" onClick={() => openQuickViewEditor(quickView, 'settings')}
+                      aria-label={`Edit Quick View ${quickView.name}`}>Edit</button>
+                    <details>
+                      <summary aria-label={`More actions for Quick View ${quickView.name}`}>More</summary>
+                      <div>
+                        <button type="button" onClick={() => duplicateSavedQuickView(quickView)}
+                          aria-label={`Duplicate Quick View ${quickView.name}`}>Duplicate</button>
+                        <button type="button" onClick={() => deleteSavedQuickView(quickView)}
+                          aria-label={`Delete Quick View ${quickView.name}`}>Delete</button>
+                      </div>
+                    </details>
+                  </div>
+                </article>
+              ))}
+              {!quickViews.length && <p className="empty-message">No Quick Views saved yet. Create one from the Plant List.</p>}
+            </div>
+          </section>
+
+          <section className="settings-card" id="settings-cloud" aria-labelledby="cloud-sync-heading">
             <h3 id="cloud-sync-heading">Cloud Sync</h3>
             <p className="settings-card-intro">Cloud sync is manual backup and restore, not live real-time sync across devices.</p>
             <dl className="backup-meta-grid">
@@ -4495,7 +5270,7 @@ function App() {
             )}
           </section>
 
-          <section className="settings-card app-version-card" aria-labelledby="app-version-heading">
+          <section className="settings-card app-version-card" id="settings-version" aria-labelledby="app-version-heading">
             <div className="app-version-heading">
               <div>
                 <p className="detail-eyebrow">Current release</p>
@@ -4546,13 +5321,14 @@ function App() {
             )}
           </section>
 
-          <section className="settings-card" aria-labelledby="data-tools-heading">
+          <section className="settings-card" id="settings-backup" aria-labelledby="data-tools-heading">
             <h3 id="data-tools-heading">Data Backup</h3>
-            <p className="settings-card-intro">JSON backup includes plants, Plant Spaces, placements, logs, reminders, timeline entries, photos as URLs, garden data, wishlist items, dropdown values, and preferences.</p>
+            <p className="settings-card-intro">JSON backup includes plants, Plant Spaces, placements, logs, reminders, timeline entries, photos as URLs, garden data, wishlist items, Quick Views, dropdown values, and preferences.</p>
             <dl className="backup-summary-grid" aria-label="Current local backup contents">
               <div><dt>Plants</dt><dd>{localBackupSummary.plants}</dd></div>
               <div><dt>Wishlist</dt><dd>{localBackupSummary.wishlistItems}</dd></div>
               <div><dt>Reminders</dt><dd>{localBackupSummary.reminders}</dd></div>
+              <div><dt>Quick Views</dt><dd>{localBackupSummary.quickViews}</dd></div>
               <div><dt>Timeline</dt><dd>{localBackupSummary.timelineEntries}</dd></div>
               <div><dt>Photo Log</dt><dd>{localBackupSummary.photoLogEntries}</dd></div>
               <div><dt>Garden beds</dt><dd>{localBackupSummary.gardenBeds}</dd></div>
@@ -4601,7 +5377,7 @@ function App() {
             )}
           </section>
 
-          <section className="settings-card" aria-labelledby="csv-export-heading">
+          <section className="settings-card" id="settings-export" aria-labelledby="csv-export-heading">
             <h3 id="csv-export-heading">CSV Export</h3>
             <p className="settings-card-intro">Create spreadsheet-friendly files for reviewing, sorting, or printing your plant data. CSV export is one-way; use Data Backup for full backup and restore.</p>
             <div className="data-tool-row">
@@ -4626,7 +5402,7 @@ function App() {
             </div>
           </section>
 
-          <section className="settings-card" aria-labelledby="app-info-heading">
+          <section className="settings-card" id="settings-general" aria-labelledby="app-info-heading">
             <h3 id="app-info-heading">App Info</h3>
             <dl className="app-info-list">
               <div><dt>App name</dt><dd>Grow With Gibre Plant Tracker</dd></div>
@@ -4637,12 +5413,136 @@ function App() {
               Use manual Cloud Sync or Export/Import JSON backup to move your data.
             </p>
           </section>
+          {quickViewEditor?.context === 'settings' && (
+            <div className="tracker-modal-backdrop" role="presentation">
+              <section className="tracker-modal quick-view-editor quick-view-settings-editor"
+                role="dialog" aria-modal="true" aria-labelledby="settings-quick-view-editor-heading">
+                <div className="tracker-modal-heading">
+                  <h3 id="settings-quick-view-editor-heading">Edit Quick View</h3>
+                  <button type="button" onClick={() => setQuickViewEditor(null)}
+                    aria-label="Cancel Quick View changes">Close</button>
+                </div>
+                <label htmlFor="settings-quick-view-name">View name</label>
+                <input id="settings-quick-view-name" autoFocus value={quickViewEditor.name}
+                  onChange={(event) => setQuickViewEditor({ ...quickViewEditor, name: event.target.value })} />
+                <label className="tracker-modal-checkbox">
+                  <input type="checkbox" checked={quickViewEditor.includeSearch}
+                    onChange={(event) => setQuickViewEditor({
+                      ...quickViewEditor, includeSearch: event.target.checked,
+                    })} />
+                  Include search text
+                </label>
+                {quickViewEditor.includeSearch && (
+                  <>
+                    <label htmlFor="settings-quick-view-search">Saved search text</label>
+                    <input id="settings-quick-view-search" value={quickViewEditor.state.searchText}
+                      onChange={(event) => updateQuickViewEditorState({ searchText: event.target.value })} />
+                  </>
+                )}
+                <div className="quick-view-editor-filters">
+                  {[...primaryFilterFields, ...advancedFilterFields].map(([fieldName, label]) => (
+                    <MultiValueFilter key={fieldName} fieldName={fieldName} label={label}
+                      value={quickViewEditor.state.filters[fieldName]} options={getFilterOptions(fieldName)}
+                      onChange={(value) => updateQuickViewEditorFilter(fieldName, value)} />
+                  ))}
+                  <MultiValueFilter fieldName="origin" label="Plant Origin"
+                    value={quickViewEditor.state.filters.origin} options={plantOriginOptions}
+                    onChange={(value) => updateQuickViewEditorFilter('origin', value)} />
+                  <MultiValueFilter fieldName="lifecycleStage" label="Lifecycle Stage"
+                    value={quickViewEditor.state.filters.lifecycleStage} options={lifecycleStageOptions}
+                    onChange={(value) => updateQuickViewEditorFilter('lifecycleStage', value)} />
+                </div>
+                <div className="quick-view-editor-presentation">
+                  <label htmlFor="settings-quick-view-plant-state">Plant view</label>
+                  <select id="settings-quick-view-plant-state" value={quickViewEditor.state.lifecycleView}
+                    onChange={(event) => updateQuickViewEditorState({ lifecycleView: event.target.value })}>
+                    <option value="all">All plants</option>
+                    <option value="active">Active plants</option>
+                    <option value="archived">Archived plants</option>
+                    <option value="graveyard">Graveyard plants</option>
+                  </select>
+                  <label htmlFor="settings-quick-view-sort">Sort</label>
+                  <select id="settings-quick-view-sort" value={quickViewEditor.state.sort}
+                    onChange={(event) => updateQuickViewEditorState({ sort: event.target.value })}>
+                    {plantSortOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                  <label htmlFor="settings-quick-view-layout">View mode</label>
+                  <select id="settings-quick-view-layout" value={quickViewEditor.state.viewMode}
+                    onChange={(event) => updateQuickViewEditorState({ viewMode: event.target.value })}>
+                    <option value="cards">Cards</option>
+                    <option value="gallery">Gallery</option>
+                    <option value="compact">Compact list</option>
+                  </select>
+                  <label htmlFor="settings-quick-view-quarantine">Quarantine</label>
+                  <select id="settings-quick-view-quarantine" value={quickViewEditor.state.quarantineFilter}
+                    onChange={(event) => updateQuickViewEditorState({ quarantineFilter: event.target.value })}>
+                    <option value="">Any quarantine state</option>
+                    <option value="current">Currently in quarantine</option>
+                    <option value="soon">Leaving quarantine soon</option>
+                    <option value="new">New-plant quarantine</option>
+                    <option value="pest">Pest quarantine</option>
+                  </select>
+                  <span>Additional criteria</span>
+                  <div className="quick-view-editor-toggles">
+                    <label className="tracker-modal-checkbox">
+                      <input type="checkbox" checked={quickViewEditor.state.recentlyCheckedFilter}
+                        onChange={(event) => updateQuickViewEditorState({
+                          recentlyCheckedFilter: event.target.checked,
+                        })} />
+                      Recently checked
+                    </label>
+                    <label className="tracker-modal-checkbox">
+                      <input type="checkbox" checked={quickViewEditor.state.recentlyAcquiredFilter}
+                        onChange={(event) => updateQuickViewEditorState({
+                          recentlyAcquiredFilter: event.target.checked,
+                        })} />
+                      Recently acquired
+                    </label>
+                  </div>
+                  <label className="tracker-modal-checkbox">
+                    <input type="checkbox" checked={quickViewEditor.includePageSize}
+                      onChange={(event) => setQuickViewEditor({
+                        ...quickViewEditor, includePageSize: event.target.checked,
+                      })} />
+                    Include plants per page
+                  </label>
+                  {quickViewEditor.includePageSize && (
+                    <>
+                      <label htmlFor="settings-quick-view-page-size">Plants per page</label>
+                      <select id="settings-quick-view-page-size" value={quickViewEditor.state.pageSize ?? 12}
+                        onChange={(event) => updateQuickViewEditorState({
+                          pageSize: event.target.value === 'all' ? 'all' : Number(event.target.value),
+                        })}>
+                        {[12, 18, 25, 50].map((value) => <option key={value} value={value}>{value}</option>)}
+                        <option value="all">All</option>
+                      </select>
+                    </>
+                  )}
+                </div>
+                <p className="quick-view-criteria-preview">{quickViewCriteriaSummary({
+                  ...quickViewEditor,
+                  state: {
+                    ...quickViewEditor.state,
+                    searchText: quickViewEditor.includeSearch ? quickViewEditor.state.searchText : '',
+                    pageSize: quickViewEditor.includePageSize ? quickViewEditor.state.pageSize : undefined,
+                  },
+                })}</p>
+                <div className="form-actions">
+                  <button type="button" onClick={saveQuickViewEditor}
+                    disabled={!quickViewEditor.name.trim()}>Save Changes</button>
+                  <button type="button" className="secondary-button"
+                    onClick={() => setQuickViewEditor(null)}>Cancel</button>
+                </div>
+              </section>
+            </div>
+          )}
           <p className="settings-version-footer">Grow With Gibre Plant Tracker {currentAppVersion.version}</p>
         </section>
         ) : (
         <>
         <div className="section-heading">
           <h2 className="section-title" id="plant-list-heading">Plant List</h2>
+          <button className="secondary-button" type="button" onClick={() => openQuickNote()}>New Journal Entry</button>
           <button className="add-plant-button" type="button" onClick={() => {
             setAddPlantMessage('');
             setNewPlant(emptyPlant);
@@ -4654,30 +5554,79 @@ function App() {
             +
           </button>
         </div>
-        <section className={`quick-views${areQuickViewsVisible ? ' quick-views-open' : ''}`}
-          aria-labelledby="quick-views-heading">
+        <section className="quick-views quick-views-compact" aria-labelledby="quick-views-heading">
           <div className="quick-views-heading">
             <div>
               <h3 id="quick-views-heading">Quick Views</h3>
-              {activeQuickViewLabel && <p>{activeQuickViewLabel}</p>}
+              {activeQuickViewLabel && (
+                <p>{activeQuickViewLabel}{activeQuickViewModified ? ' · Modified' : ' · Active'}</p>
+              )}
             </div>
-            <button className="quick-views-toggle" type="button"
-              aria-expanded={areQuickViewsVisible} aria-controls="quick-view-list"
-              onClick={() => setAreQuickViewsVisible((isVisible) => !isVisible)}>
-              {areQuickViewsVisible ? 'Hide Quick Views' : 'Show Quick Views'}
+          </div>
+          <div className="quick-view-compact-controls">
+            <label htmlFor="quick-view-selector">Quick View</label>
+            <select id="quick-view-selector" value={activeQuickView}
+              onChange={(event) => {
+                const view = quickViews.find((item) => item.id === event.target.value);
+                if (view) applyQuickView(view);
+              }}>
+              <option value="">Custom / default state</option>
+              {quickViews.map((quickView) => (
+                <option key={quickView.id} value={quickView.id}>{quickView.name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={() => openQuickViewEditor(null, 'plant-list')}>
+              Save as Quick View
+            </button>
+            <button type="button" className="secondary-button" onClick={restoreDefaultPlantList}>
+              Restore Default
             </button>
           </div>
-          <div className="quick-view-list" id="quick-view-list">
-            {quickViews.map((quickView) => (
-              <button key={quickView.id} type="button"
-                className={activeQuickView === quickView.id ? 'quick-view-active' : ''}
-                aria-pressed={activeQuickView === quickView.id}
-                onClick={() => applyQuickView(quickView)}>
-                {quickView.label}
-              </button>
-            ))}
-          </div>
         </section>
+        {quickViewEditor?.context === 'plant-list' && (
+          <div className="tracker-modal-backdrop" role="presentation">
+            <section className="tracker-modal quick-view-editor" role="dialog" aria-modal="true"
+              aria-labelledby="quick-view-editor-heading">
+              <div className="tracker-modal-heading">
+                <h3 id="quick-view-editor-heading">
+                  Create Quick View
+                </h3>
+                <button type="button" onClick={() => setQuickViewEditor(null)}
+                  aria-label="Cancel Quick View changes">Close</button>
+              </div>
+              <label htmlFor="quick-view-name">View name</label>
+              <input id="quick-view-name" autoFocus value={quickViewEditor.name}
+                onChange={(event) => setQuickViewEditor({
+                  ...quickViewEditor, name: event.target.value,
+                })} />
+              <label className="tracker-modal-checkbox">
+                <input type="checkbox" checked={quickViewEditor.includeSearch}
+                  onChange={(event) => setQuickViewEditor({
+                    ...quickViewEditor, includeSearch: event.target.checked,
+                  })} />
+                Include search text
+              </label>
+              <label className="tracker-modal-checkbox">
+                <input type="checkbox" checked={quickViewEditor.includePageSize}
+                  onChange={(event) => setQuickViewEditor({
+                    ...quickViewEditor, includePageSize: event.target.checked,
+                  })} />
+                Include plants per page
+              </label>
+              <dl className="quick-view-summary">
+                <div><dt>Filters</dt><dd>{activeFilterValueCount(quickViewEditor.state.filters) || 'None'}</dd></div>
+                <div><dt>Sort</dt><dd>{plantSortOptions.find(([value]) => value === quickViewEditor.state.sort)?.[1]}</dd></div>
+                <div><dt>Layout</dt><dd>{quickViewEditor.state.viewMode}</dd></div>
+              </dl>
+              <div className="form-actions">
+                <button type="button" onClick={saveQuickViewEditor}
+                  disabled={!quickViewEditor.name.trim()}>Save</button>
+                <button type="button" className="secondary-button"
+                  onClick={() => setQuickViewEditor(null)}>Cancel</button>
+              </div>
+            </section>
+          </div>
+        )}
         <div className="plant-search-tools">
           {quarantineFilter && (
             <div className="applied-dashboard-filter" role="status">
@@ -4689,7 +5638,6 @@ function App() {
               })[quarantineFilter]}</span>
               <button type="button" onClick={() => {
                 setQuarantineFilter('');
-                setActiveQuickView('');
               }}>Clear</button>
             </div>
           )}
@@ -4698,7 +5646,6 @@ function App() {
               <span>Recently checked</span>
               <button type="button" onClick={() => {
                 setRecentlyCheckedFilter(false);
-                setActiveQuickView('');
               }}>Clear</button>
             </div>
           )}
@@ -4711,7 +5658,6 @@ function App() {
               value={searchText}
               onChange={(event) => {
                 setSearchText(event.target.value);
-                setActiveQuickView('');
               }}
             />
           </div>
@@ -4755,7 +5701,6 @@ function App() {
                   <select id="lifecycle-filter" value={lifecycleView}
                     onChange={(event) => {
                       setLifecycleView(event.target.value);
-                      setActiveQuickView('');
                       scrollPlantResultsIntoView();
                     }}>
                     <option value="all">All Plants</option>
@@ -4765,15 +5710,21 @@ function App() {
                   </select>
                 </div>
                 {primaryFilterFields.map(([fieldName, label]) => (
-                  <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
+                  <MultiValueFilter key={fieldName} fieldName={fieldName} label={label}
                     value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
                     onChange={(value) => updatePlantFilter(fieldName, value)} />
                 ))}
               </div>
               {areMoreFiltersVisible && (
                 <div className="plant-filter-dropdowns advanced-filters" id="advanced-plant-filters">
+                  <MultiValueFilter fieldName="origin" label="Plant Origin"
+                    value={plantFilters.origin} options={plantOriginOptions}
+                    onChange={(value) => updatePlantFilter('origin', value)} />
+                  <MultiValueFilter fieldName="lifecycleStage" label="Lifecycle Stage"
+                    value={plantFilters.lifecycleStage} options={lifecycleStageOptions}
+                    onChange={(value) => updatePlantFilter('lifecycleStage', value)} />
                   {advancedFilterFields.map(([fieldName, label]) => (
-                    <FilterDropdown key={fieldName} fieldName={fieldName} label={label}
+                    <MultiValueFilter key={fieldName} fieldName={fieldName} label={label}
                       value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
                       onChange={(value) => updatePlantFilter(fieldName, value)} />
                   ))}
@@ -4902,6 +5853,105 @@ function App() {
         )
         )}
       </section>
+      {quickNoteConversion && (
+        <div className="tracker-modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setQuickNoteConversion(null);
+        }}>
+          <section className="tracker-modal quick-note-modal" role="dialog" aria-modal="true"
+            aria-labelledby="quick-note-conversion-heading">
+            <div className="tracker-modal-heading">
+              <div>
+                <p className="detail-eyebrow">Review before filing</p>
+                <h3 id="quick-note-conversion-heading">
+                  {quickNoteDestinations.find(([value]) => value === quickNoteConversion.destination)?.[1]}
+                </h3>
+              </div>
+              <button type="button" className="secondary-button" onClick={() => setQuickNoteConversion(null)}>Close</button>
+            </div>
+            <form onSubmit={convertQuickNote}>
+              <div className="tracker-modal-grid">
+                <div className="form-field tracker-modal-wide">
+                  <label htmlFor="quick-note-conversion-text">Note text</label>
+                  <textarea id="quick-note-conversion-text" rows="5" required value={quickNoteConversion.text}
+                    onChange={(event) => setQuickNoteConversion((draft) => ({ ...draft, text: event.target.value }))} />
+                </div>
+                <div className="form-field">
+                  <label htmlFor="quick-note-conversion-date">Date</label>
+                  <input id="quick-note-conversion-date" type="date" required value={quickNoteConversion.date}
+                    onChange={(event) => setQuickNoteConversion((draft) => ({ ...draft, date: event.target.value }))} />
+                </div>
+                <div className="form-field">
+                  <label htmlFor="quick-note-conversion-plant">Plant association</label>
+                  <select id="quick-note-conversion-plant" value={quickNoteConversion.plantId}
+                    disabled={quickNoteConversion.destination === 'general'}
+                    onChange={(event) => setQuickNoteConversion((draft) => ({ ...draft, plantId: event.target.value }))}>
+                    <option value="">No plant</option>
+                    {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              {quickNoteConversion.photoUrl && (
+                <div className="conversion-photo-preview">
+                  <SafeImage src={quickNoteConversion.photoUrl} alt="Journal entry photo carried into destination"
+                    fallback={<span>Photo unavailable</span>} />
+                  <span>Photo will be carried into the destination where supported.</span>
+                </div>
+              )}
+              {quickNoteMessage && <p className="form-error-message" role="alert">{quickNoteMessage}</p>}
+              <div className="form-actions">
+                <button type="submit">Save conversion</button>
+                <button type="button" className="secondary-button" onClick={() => setQuickNoteConversion(null)}>
+                  Cancel — keep unprocessed
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {showQuickNoteForm && (
+        <div className="tracker-modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeQuickNote();
+        }}>
+          <section className="tracker-modal quick-note-modal" role="dialog" aria-modal="true" aria-labelledby="quick-note-form-heading">
+            <div className="tracker-modal-heading">
+              <div><p className="detail-eyebrow">Capture now, organize later</p><h3 id="quick-note-form-heading">New Journal Entry</h3></div>
+              <button type="button" className="secondary-button" onClick={closeQuickNote}>Close</button>
+            </div>
+            <form onSubmit={createQuickNote}>
+              <div className="form-field">
+                <label htmlFor="quick-note-text">Observation</label>
+                <textarea id="quick-note-text" rows="5" required autoFocus value={quickNoteDraft.text}
+                  onChange={(event) => setQuickNoteDraft((draft) => ({ ...draft, text: event.target.value }))} />
+              </div>
+              <div className="form-field">
+                <label htmlFor="quick-note-plant">Plant (optional)</label>
+                <select id="quick-note-plant" value={quickNoteDraft.plantId}
+                  onChange={(event) => setQuickNoteDraft((draft) => ({ ...draft, plantId: event.target.value }))}>
+                  <option value="">General / assign later</option>
+                  {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.name}</option>)}
+                </select>
+              </div>
+              <ImageUploadField id="quick-note-photo" value={quickNoteDraft.photoUrl}
+                onChange={(photoUrl) => setQuickNoteDraft((draft) => ({ ...draft, photoUrl }))}
+                onFileSelected={(file) => {
+                  if (quickNotePreviewUrl) URL.revokeObjectURL(quickNotePreviewUrl);
+                  setQuickNoteFile(file);
+                  setQuickNotePreviewUrl(file ? URL.createObjectURL(file) : '');
+                }}
+                selectedFileName={quickNoteFile?.name || ''}
+                previewUrl={quickNotePreviewUrl}
+                disabled={isQuickNoteSubmitting} />
+              {quickNoteMessage && <p className="form-error-message" role="alert">{quickNoteMessage}</p>}
+              <div className="form-actions">
+                <button type="submit" disabled={isQuickNoteSubmitting}>
+                  {isQuickNoteSubmitting ? 'Saving...' : 'Save Journal Entry'}
+                </button>
+                <button type="button" className="secondary-button" onClick={closeQuickNote}>Cancel</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
