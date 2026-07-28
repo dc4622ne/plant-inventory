@@ -35,6 +35,7 @@ const {
   normalizeBackup,
   storageKeys,
 } = await import('./backupUtils.js');
+const { migrateEmbeddedImagesInBackup } = await import('./imageAssetStore.js');
 
 test('backup v4 round-trips quick notes and additive plant histories', () => {
   const plant = {
@@ -143,7 +144,14 @@ test('quota failure during a restore preserves the exact original local state', 
 
   assert.throws(
     () => applyBackupToLocalStorage(incomingBackup, { createSnapshot: true, currentBackup }),
-    (error) => error.code === 'RESTORE_WRITE_QUOTA' && error.phase === 'write',
+    (error) => (
+      error.code === 'RESTORE_WRITE_QUOTA'
+      && error.phase === 'write'
+      && error.diagnostics.failingKey === storageKeys.plants
+      && error.diagnostics.failingKeyCharacters > 10_000
+      && error.diagnostics.totalRestoreCharacters > error.diagnostics.failingKeyCharacters
+      && error.diagnostics.existingStorageCharacters > 0
+    ),
   );
   assert.deepEqual(localStorage.values, before);
   localStorage.quota = Infinity;
@@ -171,5 +179,40 @@ test('restore avoids duplicating live data before creating its safety snapshot',
   const result = applyBackupToLocalStorage(incomingBackup, { createSnapshot: true, currentBackup });
   assert.equal(result.ok, true);
   assert.equal(JSON.parse(localStorage.getItem(storageKeys.plants))[0].id, 'restored');
+  localStorage.quota = Infinity;
+});
+
+test('photo-heavy backup larger than localStorage quota restores after image extraction', async () => {
+  localStorage.clear();
+  localStorage.quota = Infinity;
+  const currentBackup = assembleBackup({
+    plants: [{ id: 'original' }], dropdownOptions: {}, wishlistItems: [],
+    gardenBeds: [], plantSpaces: [], reminders: [], quickNotes: [], quickViews: [],
+    appVersion: 'v0.21.2',
+  });
+  applyBackupToLocalStorage(currentBackup, { createSnapshot: false });
+  const embeddedPhoto = `data:image/jpeg;base64,${'A'.repeat(3_000_000)}`;
+  const incomingBackup = {
+    ...currentBackup,
+    exportedAt: new Date().toISOString(),
+    data: {
+      ...currentBackup.data,
+      plants: [{ id: 'restored', imageUrl: embeddedPhoto }],
+    },
+  };
+  const migrated = await migrateEmbeddedImagesInBackup(incomingBackup, async () => ({
+    reference: 'plant-asset://large-photo',
+    created: true,
+  }));
+  assert.ok(JSON.stringify(incomingBackup).length > 3_000_000);
+  assert.ok(JSON.stringify(migrated.backup).length < 2_000);
+  localStorage.quota = 20_000;
+
+  const result = applyBackupToLocalStorage(migrated.backup, { createSnapshot: true, currentBackup });
+  assert.equal(result.ok, true);
+  assert.equal(
+    JSON.parse(localStorage.getItem(storageKeys.plants))[0].imageUrl,
+    'plant-asset://large-photo',
+  );
   localStorage.quota = Infinity;
 });

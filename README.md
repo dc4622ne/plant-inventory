@@ -139,6 +139,8 @@ Restore is transactional in v0.21.1. The app downloads and normalizes the comple
 
 The v0.21.1 fix addresses installed iOS/iPadOS restore failures caused by the previous write order temporarily storing a full second copy of the current database before removing the live keys. Safari and an installed Home Screen app use separate website-data containers, so the standalone container could hit its `localStorage` quota even when the same cloud backup restored in Safari.
 
+Starting with v0.21.2, legacy `data:image/...` photos are explicitly migrated into the browser's IndexedDB asset store before structured data is written. Plant records, photo logs, journal entries, and other collections retain only small `plant-asset://` references locally. JSON export and Save to Cloud materialize those references back into a compatible v4 backup, while new device photo uploads continue to use Supabase Storage URLs. The persistent undo snapshot contains references rather than a second copy of photo bytes.
+
 ## Build and deploy
 
 - Create a production build: `npm run build`

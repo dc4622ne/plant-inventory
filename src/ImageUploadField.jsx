@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { imageAcceptAttribute, validateImageFile } from './imageUploadUtils';
+import { localImageAssetPrefix } from './imageAssetStore';
+import { useResolvedImageSource } from './resolvedImageSource';
 
 export function SafeImage({ src, alt, className, fallback = null }) {
   const [failed, setFailed] = useState(false);
-  if (!src || failed) return fallback;
-  return <img className={className} src={src} alt={alt} onError={() => setFailed(true)} />;
+  const resolvedSource = useResolvedImageSource(src);
+  if (!resolvedSource || failed) return fallback;
+  return <img className={className} src={resolvedSource} alt={alt} onError={() => setFailed(true)} />;
 }
 
 export default function ImageUploadField({
@@ -22,7 +25,7 @@ export default function ImageUploadField({
   messageType = 'status',
 }) {
   const [message, setMessage] = useState('');
-  const uploaded = value.startsWith('data:image/');
+  const uploaded = value.startsWith('data:image/') || value.startsWith(localImageAssetPrefix);
   const visibleMessage = externalMessage || message;
   const visiblePreviewUrl = previewUrl || value;
   const hasFileMode = typeof onFileSelected === 'function';

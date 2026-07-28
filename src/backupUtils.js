@@ -63,12 +63,13 @@ function restoreLog(phase, status, details = {}) {
 }
 
 export class RestoreError extends Error {
-  constructor(code, phase, cause) {
+  constructor(code, phase, cause, diagnostics = {}) {
     super(`Restore failed during ${phase}.`);
     this.name = 'RestoreError';
     this.code = code;
     this.phase = phase;
     this.cause = cause;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -77,6 +78,97 @@ function restoreErrorCode(error, phase) {
     return `RESTORE_${phase}_QUOTA`;
   }
   return `RESTORE_${phase}_FAILED`;
+}
+
+function storageStringSize(value) {
+  const characters = String(value ?? '').length;
+  return { characters, approximateBytes: characters * 2 };
+}
+
+function serializedSize(value) {
+  return storageStringSize(JSON.stringify(value));
+}
+
+function isEmbeddedImage(value) {
+  return typeof value === 'string' && value.startsWith('data:image/');
+}
+
+function addImageSize(bucket, value) {
+  if (!isEmbeddedImage(value)) return;
+  const size = storageStringSize(value);
+  bucket.count += 1;
+  bucket.characters += size.characters;
+  bucket.approximateBytes += size.approximateBytes;
+}
+
+export function analyzeBackupStorage(backup, restoreSnapshotValue = '') {
+  const normalized = normalizeBackup(backup);
+  if (!normalized.ok) return { ok: false, error: normalized.error };
+  const data = normalized.backup.data;
+  const embeddedImages = {
+    plantPrimaryPhotos: { count: 0, characters: 0, approximateBytes: 0 },
+    photoLogs: { count: 0, characters: 0, approximateBytes: 0 },
+    handwrittenJournalImages: { count: 0, characters: 0, approximateBytes: 0 },
+    timelineAndTrackerPhotos: { count: 0, characters: 0, approximateBytes: 0 },
+    otherImages: { count: 0, characters: 0, approximateBytes: 0 },
+  };
+  const imageOccurrences = new Map();
+  const registerImage = (bucket, value) => {
+    addImageSize(bucket, value);
+    if (isEmbeddedImage(value)) imageOccurrences.set(value, (imageOccurrences.get(value) || 0) + 1);
+  };
+
+  data.plants.forEach((plant) => {
+    registerImage(embeddedImages.plantPrimaryPhotos, plant.imageUrl);
+    arrayValue(plant.photoLog).forEach((entry) => registerImage(embeddedImages.photoLogs, entry.photoUrl));
+    arrayValue(plant.timelineEntries).forEach((entry) => registerImage(embeddedImages.timelineAndTrackerPhotos, entry.photoUrl));
+    arrayValue(plant.cormProgressPhotos).forEach((entry) => registerImage(embeddedImages.timelineAndTrackerPhotos, entry.photoUrl));
+    arrayValue(plant.cormPhaseHistory).forEach((entry) => registerImage(embeddedImages.timelineAndTrackerPhotos, entry.photoUrl));
+  });
+  data.quickNotes.forEach((note) => registerImage(embeddedImages.handwrittenJournalImages, note.photoUrl));
+  data.wishlistItems.forEach((item) => registerImage(embeddedImages.otherImages, item.imageUrl));
+  data.gardenBeds.forEach((bed) => {
+    registerImage(embeddedImages.otherImages, bed.imageUrl);
+    arrayValue(bed.crops).forEach((crop) => registerImage(embeddedImages.otherImages, crop.imageUrl));
+  });
+
+  const contributions = {
+    plantRecords: serializedSize(data.plants),
+    settings: serializedSize(data.preferences),
+    quickViews: serializedSize(data.quickViews),
+    undoSnapshot: storageStringSize(restoreSnapshotValue),
+    otherCollections: serializedSize({
+      dropdownOptions: data.dropdownOptions,
+      wishlistItems: data.wishlistItems,
+      reminders: data.reminders,
+      gardenBeds: data.gardenBeds,
+      plantSpaces: data.plantSpaces,
+      quickNotes: data.quickNotes,
+      extraLocalStorage: data.extraLocalStorage,
+    }),
+  };
+  const totalEmbedded = Object.values(embeddedImages).reduce((total, item) => ({
+    count: total.count + item.count,
+    characters: total.characters + item.characters,
+    approximateBytes: total.approximateBytes + item.approximateBytes,
+  }), { count: 0, characters: 0, approximateBytes: 0 });
+  const duplicateEmbedded = [...imageOccurrences]
+    .filter(([, count]) => count > 1)
+    .reduce((total, [value, count]) => {
+      total.uniqueImages += 1;
+      total.extraOccurrences += count - 1;
+      total.approximateDuplicateBytes += value.length * 2 * (count - 1);
+      return total;
+    }, { uniqueImages: 0, extraOccurrences: 0, approximateDuplicateBytes: 0 });
+
+  return {
+    ok: true,
+    contributions,
+    embeddedImages: { ...embeddedImages, total: totalEmbedded },
+    duplicateEmbedded,
+    cloudContainsUndoSnapshot: Object.hasOwn(data.extraLocalStorage, storageKeys.restoreSafetySnapshot),
+    totalBackup: serializedSize(normalized.backup),
+  };
 }
 
 function normalizeStorageString(value) {
@@ -110,7 +202,8 @@ export function getLocalMetadata() {
 
 export function getAppStorageData() {
   return Object.fromEntries(
-    Object.keys(localStorage)
+    Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .filter(Boolean)
       .filter((key) => key.startsWith(appStoragePrefix))
       .map((key) => [key, localStorage.getItem(key)]),
   );
@@ -400,9 +493,22 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
   }
 
   const keysToReplace = [...new Set([...baseKeysToReplace, ...writes.keys()])];
+  const preparedSnapshotValue = createSnapshot && currentBackup
+    ? JSON.stringify({ createdAt: new Date().toISOString(), backup: currentBackup })
+    : '';
   const originals = new Map(keysToReplace.map((key) => [key, localStorage.getItem(key)]));
   const previousSnapshot = localStorage.getItem(storageKeys.restoreSafetySnapshot);
+  const existingStorage = getAppStorageData();
+  const existingStorageCharacters = Object.entries(existingStorage).reduce(
+    (total, [key, value]) => total + key.length + String(value ?? '').length,
+    0,
+  );
+  const totalRestoreCharacters = [...writes].reduce(
+    (total, [key, value]) => total + key.length + value.length,
+    0,
+  );
   let mutationStarted = false;
+  let failingKey = '';
 
   try {
     phase = 'prepare';
@@ -412,12 +518,18 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
 
     if (createSnapshot && currentBackup) {
       phase = 'snapshot';
-      createRestoreSafetySnapshot(currentBackup);
+      failingKey = storageKeys.restoreSafetySnapshot;
+      localStorage.setItem(storageKeys.restoreSafetySnapshot, preparedSnapshotValue);
+      failingKey = '';
       restoreLog(phase, 'complete');
     }
 
     phase = 'write';
-    for (const [key, value] of writes) localStorage.setItem(key, value);
+    for (const [key, value] of writes) {
+      failingKey = key;
+      localStorage.setItem(key, value);
+    }
+    failingKey = '';
     restoreLog(phase, 'complete', { keyCount: writes.size });
 
     phase = 'verify';
@@ -432,7 +544,19 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
     return { ok: true, code: 'RESTORE_OK', phase };
   } catch (error) {
     const code = restoreErrorCode(error, phase.toUpperCase());
-    restoreLog(phase, 'failed', { code, errorName: error?.name || 'Error' });
+    const failingValue = failingKey === storageKeys.restoreSafetySnapshot
+      ? preparedSnapshotValue
+      : failingKey ? writes.get(failingKey) || '' : '';
+    const diagnostics = {
+      failingKey: failingKey || (phase === 'snapshot' ? storageKeys.restoreSafetySnapshot : ''),
+      failingKeyCharacters: failingValue.length,
+      failingKeyApproximateBytes: failingValue.length * 2,
+      totalRestoreCharacters,
+      totalRestoreApproximateBytes: totalRestoreCharacters * 2,
+      existingStorageCharacters,
+      existingStorageApproximateBytes: existingStorageCharacters * 2,
+    };
+    restoreLog(phase, 'failed', { code, errorName: error?.name || 'Error', ...diagnostics });
     if (mutationStarted) {
       try {
         restoreLog('rollback', 'start', { keyCount: originals.size });
@@ -453,7 +577,7 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
         throw new RestoreError('RESTORE_ROLLBACK_FAILED', 'rollback', rollbackError);
       }
     }
-    throw new RestoreError(code, phase, error);
+    throw new RestoreError(code, phase, error, diagnostics);
   }
 }
 

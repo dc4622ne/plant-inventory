@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { gardenStorageKey } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
+import { useResolvedImageSource } from './resolvedImageSource';
 import { uploadStoredImage } from './imageUploadUtils';
 import { markLocalDataChanged } from './backupUtils';
 
@@ -34,8 +35,9 @@ function FormField({ id, label, className = '', children }) {
 
 function CropImage({ crop }) {
   const [failed, setFailed] = useState(false);
-  if (!crop.imageUrl?.trim() || failed) return null;
-  return <img className="garden-crop-image" src={crop.imageUrl} alt={`${crop.name} crop`} onError={() => setFailed(true)} />;
+  const resolvedImageUrl = useResolvedImageSource(crop.imageUrl?.trim());
+  if (!resolvedImageUrl || failed) return null;
+  return <img className="garden-crop-image" src={resolvedImageUrl} alt={`${crop.name} crop`} onError={() => setFailed(true)} />;
 }
 
 export default function Garden({ beds, onChange, initialFilter, onDirtyChange }) {

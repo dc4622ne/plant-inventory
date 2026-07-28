@@ -6,7 +6,13 @@ import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
 import { getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
+import { useResolvedImageSource } from './resolvedImageSource';
 import { uploadStoredImage } from './imageUploadUtils';
+import {
+  deleteImageAsset,
+  materializeBackupImages,
+  migrateEmbeddedImagesInBackup,
+} from './imageAssetStore';
 import { loadPlantSpaces, plantSpacesStorageKey, plantWallSpaceId } from './plantSpacesData';
 import {
   applyBackupToLocalStorage,
@@ -499,13 +505,14 @@ function getPlantImage(name, type) {
 function PlantImage({ plant, detail = false }) {
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = plant.imageUrl?.trim();
+  const resolvedImageUrl = useResolvedImageSource(imageUrl);
   const className = `plant-image${detail ? ' detail-image' : ''}`;
 
-  if (imageUrl && !imageFailed) {
+  if (resolvedImageUrl && !imageFailed) {
     return (
       <span className={className}>
         <img
-          src={imageUrl}
+          src={resolvedImageUrl}
           alt={`${plant.name} plant`}
           onError={() => setImageFailed(true)}
         />
@@ -522,11 +529,12 @@ function PlantImage({ plant, detail = false }) {
 
 function PhotoLogImage({ entry, plantName }) {
   const [imageFailed, setImageFailed] = useState(false);
+  const resolvedPhotoUrl = useResolvedImageSource(entry.photoUrl);
 
   return (
     <div className="photo-log-image">
-      {!imageFailed ? (
-        <img src={entry.photoUrl} alt={`${plantName}: ${entry.photoType}`}
+      {resolvedPhotoUrl && !imageFailed ? (
+        <img src={resolvedPhotoUrl} alt={`${plantName}: ${entry.photoType}`}
           onError={() => setImageFailed(true)} />
       ) : (
         <span role="img" aria-label="Photo unavailable">🌿</span>
@@ -2548,8 +2556,18 @@ function App() {
     setRestoreSnapshotInfo(getRestoreSafetySnapshot());
   }
 
-  function exportData() {
-    const backup = createBackup();
+  async function exportData() {
+    let backup;
+    try {
+      backup = await materializeBackupImages(createBackup());
+    } catch (error) {
+      console.error('[plant-tracker:backup]', {
+        phase: 'materialize-images', status: 'failed', errorName: error?.name || 'Error',
+      });
+      setBackupMessageType('error');
+      setBackupMessage('The backup could not be prepared because a local photo asset is unavailable.');
+      return;
+    }
     const summary = getBackupSummary(backup);
     if (!window.confirm(`Download JSON backup?\n\n${describeBackup(backup)}`)) return;
     const date = new Date().toISOString().slice(0, 10);
@@ -2569,18 +2587,51 @@ function App() {
     setBackupMessage(`Backup exported successfully.\n${formatBackupSummary(summary)}`);
   }
 
-  function restoreBackup(backup, returnToDashboard = true) {
-    const currentBackup = createBackup();
+  async function restoreBackup(backup, returnToDashboard = true) {
+    let incomingMigration;
+    let currentMigration;
+    console.info('[plant-tracker:restore]', { phase: 'photo-migration', status: 'start' });
+    try {
+      incomingMigration = await migrateEmbeddedImagesInBackup(backup);
+      currentMigration = await migrateEmbeddedImagesInBackup(createBackup());
+      console.info('[plant-tracker:restore]', {
+        phase: 'photo-migration',
+        status: 'complete',
+        migratedImageCount: incomingMigration.migratedCount,
+        migratedImageCharacters: incomingMigration.migratedCharacters,
+        migratedImageApproximateBytes: incomingMigration.migratedApproximateBytes,
+      });
+    } catch (error) {
+      const partialReferences = [
+        ...(incomingMigration?.createdReferences || []),
+        ...(currentMigration?.createdReferences || []),
+      ];
+      await Promise.allSettled(partialReferences.map((reference) => deleteImageAsset(reference)));
+      console.error('[plant-tracker:restore]', {
+        phase: 'photo-migration', status: 'failed',
+        code: 'RESTORE_PHOTO_MIGRATION_FAILED', errorName: error?.name || 'Error',
+      });
+      return { ok: false, code: 'RESTORE_PHOTO_MIGRATION_FAILED', phase: 'photo-migration' };
+    }
+    const createdImageReferences = [
+      ...incomingMigration.createdReferences,
+      ...currentMigration.createdReferences,
+    ];
     let result;
     try {
-      result = applyBackupToLocalStorage(backup, { createSnapshot: true, currentBackup });
+      result = applyBackupToLocalStorage(incomingMigration.backup, {
+        createSnapshot: true,
+        currentBackup: currentMigration.backup,
+      });
     } catch (error) {
       console.error('[plant-tracker:restore]', {
         phase: error?.phase || 'unknown',
         status: 'failed',
         code: error?.code || 'RESTORE_UNKNOWN_FAILED',
         errorName: error?.cause?.name || error?.name || 'Error',
+        ...error?.diagnostics,
       });
+      await Promise.allSettled(createdImageReferences.map((reference) => deleteImageAsset(reference)));
       return {
         ok: false,
         code: error?.code || 'RESTORE_UNKNOWN_FAILED',
@@ -2660,7 +2711,17 @@ function App() {
       setCloudMessage('Supabase is not configured. Add the environment variables described in the README.');
       return;
     }
-    const backup = createBackup();
+    let backup;
+    try {
+      backup = await materializeBackupImages(createBackup());
+    } catch (error) {
+      console.error('[plant-tracker:backup]', {
+        phase: 'materialize-images', status: 'failed', errorName: error?.name || 'Error',
+      });
+      setCloudMessageType('error');
+      setCloudMessage('The cloud backup could not be prepared because a local photo asset is unavailable.');
+      return;
+    }
     if (!window.confirm(`Save current local data to cloud?\n\n${describeBackup(backup)}`)) return;
     setCloudBusy(true);
     setCloudMessage('');
@@ -2777,7 +2838,7 @@ function App() {
       setCloudMessage('Cloud restore canceled. Your local data was not changed.');
       return;
     }
-    const restoreResult = restoreBackup(backup, false);
+    const restoreResult = await restoreBackup(backup, false);
     if (!restoreResult.ok) {
       setCloudMessageType('error');
       setCloudMessage(
@@ -2934,7 +2995,7 @@ function App() {
       ].filter(Boolean).join('\n'),
     )) return;
 
-    const restoreResult = restoreBackup(normalized.backup);
+    const restoreResult = await restoreBackup(normalized.backup);
     if (restoreResult.ok) {
       const summary = getBackupSummary(normalized.backup);
       setBackupPreview(summary);

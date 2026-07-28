@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.21.1',
+  version: 'v0.21.2',
   buildDateTime: '2026-07-28',
-  releaseName: 'Reliable Cloud Restore',
+  releaseName: 'iOS Photo Storage Migration',
 };
 
 export const changelog = [
+  {
+    version: 'v0.21.2',
+    releaseDate: '2026-07-28',
+    changes: [
+      'Migrated legacy base64 photos from localStorage into IndexedDB before structured restore.',
+      'Kept v4 cloud and downloaded backups compatible by materializing local photo assets when exporting or saving to cloud.',
+      'Added privacy-safe storage diagnostics with the failing key and aggregate payload, existing-storage, and collection sizes.',
+      'Kept exact structured-data rollback while making restored plant records independent of the localStorage photo quota.',
+    ],
+  },
   {
     version: 'v0.21.1',
     releaseDate: '2026-07-28',
