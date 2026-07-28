@@ -2571,16 +2571,32 @@ function App() {
 
   function restoreBackup(backup, returnToDashboard = true) {
     const currentBackup = createBackup();
+    let result;
     try {
-      applyBackupToLocalStorage(backup, { createSnapshot: true, currentBackup });
-      refreshRestoredState(returnToDashboard);
-      return true;
+      result = applyBackupToLocalStorage(backup, { createSnapshot: true, currentBackup });
     } catch (error) {
-      console.error('Backup restore failed:', error);
-      applyBackupToLocalStorage(currentBackup, { createSnapshot: false });
-      refreshRestoredState(returnToDashboard);
-      return false;
+      console.error('[plant-tracker:restore]', {
+        phase: error?.phase || 'unknown',
+        status: 'failed',
+        code: error?.code || 'RESTORE_UNKNOWN_FAILED',
+        errorName: error?.cause?.name || error?.name || 'Error',
+      });
+      return {
+        ok: false,
+        code: error?.code || 'RESTORE_UNKNOWN_FAILED',
+        phase: error?.phase || 'unknown',
+      };
     }
+    try {
+      refreshRestoredState(returnToDashboard);
+    } catch (error) {
+      console.error('[plant-tracker:restore]', {
+        phase: 'refresh', status: 'failed', code: 'RESTORE_REFRESH_FAILED',
+        errorName: error?.name || 'Error',
+      });
+      window.location.reload();
+    }
+    return result;
   }
 
   function undoLastRestore() {
@@ -2707,20 +2723,34 @@ function App() {
     }
     setCloudBusy(true);
     setCloudMessage('');
+    console.info('[plant-tracker:restore]', { phase: 'download', status: 'start', source: 'cloud' });
     const { data, error } = await fetchCloudBackup();
     setCloudBusy(false);
     if (error) {
-      console.error('Cloud backup restore read failed:', error);
+      console.error('[plant-tracker:restore]', {
+        phase: 'download', status: 'failed', code: 'RESTORE_DOWNLOAD_FAILED',
+        errorName: error.name || 'SupabaseError', statusCode: error.code || '',
+      });
       setCloudMessageType('error');
       setCloudMessage('The cloud backup could not be loaded. Your local data was not changed.');
       return;
     }
+    console.info('[plant-tracker:restore]', {
+      phase: 'download', status: 'complete', source: 'cloud', backupFound: Boolean(data),
+    });
+    console.info('[plant-tracker:restore]', { phase: 'normalize', status: 'start' });
     const normalized = data ? normalizeBackup(data.data) : { ok: false, error: 'No cloud backup was found.' };
     if (!normalized.ok) {
+      console.error('[plant-tracker:restore]', {
+        phase: 'normalize', status: 'failed', code: 'RESTORE_NORMALIZE_FAILED',
+      });
       setCloudMessageType('error');
       setCloudMessage(`${normalized.error} Your local data was not changed.`);
       return;
     }
+    console.info('[plant-tracker:restore]', {
+      phase: 'normalize', status: 'complete', schemaVersion: normalized.backup.schemaVersion,
+    });
     const backup = normalized.backup;
     const warning = backupHasZeroPlantsWarning(backup, plants.length);
     const localModifiedAt = getLocalMetadata().lastModifiedAt;
@@ -2747,9 +2777,13 @@ function App() {
       setCloudMessage('Cloud restore canceled. Your local data was not changed.');
       return;
     }
-    if (!restoreBackup(backup, false)) {
+    const restoreResult = restoreBackup(backup, false);
+    if (!restoreResult.ok) {
       setCloudMessageType('error');
-      setCloudMessage('The cloud backup could not be restored. Your previous local data has been put back.');
+      setCloudMessage(
+        `The cloud backup could not be restored. Your previous local data has been put back. `
+        + `Reference: ${restoreResult.code} (${restoreResult.phase}).`,
+      );
       return;
     }
     setCloudUpdatedAt(data.updated_at || '');
@@ -2900,7 +2934,8 @@ function App() {
       ].filter(Boolean).join('\n'),
     )) return;
 
-    if (restoreBackup(normalized.backup)) {
+    const restoreResult = restoreBackup(normalized.backup);
+    if (restoreResult.ok) {
       const summary = getBackupSummary(normalized.backup);
       setBackupPreview(summary);
       setBackupMessageType('success');

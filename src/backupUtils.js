@@ -53,6 +53,32 @@ function objectValue(value) {
   return isPlainObject(value) ? value : {};
 }
 
+function restoreLog(phase, status, details = {}) {
+  console.info('[plant-tracker:restore]', {
+    phase,
+    status,
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+}
+
+export class RestoreError extends Error {
+  constructor(code, phase, cause) {
+    super(`Restore failed during ${phase}.`);
+    this.name = 'RestoreError';
+    this.code = code;
+    this.phase = phase;
+    this.cause = cause;
+  }
+}
+
+function restoreErrorCode(error, phase) {
+  if (error?.name === 'QuotaExceededError' || error?.code === 22 || error?.code === 1014) {
+    return `RESTORE_${phase}_QUOTA`;
+  }
+  return `RESTORE_${phase}_FAILED`;
+}
+
 function normalizeStorageString(value) {
   return typeof value === 'string' ? value : JSON.stringify(value ?? '');
 }
@@ -328,9 +354,17 @@ export function getRestoreSafetySnapshot() {
 }
 
 export function applyBackupToLocalStorage(backup, { createSnapshot = true, currentBackup = null } = {}) {
-  if (createSnapshot && currentBackup) createRestoreSafetySnapshot(currentBackup);
+  const normalized = normalizeBackup(backup);
+  if (!normalized.ok) {
+    throw new RestoreError('RESTORE_VALIDATE_FAILED', 'validate', new Error(normalized.error));
+  }
+  const preparedBackup = normalized.backup;
+  restoreLog('validate', 'complete', {
+    schemaVersion: preparedBackup.schemaVersion,
+    collectionCount: backupCollectionRegistry.length,
+  });
 
-  const keysToReplace = [
+  const baseKeysToReplace = [
     storageKeys.plants,
     storageKeys.dropdownOptions,
     storageKeys.wishlistItems,
@@ -342,24 +376,85 @@ export function applyBackupToLocalStorage(backup, { createSnapshot = true, curre
     storageKeys.plantViewMode,
     storageKeys.plantPageSizes,
   ];
+  let phase = 'serialize';
+  const writes = new Map();
+  try {
+    writes.set(storageKeys.plants, JSON.stringify(preparedBackup.data.plants));
+    writes.set(storageKeys.dropdownOptions, JSON.stringify(preparedBackup.data.dropdownOptions));
+    writes.set(storageKeys.wishlistItems, JSON.stringify(preparedBackup.data.wishlistItems));
+    writes.set(storageKeys.reminders, JSON.stringify(preparedBackup.data.reminders));
+    writes.set(storageKeys.gardenBeds, JSON.stringify(preparedBackup.data.gardenBeds));
+    writes.set(storageKeys.plantSpaces, JSON.stringify(preparedBackup.data.plantSpaces));
+    writes.set(storageKeys.quickNotes, JSON.stringify(preparedBackup.data.quickNotes));
+    writes.set(storageKeys.quickViews, JSON.stringify(preparedBackup.data.quickViews));
+    writes.set(storageKeys.plantViewMode, preparedBackup.data.preferences.plantViewMode || 'cards');
+    writes.set(storageKeys.plantPageSizes, JSON.stringify(objectValue(preparedBackup.data.preferences.plantPageSizes)));
+    Object.entries(preparedBackup.data.extraLocalStorage).forEach(([key, value]) => writes.set(key, value));
+    restoreLog(phase, 'complete', {
+      keyCount: writes.size,
+      approximateBytes: [...writes].reduce((total, [key, value]) => total + (key.length + value.length) * 2, 0),
+    });
+  } catch (error) {
+    restoreLog(phase, 'failed', { errorName: error?.name || 'Error' });
+    throw new RestoreError(restoreErrorCode(error, phase.toUpperCase()), phase, error);
+  }
 
-  keysToReplace.forEach((key) => localStorage.removeItem(key));
-  localStorage.setItem(storageKeys.plants, JSON.stringify(backup.data.plants));
-  localStorage.setItem(storageKeys.dropdownOptions, JSON.stringify(backup.data.dropdownOptions));
-  localStorage.setItem(storageKeys.wishlistItems, JSON.stringify(backup.data.wishlistItems));
-  localStorage.setItem(storageKeys.reminders, JSON.stringify(backup.data.reminders));
-  localStorage.setItem(storageKeys.gardenBeds, JSON.stringify(backup.data.gardenBeds));
-  localStorage.setItem(storageKeys.plantSpaces, JSON.stringify(backup.data.plantSpaces));
-  localStorage.setItem(storageKeys.quickNotes, JSON.stringify(backup.data.quickNotes));
-  localStorage.setItem(storageKeys.quickViews, JSON.stringify(backup.data.quickViews));
-  localStorage.setItem(storageKeys.plantViewMode, backup.data.preferences.plantViewMode || 'cards');
-  localStorage.setItem(storageKeys.plantPageSizes, JSON.stringify(objectValue(backup.data.preferences.plantPageSizes)));
+  const keysToReplace = [...new Set([...baseKeysToReplace, ...writes.keys()])];
+  const originals = new Map(keysToReplace.map((key) => [key, localStorage.getItem(key)]));
+  const previousSnapshot = localStorage.getItem(storageKeys.restoreSafetySnapshot);
+  let mutationStarted = false;
 
-  Object.entries(backup.data.extraLocalStorage).forEach(([key, value]) => {
-    localStorage.setItem(key, value);
-  });
+  try {
+    phase = 'prepare';
+    restoreLog(phase, 'start', { keyCount: keysToReplace.length });
+    keysToReplace.forEach((key) => localStorage.removeItem(key));
+    mutationStarted = true;
 
-  markLocalDataChanged('restore');
+    if (createSnapshot && currentBackup) {
+      phase = 'snapshot';
+      createRestoreSafetySnapshot(currentBackup);
+      restoreLog(phase, 'complete');
+    }
+
+    phase = 'write';
+    for (const [key, value] of writes) localStorage.setItem(key, value);
+    restoreLog(phase, 'complete', { keyCount: writes.size });
+
+    phase = 'verify';
+    for (const [key, value] of writes) {
+      if (localStorage.getItem(key) !== value) throw new Error(`Read-back mismatch for ${key}`);
+    }
+    restoreLog(phase, 'complete', { keyCount: writes.size });
+
+    phase = 'finalize';
+    markLocalDataChanged('restore');
+    restoreLog(phase, 'complete');
+    return { ok: true, code: 'RESTORE_OK', phase };
+  } catch (error) {
+    const code = restoreErrorCode(error, phase.toUpperCase());
+    restoreLog(phase, 'failed', { code, errorName: error?.name || 'Error' });
+    if (mutationStarted) {
+      try {
+        restoreLog('rollback', 'start', { keyCount: originals.size });
+        keysToReplace.forEach((key) => localStorage.removeItem(key));
+        localStorage.removeItem(storageKeys.restoreSafetySnapshot);
+        for (const [key, value] of originals) {
+          if (value !== null) localStorage.setItem(key, value);
+        }
+        if (previousSnapshot !== null) {
+          localStorage.setItem(storageKeys.restoreSafetySnapshot, previousSnapshot);
+        }
+        for (const [key, value] of originals) {
+          if (localStorage.getItem(key) !== value) throw new Error(`Rollback mismatch for ${key}`);
+        }
+        restoreLog('rollback', 'complete');
+      } catch (rollbackError) {
+        restoreLog('rollback', 'failed', { errorName: rollbackError?.name || 'Error' });
+        throw new RestoreError('RESTORE_ROLLBACK_FAILED', 'rollback', rollbackError);
+      }
+    }
+    throw new RestoreError(code, phase, error);
+  }
 }
 
 export function auditBackupCoverage() {

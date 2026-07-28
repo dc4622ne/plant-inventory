@@ -2,11 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 class LocalStorageMock {
-  constructor() { this.values = new Map(); }
+  constructor() {
+    this.values = new Map();
+    this.quota = Infinity;
+  }
   get length() { return this.values.size; }
   key(index) { return [...this.values.keys()][index] ?? null; }
   getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
-  setItem(key, value) { this.values.set(String(key), String(value)); }
+  setItem(key, value) {
+    const next = new Map(this.values);
+    next.set(String(key), String(value));
+    const size = [...next].reduce((total, [storedKey, storedValue]) => (
+      total + (storedKey.length + storedValue.length) * 2
+    ), 0);
+    if (size > this.quota) {
+      const error = new Error('Storage quota exceeded');
+      error.name = 'QuotaExceededError';
+      throw error;
+    }
+    this.values = next;
+  }
   removeItem(key) { this.values.delete(key); }
   clear() { this.values.clear(); }
 }
@@ -104,4 +119,57 @@ test('restore safety snapshots retain Quick Views for undo', () => {
   applyBackupToLocalStorage(incomingBackup, { createSnapshot: true, currentBackup });
   const snapshot = getRestoreSafetySnapshot();
   assert.equal(snapshot.backup.data.quickViews[0].id, 'view-before');
+});
+
+test('quota failure during a restore preserves the exact original local state', () => {
+  localStorage.clear();
+  localStorage.quota = Infinity;
+  const currentBackup = assembleBackup({
+    plants: [{ id: 'original', notes: 'safe' }], dropdownOptions: {}, wishlistItems: [],
+    gardenBeds: [], plantSpaces: [], reminders: [], quickNotes: [], quickViews: [],
+    appVersion: 'v0.21.0',
+  });
+  applyBackupToLocalStorage(currentBackup, { createSnapshot: false });
+  const before = new Map(localStorage.values);
+  const incomingBackup = {
+    ...currentBackup,
+    exportedAt: new Date().toISOString(),
+    data: {
+      ...currentBackup.data,
+      plants: [{ id: 'restored', notes: 'x'.repeat(10_000) }],
+    },
+  };
+  localStorage.quota = 4_000;
+
+  assert.throws(
+    () => applyBackupToLocalStorage(incomingBackup, { createSnapshot: true, currentBackup }),
+    (error) => error.code === 'RESTORE_WRITE_QUOTA' && error.phase === 'write',
+  );
+  assert.deepEqual(localStorage.values, before);
+  localStorage.quota = Infinity;
+});
+
+test('restore avoids duplicating live data before creating its safety snapshot', () => {
+  localStorage.clear();
+  localStorage.quota = Infinity;
+  const currentBackup = assembleBackup({
+    plants: [{ id: 'original', notes: 'x'.repeat(3_000) }], dropdownOptions: {},
+    wishlistItems: [], gardenBeds: [], plantSpaces: [], reminders: [], quickNotes: [],
+    quickViews: [], appVersion: 'v0.21.0',
+  });
+  applyBackupToLocalStorage(currentBackup, { createSnapshot: false });
+  const incomingBackup = {
+    ...currentBackup,
+    exportedAt: new Date().toISOString(),
+    data: { ...currentBackup.data, plants: [{ id: 'restored' }] },
+  };
+  const originalBytes = [...localStorage.values].reduce((total, [key, value]) => (
+    total + (key.length + value.length) * 2
+  ), 0);
+  localStorage.quota = Math.ceil(originalBytes * 1.6);
+
+  const result = applyBackupToLocalStorage(incomingBackup, { createSnapshot: true, currentBackup });
+  assert.equal(result.ok, true);
+  assert.equal(JSON.parse(localStorage.getItem(storageKeys.plants))[0].id, 'restored');
+  localStorage.quota = Infinity;
 });

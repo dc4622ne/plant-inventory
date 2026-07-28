@@ -1,10 +1,20 @@
 export const currentAppVersion = {
-  version: 'v0.21.0',
-  buildDateTime: '2026-07-26',
-  releaseName: 'Origins, Corms & Plant Journal',
+  version: 'v0.21.1',
+  buildDateTime: '2026-07-28',
+  releaseName: 'Reliable Cloud Restore',
 };
 
 export const changelog = [
+  {
+    version: 'v0.21.1',
+    releaseDate: '2026-07-28',
+    changes: [
+      'Fixed cloud restore failures caused by temporary local-storage duplication in installed iPhone and iPad web apps.',
+      'Made restore writes transactional with pre-serialization, exact rollback, read-back verification, and phase-specific error references.',
+      'Added privacy-safe structured diagnostics for cloud download, normalization, validation, snapshot, write, verification, rollback, and completion.',
+      'Updated the service worker so installed apps check for a fresh app shell and activate deployed updates promptly.',
+    ],
+  },
   {
     version: 'v0.21.0',
     releaseDate: '2026-07-26',

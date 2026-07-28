@@ -1,4 +1,4 @@
-const CACHE_NAME = 'plant-tracker-shell-v2';
+const CACHE_NAME = 'plant-tracker-shell-v3';
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -22,15 +22,16 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
+  const isNavigation = event.request.mode === 'navigate';
   event.respondWith(
-    fetch(event.request).then((response) => {
+    fetch(event.request, isNavigation ? { cache: 'no-store' } : undefined).then((response) => {
       if (response.ok) {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
       }
       return response;
     }).catch(() => caches.match(event.request).then((cached) => (
-      cached || (event.request.mode === 'navigate' ? caches.match('/') : Response.error())
+      cached || (isNavigation ? caches.match('/') : Response.error())
     ))),
   );
 });

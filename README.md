@@ -135,6 +135,10 @@ Older v1 backups are normalized on import or cloud restore. Missing newer arrays
 
 Cloud sync remains manual backup/restore sync rather than live real-time synchronization. The app reads and writes only the `app_backups` row with ID `primary`, uses upsert for saves, prevents overlapping cloud requests, and does not report save success until Supabase confirms the write.
 
+Restore is transactional in v0.21.1. The app downloads and normalizes the complete backup before changing live data, prepares every serialized value in memory, retains an exact rollback copy, writes a safety snapshot without first duplicating the live collections, verifies every write, and restores the exact original keys if any phase fails. Privacy-safe console diagnostics report phase names, error codes, collection/key counts, schema version, and approximate byte sizes without logging plant records or backup contents.
+
+The v0.21.1 fix addresses installed iOS/iPadOS restore failures caused by the previous write order temporarily storing a full second copy of the current database before removing the live keys. Safari and an installed Home Screen app use separate website-data containers, so the standalone container could hit its `localStorage` quota even when the same cloud backup restored in Safari.
+
 ## Build and deploy
 
 - Create a production build: `npm run build`
