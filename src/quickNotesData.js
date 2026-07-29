@@ -13,7 +13,18 @@ export function normalizeQuickNote(note) {
     filedAt: String(note.filedAt || ''),
     filedAs: String(note.filedAs || ''),
     destinationId: String(note.destinationId || ''),
+    editedAt: String(note.editedAt || ''),
   };
+}
+
+export function updateQuickNote(notes, noteId, changes, editedAt = new Date().toISOString()) {
+  return notes.map((note) => {
+    if (note.id !== noteId) return note;
+    const changed = ['text', 'plantId', 'photoUrl'].some(
+      (field) => Object.hasOwn(changes, field) && changes[field] !== note[field],
+    );
+    return changed ? { ...note, ...changes, editedAt } : note;
+  });
 }
 
 export function loadQuickNotes() {

@@ -1,5 +1,11 @@
 # Plant Tracker
 
+## v0.24.0 — Plant Detail UX Overhaul and Interface Consistency
+
+Plant Detail now uses denser responsive field rows and clearer overview, identity/origin, environment, care, tracker, and history hierarchy while preserving populated-only rendering, sticky section navigation, direct tracker updates, quick actions, safe-area handling, return-to-top, and photo enlargement. A reusable compact floating navigator is mounted at the application shell and remains available across primary screens, with a contextual Edit This Plant action on Plant Detail.
+
+Plant Journal entries can be edited in place without changing their ID, original creation time, plant relationship, filed state, or conversion metadata. Informational release content now lives in About, Dashboard customization is the final content area, the Dashboard opens directly on useful controls, and unordered categorical dropdowns are alphabetized without changing stored values or intentionally ordered workflows.
+
 ## v0.23.0 — Smart Home Dashboard
 
 The Dashboard is now a calm, mobile-first daily home screen with concise cards for Needs Attention, Check-ins, Quarantine, Recently Added, Watch List, Tissue Culture, LECA conversions, Corm progress, recent activity, Plant Journal, restored Plant Insights charts, and collection statistics. Add New Plant and New Journal Entry remain permanently available above the customizable cards. Every card links into an existing Plant Tracker destination or filtered Plant List.

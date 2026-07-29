@@ -10,6 +10,8 @@ import Garden from './Garden';
 import PlantSpaces from './PlantSpaces';
 import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
+import GlobalNavigation from './GlobalNavMenu';
+import { activeNavigationDestination } from './globalNavigation';
 import { getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { useResolvedImageSource } from './resolvedImageSource';
@@ -59,7 +61,8 @@ import {
   plantOriginOptions,
   shouldShowCormTracker,
 } from './plantData';
-import { loadQuickNotes, quickNotesStorageKey } from './quickNotesData';
+import { loadQuickNotes, quickNotesStorageKey, updateQuickNote } from './quickNotesData';
+import { sortCategoricalOptions, sortOptionsAlphabetically, sortOptionsForField } from './optionSorting';
 import {
   activeFilterValueCount,
   emptyPlantFilters,
@@ -270,10 +273,12 @@ const quickNoteDestinations = [
 
 function trackerSelectOptions(fieldName, plants = []) {
   if (fieldName === 'cormPhase') return cormPhaseOptions;
-  if (fieldName === 'cormGrowthMethod') return cormGrowthMethodOptions;
-  if (fieldName === 'cormInitialCondition') return cormInitialConditionOptions;
+  if (fieldName === 'cormGrowthMethod') return sortCategoricalOptions(cormGrowthMethodOptions);
+  if (fieldName === 'cormInitialCondition') return sortCategoricalOptions(cormInitialConditionOptions);
   if (fieldName === 'cormOutcome') return cormOutcomeOptions;
-  if (fieldName === 'cormParentPlantId') return plants.map((plant) => ({ value: plant.id, label: plant.name }));
+  if (fieldName === 'cormParentPlantId') {
+    return sortOptionsAlphabetically(plants.map((plant) => ({ value: plant.id, label: plant.name })));
+  }
   return null;
 }
 
@@ -369,7 +374,6 @@ const plantSortOptions = [
 const settingsSections = [
   ['quick-views', 'Quick Views'],
   ['cloud', 'Cloud Sync'],
-  ['version', 'Version & Release'],
   ['backup', 'Backup & Restore'],
   ['export', 'Import & Export'],
   ['general', 'General'],
@@ -478,11 +482,14 @@ function loadDropdownOptions() {
     .map((plant) => plant.soilMix)
     .filter((value) => value && !getSoilMixByValue(value));
 
-  return {
+  return Object.fromEntries(Object.entries({
     ...loadedOptions,
     source: [...new Set([...loadedOptions.source, ...savedPlantSources])],
     soilMix: [...new Set([...soilMixOptions.map((option) => option.value), ...customSoilMixValues])],
-  };
+  }).map(([fieldName, options]) => [
+    fieldName,
+    sortOptionsForField(fieldName, options),
+  ]));
 }
 
 const emptyWishlistItem = {
@@ -1128,6 +1135,7 @@ function App() {
   const [trackerPhotoFile, setTrackerPhotoFile] = useState(null);
   const [trackerPhotoPreviewUrl, setTrackerPhotoPreviewUrl] = useState('');
   const [quickNoteDraft, setQuickNoteDraft] = useState({ text: '', plantId: '', photoUrl: '' });
+  const [editingQuickNoteId, setEditingQuickNoteId] = useState('');
   const [quickNoteFile, setQuickNoteFile] = useState(null);
   const [quickNotePreviewUrl, setQuickNotePreviewUrl] = useState('');
   const [quickNoteMessage, setQuickNoteMessage] = useState('');
@@ -1968,6 +1976,55 @@ function App() {
     setAppView('settings');
   }
 
+  function openAbout() {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedPlant(null);
+    setShowForm(false);
+    setIsEditing(false);
+    setAppView('about');
+  }
+
+  function openAddPlant() {
+    if (!confirmDiscardChanges()) return;
+    resetMajorFormDrafts();
+    setSelectedPlant(null);
+    setAddPlantMessage('');
+    setNewPlant(emptyPlant);
+    setPlantFormBaseline(JSON.stringify(emptyPlant));
+    setSoilMixIsCustom(false);
+    clearPlantImageSelection();
+    setIsEditing(false);
+    setShowForm(true);
+    setAppView('plants');
+  }
+
+  function handleGlobalNavigation(destinationId) {
+    const actions = {
+      dashboard: openDashboard,
+      'plant-list': () => openPlantList(),
+      'add-plant': openAddPlant,
+      'plant-spaces': () => openPlantSpaces(),
+      wishlist: () => openWishlist(),
+      garden: () => openGarden(),
+      'plant-journal': () => {
+        if (!confirmDiscardChanges()) return;
+        resetMajorFormDrafts();
+        setSelectedPlant(null);
+        setShowForm(false);
+        setIsEditing(false);
+        setAppView('quick-notes');
+      },
+      'check-ins': openReminders,
+      'plant-health': () => openPlantList({ lifecycle: 'active', filter: ['attention', 'High'] }),
+      resources: () => openResources(),
+      settings: openSettings,
+      about: openAbout,
+      'edit-plant': startEditing,
+    };
+    actions[destinationId]?.();
+  }
+
   function navigateSettingsSection(sectionId) {
     setSettingsSection(sectionId);
     window.history.pushState(null, '', `#settings-${sectionId}`);
@@ -2110,7 +2167,17 @@ function App() {
   }
 
   function openQuickNote(plantId = '') {
+    setEditingQuickNoteId('');
     setQuickNoteDraft({ text: '', plantId, photoUrl: '' });
+    setQuickNoteFile(null);
+    setQuickNotePreviewUrl('');
+    setQuickNoteMessage('');
+    setShowQuickNoteForm(true);
+  }
+
+  function editQuickNote(note) {
+    setEditingQuickNoteId(note.id);
+    setQuickNoteDraft({ text: note.text, plantId: note.plantId, photoUrl: note.photoUrl });
     setQuickNoteFile(null);
     setQuickNotePreviewUrl('');
     setQuickNoteMessage('');
@@ -2121,6 +2188,7 @@ function App() {
     if (quickNotePreviewUrl) URL.revokeObjectURL(quickNotePreviewUrl);
     setQuickNoteFile(null);
     setQuickNotePreviewUrl('');
+    setEditingQuickNoteId('');
     setShowQuickNoteForm(false);
   }
 
@@ -2133,19 +2201,28 @@ function App() {
       const photoUrl = quickNoteFile
         ? await uploadStoredImage(quickNoteFile, 'quick-notes')
         : quickNoteDraft.photoUrl;
-      const createdAt = new Date().toISOString();
-      saveQuickNotes([...quickNotes, {
-        id: makeId('quick-note'),
-        text: quickNoteDraft.text.trim(),
-        plantId: quickNoteDraft.plantId,
-        photoUrl,
-        createdAt,
-        observedAt: createdAt,
-        status: 'unprocessed',
-        filedAt: '',
-        filedAs: '',
-        destinationId: '',
-      }]);
+      if (editingQuickNoteId) {
+        saveQuickNotes(updateQuickNote(quickNotes, editingQuickNoteId, {
+          text: quickNoteDraft.text.trim(),
+          plantId: quickNoteDraft.plantId,
+          photoUrl,
+        }), 'quick-note-edit');
+      } else {
+        const createdAt = new Date().toISOString();
+        saveQuickNotes([...quickNotes, {
+          id: makeId('quick-note'),
+          text: quickNoteDraft.text.trim(),
+          plantId: quickNoteDraft.plantId,
+          photoUrl,
+          createdAt,
+          observedAt: createdAt,
+          status: 'unprocessed',
+          filedAt: '',
+          filedAs: '',
+          destinationId: '',
+          editedAt: '',
+        }]);
+      }
       closeQuickNote();
     } catch (error) {
       console.error('Quick note photo upload failed:', error);
@@ -3877,18 +3954,7 @@ function App() {
 
     return (
       <section className="dashboard-home dashboard-smart-home" aria-labelledby="dashboard-heading">
-        <div className="dashboard-heading">
-          <div>
-            <p className="detail-eyebrow">Today at a glance</p>
-            <h2 id="dashboard-heading">Your plant home</h2>
-            <p>See what needs attention, then pick up where you left off.</p>
-          </div>
-          <button className="secondary-button dashboard-customize-button" type="button"
-            aria-expanded={isCustomizingDashboard}
-            onClick={() => setIsCustomizingDashboard((visible) => !visible)}>
-            {isCustomizingDashboard ? 'Done' : 'Customize Dashboard'}
-          </button>
-        </div>
+        <h2 id="dashboard-heading" className="visually-hidden">Dashboard</h2>
         <section className="dashboard-primary-actions" aria-label="Quick add actions">
           <button className="dashboard-add-button" type="button" onClick={() => {
             setAddPlantMessage('');
@@ -3902,30 +3968,6 @@ function App() {
             + New Journal Entry
           </button>
         </section>
-        {isCustomizingDashboard && (
-          <section className="dashboard-customizer" aria-labelledby="dashboard-customizer-heading">
-            <div className="dashboard-customizer-heading">
-              <div><h3 id="dashboard-customizer-heading">Customize Dashboard</h3><p>Choose sections and adjust their order.</p></div>
-              <button className="secondary-button" type="button"
-                onClick={() => updateDashboardPreferences(defaultDashboardPreferences())}>Restore Default</button>
-            </div>
-            <ol className="dashboard-customizer-list">
-              {dashboardPreferences.cards.map((card, index) => (
-                <li key={card.id}>
-                  <label><input type="checkbox" checked={card.visible}
-                    onChange={() => toggleDashboardCard(card.id)} />{cardMetadata.get(card.id)?.title}</label>
-                  <span className="dashboard-move-controls">
-                    <button type="button" disabled={index === 0} onClick={() => moveDashboardCard(card.id, -1)}
-                      aria-label={`Move ${cardMetadata.get(card.id)?.title} up`}>↑</button>
-                    <button type="button" disabled={index === dashboardPreferences.cards.length - 1}
-                      onClick={() => moveDashboardCard(card.id, 1)}
-                      aria-label={`Move ${cardMetadata.get(card.id)?.title} down`}>↓</button>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
         <div className="dashboard-card-grid">
           {dashboardPreferences.cards.filter((card) => card.visible).map((preference) => {
             const metadata = cardMetadata.get(preference.id);
@@ -3948,6 +3990,44 @@ function App() {
             </div>
           )}
         </div>
+        <section className="dashboard-customization-management" aria-labelledby="dashboard-customization-heading">
+          <div className="dashboard-customization-action">
+            <div>
+              <h3 id="dashboard-customization-heading">Customize Dashboard</h3>
+              <p>Manage visible sections and their order.</p>
+            </div>
+            <button className="secondary-button dashboard-customize-button" type="button"
+              aria-expanded={isCustomizingDashboard}
+              aria-controls="dashboard-customizer-panel"
+              onClick={() => setIsCustomizingDashboard((visible) => !visible)}>
+              {isCustomizingDashboard ? 'Done' : 'Customize'}
+            </button>
+          </div>
+          {isCustomizingDashboard && (
+            <div className="dashboard-customizer" id="dashboard-customizer-panel">
+              <div className="dashboard-customizer-heading">
+                <p>Choose sections and adjust their order.</p>
+                <button className="secondary-button" type="button"
+                  onClick={() => updateDashboardPreferences(defaultDashboardPreferences())}>Restore Default</button>
+              </div>
+              <ol className="dashboard-customizer-list">
+                {dashboardPreferences.cards.map((card, index) => (
+                  <li key={card.id}>
+                    <label><input type="checkbox" checked={card.visible}
+                      onChange={() => toggleDashboardCard(card.id)} />{cardMetadata.get(card.id)?.title}</label>
+                    <span className="dashboard-move-controls">
+                      <button type="button" disabled={index === 0} onClick={() => moveDashboardCard(card.id, -1)}
+                        aria-label={`Move ${cardMetadata.get(card.id)?.title} up`}>↑</button>
+                      <button type="button" disabled={index === dashboardPreferences.cards.length - 1}
+                        onClick={() => moveDashboardCard(card.id, 1)}
+                        aria-label={`Move ${cardMetadata.get(card.id)?.title} down`}>↓</button>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </section>
       </section>
     );
   }
@@ -3997,6 +4077,10 @@ function App() {
         <button type="button" className={appView === 'settings' ? 'active' : ''}
           aria-current={appView === 'settings' ? 'page' : undefined} onClick={openSettings}>
           Settings
+        </button>
+        <button type="button" className={appView === 'about' ? 'active' : ''}
+          aria-current={appView === 'about' ? 'page' : undefined} onClick={openAbout}>
+          About
         </button>
       </nav>
 
@@ -4114,7 +4198,7 @@ function App() {
           )}
           <div className="detail-sections">
             <section className="detail-section lifecycle-section" id="plant-lifecycle">
-              <h3>Origin & lifecycle</h3>
+              <h3>Identity and Origin</h3>
               <dl className="detail-list">
                 <div><dt>Permanent origin</dt><dd>{selectedPlant.origin}</dd></div>
                 <div><dt>Current lifecycle stage</dt><dd>{selectedPlant.lifecycleStage}</dd></div>
@@ -4524,7 +4608,7 @@ function App() {
                   onChange={(event) => setNewPhotoEntry((entry) => ({
                     ...entry, photoType: event.target.value,
                   }))}>
-                  {photoTypes.map((photoType) => <option key={photoType}>{photoType}</option>)}
+                  {sortCategoricalOptions(photoTypes).map((photoType) => <option key={photoType}>{photoType}</option>)}
                 </select>
               </div>
               <div className="form-field photo-caption-field">
@@ -4582,7 +4666,7 @@ function App() {
                               onChange={(event) => setPhotoEntryDraft((draft) => ({
                                 ...draft, photoType: event.target.value,
                               }))}>
-                              {photoTypes.map((photoType) => <option key={photoType}>{photoType}</option>)}
+                              {sortCategoricalOptions(photoTypes).map((photoType) => <option key={photoType}>{photoType}</option>)}
                             </select>
                           </div>
                           <div className="form-field photo-caption-field">
@@ -4638,7 +4722,7 @@ function App() {
                   onChange={(event) => setNewLogEntry((entry) => ({
                     ...entry, activityType: event.target.value,
                   }))}>
-                  {activityTypes.map((activityType) => (
+                  {sortCategoricalOptions(activityTypes).map((activityType) => (
                     <option key={activityType}>{activityType}</option>
                   ))}
                 </select>
@@ -4677,7 +4761,7 @@ function App() {
                               onChange={(event) => setLogEntryDraft((draft) => ({
                                 ...draft, activityType: event.target.value,
                               }))}>
-                              {activityTypes.map((activityType) => (
+                              {sortCategoricalOptions(activityTypes).map((activityType) => (
                                 <option key={activityType}>{activityType}</option>
                               ))}
                             </select>
@@ -4941,7 +5025,7 @@ function App() {
             <div className="form-field">
               <label htmlFor="plant-origin">Plant origin</label>
               <select id="plant-origin" name="origin" value={newPlant.origin} onChange={handleInputChange}>
-                {plantOriginOptions.map((option) => <option key={option}>{option}</option>)}
+                {sortCategoricalOptions(plantOriginOptions).map((option) => <option key={option}>{option}</option>)}
               </select>
               <small>Origin is permanent history and stays separate from the current stage.</small>
             </div>
@@ -4990,7 +5074,7 @@ function App() {
                   <select id="plant-soilMix" value={getSoilMixSelectValue(newPlant.soilMix)}
                     onChange={handleSoilMixSelectChange}>
                     <option value="">Not selected</option>
-                    {soilMixOptions.map((option) => (
+                    {sortOptionsAlphabetically(soilMixOptions).map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                     <option value="__custom__">Custom / Other</option>
@@ -5408,7 +5492,8 @@ function App() {
                         onChange={(event) => saveQuickNotes(quickNotes.map((item) => item.id === note.id
                           ? { ...item, plantId: event.target.value } : item))}>
                         <option value="">No plant</option>
-                        {plants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                        {sortOptionsAlphabetically(plants.map((item) => ({ value: item.id, label: item.name })))
+                          .map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                       </select>
                     </div>
                   )}
@@ -5417,6 +5502,7 @@ function App() {
                       <button type="button" key={destination} className={destination === 'general' ? 'secondary-button' : ''}
                         onClick={() => startQuickNoteConversion(note, destination)}>{label}</button>
                     ))}
+                    <button type="button" className="secondary-button" onClick={() => editQuickNote(note)}>Edit Entry</button>
                     <button type="button" className="secondary-button" onClick={() => fileQuickNote(note)}>File Entry</button>
                     <button type="button" className="delete-plant-button" onClick={() => deleteQuickNote(note)}>Delete</button>
                   </div>
@@ -5439,6 +5525,9 @@ function App() {
                     </div>
                     <p>{note.text}</p>
                     {note.photoUrl && <SafeImage src={note.photoUrl} alt="Filed journal entry attachment" fallback={<span>Photo unavailable</span>} />}
+                    <div className="quick-note-actions">
+                      <button type="button" className="secondary-button" onClick={() => editQuickNote(note)}>Edit Entry</button>
+                    </div>
                     <small>Filed as: {note.filedAs || 'Filed entry'}</small>
                   </article>
                 ))}
@@ -5650,12 +5739,59 @@ function App() {
             </>
           )}
         </section>
+        ) : appView === 'about' ? (
+        <section className="settings-view about-view" aria-labelledby="about-heading">
+          <div className="settings-heading">
+            <p className="detail-eyebrow">Grow With Gibre</p>
+            <h2 id="about-heading">About Plant Tracker</h2>
+            <p>A local-first plant collection, care, and progress tracker.</p>
+          </div>
+          <section className="settings-card app-version-card" aria-labelledby="about-version-heading">
+            <div className="app-version-heading">
+              <div>
+                <p className="detail-eyebrow">Current release</p>
+                <h3 id="about-version-heading">{currentAppVersion.releaseName}</h3>
+              </div>
+              <span className="app-version-badge">{currentAppVersion.version}</span>
+            </div>
+            <dl className="app-version-details">
+              <div><dt>Current app version</dt><dd>{currentAppVersion.version}</dd></div>
+              <div><dt>Build date/time</dt><dd>{currentAppVersion.buildDateTime}</dd></div>
+              <div><dt>Release name</dt><dd>{currentAppVersion.releaseName}</dd></div>
+            </dl>
+            <button className="check-updates-button" type="button" onClick={checkForUpdates}>
+              Check for updates
+            </button>
+          </section>
+          <section className="settings-card changelog-card" aria-labelledby="about-changelog-heading">
+            <div className="changelog-card-heading">
+              <div><h3 id="about-changelog-heading">Release history</h3><p>{changelog.length} releases</p></div>
+              <button className="changelog-toggle-button" type="button"
+                aria-expanded={isChangelogExpanded} aria-controls="about-changelog-list"
+                onClick={() => setIsChangelogExpanded((expanded) => !expanded)}>
+                {isChangelogExpanded ? 'Hide release history' : 'Show release history'}
+              </button>
+            </div>
+            {isChangelogExpanded && (
+              <div className="changelog-list" id="about-changelog-list">
+                {changelog.map((release) => (
+                  <article className="changelog-entry" key={release.version}>
+                    <div className="changelog-entry-heading">
+                      <h4>{release.version}</h4><time dateTime={release.releaseDate}>{release.releaseDate}</time>
+                    </div>
+                    <ul>{release.changes.map((change) => <li key={change}>{change}</li>)}</ul>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </section>
         ) : appView === 'settings' ? (
         <section className="settings-view" aria-labelledby="settings-heading">
           <div className="settings-heading">
             <p className="detail-eyebrow">App tools</p>
             <h2 id="settings-heading">Settings</h2>
-            <p>Manage your backups, cloud sync setup, and app information.</p>
+            <p>Manage preferences, Quick Views, backups, and application data.</p>
           </div>
 
           <nav className="settings-section-nav" aria-label="Settings sections">
@@ -5757,57 +5893,6 @@ function App() {
                 role={cloudMessageType === 'error' ? 'alert' : 'status'}>
                 {cloudMessage}
               </p>
-            )}
-          </section>
-
-          <section className="settings-card app-version-card" id="settings-version" aria-labelledby="app-version-heading">
-            <div className="app-version-heading">
-              <div>
-                <p className="detail-eyebrow">Current release</p>
-                <h3 id="app-version-heading">App Version</h3>
-              </div>
-              <span className="app-version-badge">{currentAppVersion.version}</span>
-            </div>
-            <dl className="app-version-details">
-              <div><dt>Current app version</dt><dd>{currentAppVersion.version}</dd></div>
-              <div><dt>Build date/time</dt><dd>{currentAppVersion.buildDateTime}</dd></div>
-              <div><dt>Release summary</dt><dd>{currentAppVersion.releaseName}</dd></div>
-            </dl>
-            <button className="check-updates-button" type="button" onClick={checkForUpdates}>
-              Check for updates
-            </button>
-          </section>
-
-          <section className="settings-card changelog-card" aria-labelledby="changelog-heading">
-            <div className="changelog-card-heading">
-              <div>
-                <h3 id="changelog-heading">Changelog</h3>
-                <p>{changelog.length} releases</p>
-              </div>
-              <button
-                className="changelog-toggle-button"
-                type="button"
-                aria-expanded={isChangelogExpanded}
-                aria-controls="settings-changelog-list"
-                onClick={() => setIsChangelogExpanded((isExpanded) => !isExpanded)}
-              >
-                {isChangelogExpanded ? 'Hide Changelog' : 'Show Changelog'}
-              </button>
-            </div>
-            {isChangelogExpanded && (
-              <div className="changelog-list" id="settings-changelog-list">
-                {changelog.map((release) => (
-                  <article className="changelog-entry" key={release.version}>
-                    <div className="changelog-entry-heading">
-                      <h4>{release.version}</h4>
-                      <time dateTime={release.releaseDate}>{release.releaseDate}</time>
-                    </div>
-                    <ul>
-                      {release.changes.map((change) => <li key={change}>{change}</li>)}
-                    </ul>
-                  </article>
-                ))}
-              </div>
             )}
           </section>
 
@@ -6026,9 +6111,6 @@ function App() {
               </section>
             </div>
           )}
-          <p className="settings-version-footer">
-            Grow With Gibre Plant Tracker {currentAppVersion.version} — {currentAppVersion.releaseName}
-          </p>
         </section>
         ) : (
         <>
@@ -6379,7 +6461,8 @@ function App() {
                     disabled={quickNoteConversion.destination === 'general'}
                     onChange={(event) => setQuickNoteConversion((draft) => ({ ...draft, plantId: event.target.value }))}>
                     <option value="">No plant</option>
-                    {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.name}</option>)}
+                    {sortOptionsAlphabetically(plants.map((plant) => ({ value: plant.id, label: plant.name })))
+                      .map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -6407,7 +6490,9 @@ function App() {
         }}>
           <section className="tracker-modal quick-note-modal" role="dialog" aria-modal="true" aria-labelledby="quick-note-form-heading">
             <div className="tracker-modal-heading">
-              <div><p className="detail-eyebrow">Capture now, organize later</p><h3 id="quick-note-form-heading">New Journal Entry</h3></div>
+              <div><p className="detail-eyebrow">Capture now, organize later</p><h3 id="quick-note-form-heading">
+                {editingQuickNoteId ? 'Edit Journal Entry' : 'New Journal Entry'}
+              </h3></div>
               <button type="button" className="secondary-button" onClick={closeQuickNote}>Close</button>
             </div>
             <form onSubmit={createQuickNote}>
@@ -6421,7 +6506,8 @@ function App() {
                 <select id="quick-note-plant" value={quickNoteDraft.plantId}
                   onChange={(event) => setQuickNoteDraft((draft) => ({ ...draft, plantId: event.target.value }))}>
                   <option value="">General / assign later</option>
-                  {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.name}</option>)}
+                  {sortOptionsAlphabetically(plants.map((plant) => ({ value: plant.id, label: plant.name })))
+                    .map((plant) => <option key={plant.value} value={plant.value}>{plant.label}</option>)}
                 </select>
               </div>
               <ImageUploadField id="quick-note-photo" value={quickNoteDraft.photoUrl}
@@ -6437,7 +6523,7 @@ function App() {
               {quickNoteMessage && <p className="form-error-message" role="alert">{quickNoteMessage}</p>}
               <div className="form-actions">
                 <button type="submit" disabled={isQuickNoteSubmitting}>
-                  {isQuickNoteSubmitting ? 'Saving...' : 'Save Journal Entry'}
+                  {isQuickNoteSubmitting ? 'Saving...' : editingQuickNoteId ? 'Save Changes' : 'Save Journal Entry'}
                 </button>
                 <button type="button" className="secondary-button" onClick={closeQuickNote}>Cancel</button>
               </div>
@@ -6445,6 +6531,19 @@ function App() {
           </section>
         </div>
       )}
+      <GlobalNavigation
+        activeDestination={activeNavigationDestination({
+          appView,
+          isAddingPlant: showForm && !isEditing,
+          isEditingPlant: appView === 'plants' && isEditing,
+        })}
+        onNavigate={handleGlobalNavigation}
+        contextualAction={appView === 'plants' && selectedPlant && !isEditing && !showForm
+          ? { id: 'edit-plant', label: 'Edit This Plant', icon: '✎' }
+          : null}
+        hidden={Boolean(trackerEditor || showQuickNoteForm || quickNoteConversion || quickViewEditor
+          || profilePhotoLightboxOpen || timelineLightboxPhoto || showPhotoComparison)}
+      />
       {showReturnToTop && !trackerEditor && !showQuickNoteForm && !quickNoteConversion
         && !profilePhotoLightboxOpen && !timelineLightboxPhoto && !showPhotoComparison && (
         <button type="button" className="return-to-top" aria-label="Return to top"

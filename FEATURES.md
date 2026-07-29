@@ -1,5 +1,14 @@
 # Plant Tracker Features
 
+## Plant Detail UX Overhaul and Interface Consistency
+
+- Compact responsive Plant Detail rows retain every populated field, tracker, action, and history record.
+- A polished, compact, safe-area-aware floating navigator is mounted globally across primary screens, coordinates with return-to-top, and adds Edit This Plant only on Plant Detail.
+- Plant Journal entries support backward-compatible in-place editing with original timestamps and conversion metadata preserved.
+- About owns centralized version and release history information; Settings remains focused on preferences and data tools.
+- Dashboard customization appears after every card, and the Dashboard begins directly with useful actions.
+- Unordered categorical choices use shared, stable, non-mutating alphabetical ordering; lifecycle, severity, chronological, and tracker progression lists retain their meaningful order.
+
 ## Smart Home Dashboard
 
 - Mobile-first two-column daily overview with wider cards for attention, activity, and statistics.

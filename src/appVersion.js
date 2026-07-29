@@ -1,10 +1,22 @@
 export const currentAppVersion = {
-  version: 'v0.23.0',
+  version: 'v0.24.0',
   buildDateTime: '2026-07-29',
-  releaseName: 'Smart Home Dashboard',
+  releaseName: 'Plant Detail UX Overhaul and Interface Consistency',
 };
 
 export const changelog = [
+  {
+    version: 'v0.24.0',
+    releaseDate: '2026-07-29',
+    changes: [
+      'Condensed populated Plant Detail fields into responsive rows with clearer section hierarchy.',
+      'Added polished, compact, safe-area-aware floating navigation across every primary application screen.',
+      'Added in-place Plant Journal editing with preserved creation and conversion metadata.',
+      'Moved release information and history from Settings into a dedicated About area.',
+      'Moved Dashboard customization after all cards and removed the visual introduction.',
+      'Alphabetized unordered categorical choices while retaining workflow and progression order.',
+    ],
+  },
   {
     version: 'v0.23.0',
     releaseDate: '2026-07-29',
