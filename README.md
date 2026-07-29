@@ -1,5 +1,13 @@
 # Plant Tracker
 
+## v0.25.0 — Collection Control & Insights
+
+Release D adds correction controls for existing Corm phase dates and phases, safe Plant duplication into a reviewable unsaved draft, and lifetime recorded spending across active, archived, and graveyard plants. Spending includes valid non-negative purchase prices (including zero and legacy dollar-formatted values) and excludes missing or malformed prices.
+
+Settings now distinguishes protected built-in dropdown choices from alphabetized user-created choices. Deleting a choice reports affected plants and requires a valid replacement or an explicit clear; matching Quick View criteria are migrated at the same time. Corm and Propagation parent selectors exclude Corm and Tissue Culture records and flag an existing invalid relationship until it is corrected.
+
+Duplication copies reusable profile, acquisition, care, tracker setup, and custom-field selections, but never IDs, timestamps, journal/check-in/activity/photo/care/lifecycle histories, Corm phase history, or other event histories. The primary photo is intentionally left blank because copying an embedded image reference can duplicate a large local payload.
+
 ## v0.24.0 — Plant Detail UX Overhaul and Interface Consistency
 
 Plant Detail now uses denser responsive field rows and clearer overview, identity/origin, environment, care, tracker, and history hierarchy while preserving populated-only rendering, sticky section navigation, direct tracker updates, quick actions, safe-area handling, return-to-top, and photo enlargement. A reusable compact floating navigator is mounted at the application shell and remains available across primary screens, with a contextual Edit This Plant action on Plant Detail.
@@ -30,6 +38,7 @@ Plant Insights contains six interactive charts: Plants by Type/Category, Plants 
 - Every categorical Plant List filter supports multiple values. Selections use OR logic within one group and AND logic across different groups, including predictable “Unknown or not recorded” matching.
 - The Plant List uses a compact Quick View selector with Active/Modified status, Save as Quick View, and Restore Default. Editing, renaming, duplicating, and confirmed deletion live in the dedicated Settings → Quick Views section.
 - Previously seeded or built-in views normalize into ordinary saved Quick Views with preserved IDs and criteria, so every view can be edited or deleted.
+- Settings keeps Cloud Sync immediately available while other tool sections collapse independently. General application and storage information is available from About.
 - Settings includes responsive section navigation for Quick Views, cloud sync, backup and restore, import/export, version information, and general app details.
 - Backup schema v4 retains the existing internal journal collection and storage key for backward compatibility, and now registers the additive Quick Views collection without requiring a schema-version increase.
 

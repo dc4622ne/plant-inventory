@@ -122,6 +122,94 @@ export function sortCormPhaseHistory(history) {
   ));
 }
 
+export function normalizeCormHistoryPhase(value) {
+  return text(value).toLocaleLowerCase().replace(/\s+/g, ' ');
+}
+
+export function getDuplicateCormPhaseEntries(history) {
+  const counts = new Map();
+  (Array.isArray(history) ? history : []).forEach((entry) => {
+    const phase = normalizeCormHistoryPhase(entry?.phase);
+    if (phase) counts.set(phase, (counts.get(phase) || 0) + 1);
+  });
+  return (Array.isArray(history) ? history : []).filter((entry) => (
+    (counts.get(normalizeCormHistoryPhase(entry?.phase)) || 0) > 1
+  ));
+}
+
+export function hasCormPhaseConflict(history, phase, ignoredEntryId = '') {
+  const normalizedPhase = normalizeCormHistoryPhase(phase);
+  if (!normalizedPhase) return false;
+  return (Array.isArray(history) ? history : []).some((entry) => (
+    entry?.id !== ignoredEntryId && normalizeCormHistoryPhase(entry?.phase) === normalizedPhase
+  ));
+}
+
+export function updateCormPhaseHistoryEntry(history, entryId, updates) {
+  const date = text(updates?.date);
+  if (!date) throw new Error('A phase date is required.');
+  const phase = text(updates?.phase);
+  if (hasCormPhaseConflict(history, phase, entryId)) {
+    throw new Error('Each corm phase can appear only once. Edit or delete the existing entry first.');
+  }
+  return sortCormPhaseHistory((Array.isArray(history) ? history : []).map((entry) => (
+    entry?.id === entryId
+      ? { ...entry, ...updates, date, phase: text(updates?.phase) || entry.phase }
+      : entry
+  )));
+}
+
+export function removeCormPhaseHistoryEntry(history, entryId) {
+  return sortCormPhaseHistory((Array.isArray(history) ? history : []).filter((entry) => entry?.id !== entryId));
+}
+
+const historicalPlantFields = new Set([
+  'id', 'createdAt', 'updatedAt', 'modifiedAt', 'imageUrl', 'image',
+  'activityLog', 'photoLog', 'timelineEntries', 'cormPhaseHistory', 'cormProgressPhotos',
+  'lifecycleHistory', 'healthTimeline', 'checkIns', 'careHistory', 'journalEntries',
+  'tcAcclimationHistory', 'lecaConversionHistory', 'recoveryHistory', 'observationHistory',
+]);
+
+export function createPlantDuplicateDraft(plant, plants = []) {
+  const draft = Object.fromEntries(Object.entries(plant || {})
+    .filter(([fieldName]) => !historicalPlantFields.has(fieldName)));
+  draft.name = `${text(plant?.name) || 'Plant'} Copy`;
+  draft.activityLog = [];
+  draft.photoLog = [];
+  draft.timelineEntries = [];
+  draft.cormPhaseHistory = [];
+  draft.cormProgressPhotos = [];
+  draft.lifecycleHistory = [];
+  if (draft.cormParentPlantId) {
+    const parent = plants.find((candidate) => candidate.id === draft.cormParentPlantId);
+    if (!parent || !isEligibleParentPlant(parent, { ...draft, id: '' })) draft.cormParentPlantId = '';
+  }
+  return draft;
+}
+
+export function normalizeLifecycleStage(value) {
+  return text(value).toLocaleLowerCase().replace(/[\s_-]+/g, ' ');
+}
+
+export function isEligibleParentPlant(parent, child) {
+  if (!parent || !parent.id || parent.id === child?.id) return false;
+  if (!['corm', 'propagation'].includes(normalizeLifecycleStage(child?.lifecycleStage))) return true;
+  return !['corm', 'tissue culture'].includes(normalizeLifecycleStage(parent.lifecycleStage));
+}
+
+export function getEligibleParentPlants(plants, child) {
+  return (Array.isArray(plants) ? plants : []).filter((parent) => isEligibleParentPlant(parent, child));
+}
+
+export function getParentPlantValidation(plants, child) {
+  if (!child?.cormParentPlantId) return { valid: true, parent: null };
+  const parent = (plants || []).find((candidate) => candidate.id === child.cormParentPlantId);
+  return {
+    valid: Boolean(parent && isEligibleParentPlant(parent, child)),
+    parent: parent || null,
+  };
+}
+
 export function isValidPastOrTodayDate(value, today) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
   const parsed = new Date(`${value}T00:00:00`);

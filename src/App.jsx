@@ -44,14 +44,20 @@ import {
   soilMixOptions,
 } from './resources';
 import { reminderRules } from './reminderRules';
+import { aboutGeneralItems, settingsSections } from './settingsLayout';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import {
   cormInitialConditionOptions,
   cormOutcomeOptions,
   cormPhaseOptions,
   cormGrowthMethodOptions,
+  createPlantDuplicateDraft,
+  getEligibleParentPlants,
+  getParentPlantValidation,
   getCormPhaseStartedDate,
+  getDuplicateCormPhaseEntries,
   getNextCormPhase,
+  hasCormPhaseConflict,
   hasCormTrackerData,
   hasMeaningfulValue,
   isValidPastOrTodayDate,
@@ -59,8 +65,14 @@ import {
   lifecycleStageOptions,
   normalizePlantRecord,
   plantOriginOptions,
+  removeCormPhaseHistoryEntry,
   shouldShowCormTracker,
+  updateCormPhaseHistoryEntry,
 } from './plantData';
+import {
+  addCustomOption, countOptionUsage, countQuickViewOptionUsage, getSpendingSummary,
+  removeCustomOption, validatePurchasePrice,
+} from './collectionControl';
 import { loadQuickNotes, quickNotesStorageKey, updateQuickNote } from './quickNotesData';
 import { sortCategoricalOptions, sortOptionsAlphabetically, sortOptionsForField } from './optionSorting';
 import {
@@ -371,14 +383,6 @@ const plantSortOptions = [
   ['category', 'Category'],
   ['genus', 'Genus'],
 ];
-const settingsSections = [
-  ['quick-views', 'Quick Views'],
-  ['cloud', 'Cloud Sync'],
-  ['backup', 'Backup & Restore'],
-  ['export', 'Import & Export'],
-  ['general', 'General'],
-];
-
 function loadPlantSort() {
   const savedSort = sessionStorage.getItem(plantSortSessionKey);
   return plantSortOptions.some(([value]) => value === savedSort) ? savedSort : defaultPlantSort;
@@ -1084,7 +1088,8 @@ function App() {
   const [plantInsightFilter, setPlantInsightFilter] = useState(null);
   const [activeQuickView, setActiveQuickView] = useState('');
   const [quickViewEditor, setQuickViewEditor] = useState(null);
-  const [settingsSection, setSettingsSection] = useState('quick-views');
+  const [settingsSection, setSettingsSection] = useState('cloud');
+  const [expandedSettingsSections, setExpandedSettingsSections] = useState({});
   const [settingsQuickViewMessage, setSettingsQuickViewMessage] = useState('');
   const [plantViewMode, setPlantViewMode] = useState(loadPlantViewMode);
   const [plantSort, setPlantSort] = useState(loadPlantSort);
@@ -1132,6 +1137,10 @@ function App() {
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
   const [trackerEditor, setTrackerEditor] = useState('');
   const [trackerDraft, setTrackerDraft] = useState({});
+  const [cormHistoryEdit, setCormHistoryEdit] = useState(null);
+  const [cormHistoryError, setCormHistoryError] = useState('');
+  const [dropdownDeletion, setDropdownDeletion] = useState(null);
+  const [expandedDropdownGroups, setExpandedDropdownGroups] = useState({});
   const [trackerPhotoFile, setTrackerPhotoFile] = useState(null);
   const [trackerPhotoPreviewUrl, setTrackerPhotoPreviewUrl] = useState('');
   const [quickNoteDraft, setQuickNoteDraft] = useState({ text: '', plantId: '', photoUrl: '' });
@@ -1972,7 +1981,11 @@ function App() {
     setAddPlantMessage('');
     setQuickCheckMessage('');
     const hashSection = window.location.hash.replace('#settings-', '');
-    setSettingsSection(settingsSections.some(([id]) => id === hashSection) ? hashSection : 'quick-views');
+    const targetSection = settingsSections.some(([id]) => id === hashSection) ? hashSection : 'cloud';
+    setSettingsSection(targetSection);
+    if (targetSection !== 'cloud') {
+      setExpandedSettingsSections((current) => ({ ...current, [targetSection]: true }));
+    }
     setAppView('settings');
   }
 
@@ -2027,10 +2040,17 @@ function App() {
 
   function navigateSettingsSection(sectionId) {
     setSettingsSection(sectionId);
+    if (sectionId !== 'cloud') {
+      setExpandedSettingsSections((current) => ({ ...current, [sectionId]: true }));
+    }
     window.history.pushState(null, '', `#settings-${sectionId}`);
     window.setTimeout(() => {
       document.getElementById(`settings-${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
+  }
+
+  function toggleSettingsSection(sectionId) {
+    setExpandedSettingsSections((current) => ({ ...current, [sectionId]: !current[sectionId] }));
   }
 
   function openResources(resourceId = '') {
@@ -2329,6 +2349,7 @@ function App() {
   }
 
   function openTrackerEditor(tracker) {
+    setCormHistoryError('');
     setTrackerDraft({
       ...selectedPlant,
       cormPhase: selectedPlant.cormPhase || '',
@@ -2346,6 +2367,7 @@ function App() {
     setTrackerPhotoPreviewUrl('');
     setTrackerEditor('');
     setTrackerDraft({});
+    setCormHistoryError('');
   }
 
   async function saveTrackerUpdate(event) {
@@ -2363,6 +2385,10 @@ function App() {
           'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes'];
     const updates = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, trackerDraft[fieldName] ?? '']));
     if (trackerEditor === 'corm') {
+      if (!getParentPlantValidation(plants, trackerDraft).valid) {
+        event.currentTarget.querySelector('#tracker-cormParentPlantId')?.focus();
+        return;
+      }
       const phaseDate = trackerDraft.cormPhaseDate;
       if (trackerDraft.cormPhase !== (selectedPlant.cormPhase || '')
         && !isValidPastOrTodayDate(phaseDate, todayDate())) {
@@ -2372,6 +2398,11 @@ function App() {
       const photoUrl = trackerPhotoFile ? await uploadStoredImage(trackerPhotoFile, 'corm-progress') : '';
       const phaseChanged = trackerDraft.cormPhase
         && trackerDraft.cormPhase !== (selectedPlant.cormPhase || '');
+      if (phaseChanged && hasCormPhaseConflict(selectedPlant.cormPhaseHistory, trackerDraft.cormPhase)) {
+        setCormHistoryError('Each corm phase can appear only once. Edit or delete the existing entry first.');
+        event.currentTarget.querySelector('#tracker-cormPhase')?.focus();
+        return;
+      }
       updates.cormStage = selectedPlant.cormStage || trackerDraft.cormPhase;
       updates.cormPhaseHistory = phaseChanged
         ? [...(selectedPlant.cormPhaseHistory || []), {
@@ -3187,15 +3218,27 @@ function App() {
 
     setPlantImageUploadError('');
     setAddPlantMessage('');
+    const purchasePriceValidation = validatePurchasePrice(newPlant.purchasePrice);
+    if (!purchasePriceValidation.valid) {
+      setPlantImageUploadError(purchasePriceValidation.error);
+      event.currentTarget.querySelector('#plant-purchasePrice')?.focus();
+      return;
+    }
     setIsPlantSubmitting(true);
     setPlantSubmitStatus(plantImageFile ? 'Uploading photo...' : 'Saving plant...');
 
     try {
+      const parentValidation = getParentPlantValidation(plants, newPlant);
+      if (!parentValidation.valid) {
+        setPlantImageUploadError('Choose an eligible established parent plant or clear the parent relationship.');
+        return;
+      }
       const uploadedImageUrl = plantImageFile ? await uploadStoredImage(plantImageFile, 'plants') : newPlant.imageUrl;
       setPlantSubmitStatus('Saving plant...');
 
       const savedPlant = {
         ...newPlant,
+        purchasePrice: purchasePriceValidation.value,
         id: newPlant.id || makeId('plant'),
         createdAt: newPlant.createdAt || new Date().toISOString(),
         imageUrl: uploadedImageUrl,
@@ -3290,12 +3333,7 @@ function App() {
     if (!option) return;
 
     setDropdownOptions((currentOptions) => {
-      const updatedOptions = {
-        ...currentOptions,
-        [fieldName]: currentOptions[fieldName].includes(option)
-          ? currentOptions[fieldName]
-          : [...currentOptions[fieldName], option],
-      };
+      const updatedOptions = addCustomOption(currentOptions, fieldName, option);
 
       localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedOptions));
       markLocalDataChanged('dropdown-options');
@@ -3307,6 +3345,42 @@ function App() {
       setNewPlant((currentPlant) => ({ ...currentPlant, [fieldName]: option }));
     }
     setNewOptionText((currentText) => ({ ...currentText, [fieldName]: '' }));
+  }
+
+  function requestDropdownOptionDeletion(fieldName, option) {
+    const usage = countOptionUsage(plants, fieldName, option);
+    const quickViewUsage = countQuickViewOptionUsage(userQuickViews, fieldName, option);
+    const alternatives = [...new Set([
+      ...(initialDropdownOptions[fieldName] || []),
+      ...(dropdownOptions[fieldName] || []),
+    ])].filter((value) => value.toLocaleLowerCase() !== option.toLocaleLowerCase())
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    setExpandedDropdownGroups((current) => ({ ...current, [fieldName]: true }));
+    setDropdownDeletion({
+      fieldName, option, usage, quickViewUsage, alternatives,
+      mode: alternatives.length ? 'replace' : 'clear',
+      replacement: alternatives[0] || '',
+    });
+  }
+
+  function confirmDropdownOptionDeletion(event) {
+    event.preventDefault();
+    if (!dropdownDeletion) return;
+    const {
+      fieldName, option, mode, replacement, alternatives,
+    } = dropdownDeletion;
+    if (mode === 'replace' && !alternatives.includes(replacement)) return;
+    const result = removeCustomOption({
+      options: dropdownOptions, builtInOptions: initialDropdownOptions, plants,
+      quickViews: userQuickViews, field: fieldName, value: option,
+      replacement: mode === 'replace' ? replacement : '',
+    });
+    setDropdownOptions(result.options);
+    localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(result.options));
+    savePlants(result.plants, 'dropdown-options');
+    setUserQuickViews(saveQuickViews(result.quickViews));
+    markLocalDataChanged('dropdown-options');
+    setDropdownDeletion(null);
   }
 
   function cancelForm() {
@@ -3345,6 +3419,55 @@ function App() {
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
     setIsEditing(true);
+  }
+
+  function startDuplicating() {
+    const draft = { ...emptyPlant, ...createPlantDuplicateDraft(selectedPlant, plants) };
+    setSelectedPlant(null);
+    setNewPlant(draft);
+    setPlantFormBaseline(JSON.stringify(draft));
+    setSoilMixIsCustom(Boolean(draft.soilMix && !getSoilMixByValue(draft.soilMix)));
+    clearPlantImageSelection();
+    setIsEditing(false);
+    setShowForm(true);
+    requestAnimationFrame(() => plantFormRef.current?.querySelector('#plant-name')?.focus());
+  }
+
+  function saveCormHistoryEdit(event) {
+    event.preventDefault();
+    if (!isValidPastOrTodayDate(cormHistoryEdit.date, todayDate())) return;
+    let history;
+    try {
+      history = updateCormPhaseHistoryEntry(
+        selectedPlant.cormPhaseHistory, cormHistoryEdit.id, cormHistoryEdit,
+      );
+    } catch (error) {
+      setCormHistoryError(error.message);
+      return;
+    }
+    const latest = history.at(-1);
+    const updatedPlant = {
+      ...selectedPlant,
+      cormPhaseHistory: history,
+      ...(latest ? { cormPhase: latest.phase, cormStage: latest.phase } : {}),
+    };
+    savePlants(plants.map((plant) => plant.id === selectedPlant.id ? updatedPlant : plant), 'corm-history');
+    setCormHistoryEdit(null);
+    setCormHistoryError('');
+  }
+
+  function deleteCormHistoryEntry(entry) {
+    if (!window.confirm(`Delete the ${entry.phase} phase entry?`)) return;
+    const history = removeCormPhaseHistoryEntry(selectedPlant.cormPhaseHistory, entry.id);
+    const latest = history.at(-1);
+    const updatedPlant = {
+      ...selectedPlant,
+      cormPhaseHistory: history,
+      cormPhase: latest?.phase || '',
+      cormStage: latest?.phase || '',
+    };
+    savePlants(plants.map((plant) => plant.id === selectedPlant.id ? updatedPlant : plant), 'corm-history');
+    setSelectedPlant(updatedPlant);
   }
 
   function deleteSelectedPlant() {
@@ -3796,6 +3919,7 @@ function App() {
         context: note.plantId ? reminderPlantById.get(note.plantId)?.name || 'Plant journal' : 'Plant journal',
       })),
     ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
+    const spending = getSpendingSummary(plants);
 
     const cardContent = {
       'needs-attention': {
@@ -3881,6 +4005,17 @@ function App() {
           : 'No unfiled entries. Capture an observation whenever you need.',
         action: () => setAppView('quick-notes'),
         actionLabel: 'Open Plant Journal',
+      },
+      spending: {
+        count: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(spending.total),
+        summary: (
+          <div>
+            <p>{spending.withPrice} plant{spending.withPrice === 1 ? '' : 's'} with a recorded price · {spending.withoutPrice} without</p>
+            <small>Based on recorded purchase prices. Plants without a price are not included.</small>
+          </div>
+        ),
+        action: () => openPlantList({ lifecycle: 'all' }),
+        actionLabel: 'View lifetime collection',
       },
       'plant-insights': {
         count: dashboardCharts.length,
@@ -3974,7 +4109,7 @@ function App() {
             const content = cardContent[preference.id];
             if (!metadata || !content) return null;
             return (
-              <article className={`dashboard-home-card dashboard-home-card-${metadata.size}`} key={preference.id}>
+              <article className={`dashboard-home-card dashboard-home-card-${metadata.size}${preference.id === 'spending' ? ' dashboard-spending-card' : ''}`} key={preference.id}>
                 <div className="dashboard-home-card-heading">
                   <h3>{metadata.title}</h3><strong>{content.count}</strong>
                 </div>
@@ -4109,6 +4244,8 @@ function App() {
                 aria-label="Edit plant" title="Edit plant">
                 ✏️
               </button>
+              <button className="secondary-button" type="button" onClick={startDuplicating}
+                aria-label="Duplicate plant" title="Duplicate plant">Duplicate</button>
               {(selectedPlant.lifecycleStatus || 'active') === 'active' ? (
                 <>
                   <button className="archive-plant-button" type="button"
@@ -4306,15 +4443,31 @@ function App() {
                       </span></div>
                     </div>
                     {(selectedPlant.cormPhaseHistory || []).length > 0 && (
+                      <>
+                      {getDuplicateCormPhaseEntries(selectedPlant.cormPhaseHistory).length > 0 && (
+                        <p className="corm-duplicate-warning" role="alert">
+                          Duplicate phases were found in this existing history. Edit or delete each duplicate until every phase is unique.
+                        </p>
+                      )}
                       <ol className="corm-milestone-timeline" aria-label="Completed Corm milestones">
                         {selectedPlant.cormPhaseHistory.map((entry) => (
-                          <li key={entry.id}>
+                          <li key={entry.id} className={getDuplicateCormPhaseEntries(selectedPlant.cormPhaseHistory)
+                            .some((duplicate) => duplicate.id === entry.id) ? 'corm-duplicate-entry' : ''}>
                             <div><strong>{entry.phase}</strong><time dateTime={entry.date}>{entry.date}</time></div>
                             {entry.note && <p>{entry.note}</p>}
                             {entry.photoUrl && <SafeImage src={entry.photoUrl} alt={`${entry.phase} milestone`} fallback={<span>Photo unavailable</span>} />}
+                            <button type="button" className="secondary-button" onClick={() => {
+                              setCormHistoryError('');
+                              setCormHistoryEdit({ ...entry });
+                            }}>
+                              Edit
+                            </button>
+                            <button type="button" className="delete-plant-button delete-text-button" onClick={() => deleteCormHistoryEntry(entry)}
+                              aria-label={`Delete ${entry.phase} corm phase entry`}>Delete</button>
                           </li>
                         ))}
                       </ol>
+                      </>
                     )}
                     {(selectedPlant.cormProgressPhotos || []).length > 0 && (
                       <div className="corm-photo-grid">
@@ -4517,7 +4670,8 @@ function App() {
                                 {entry.source === 'manual' ? (
                                   <>
                                     <button type="button" onClick={() => startEditingTimelineEntry(entry)}>Edit</button>
-                                    <button type="button" onClick={() => deleteManualTimelineEntry(entry)}>Delete</button>
+                                    <button type="button" className="delete-action-button" onClick={() => deleteManualTimelineEntry(entry)}
+                                      aria-label={`Delete timeline entry ${entry.title || entry.date}`}>Delete</button>
                                   </>
                                 ) : (
                                   <button type="button" onClick={() => openTimelineSource(entry)}>Open source record</button>
@@ -4698,7 +4852,8 @@ function App() {
                               <button type="button" onClick={() => startEditingPhotoEntry(entry)}>
                                 ✏️ Edit
                               </button>
-                              <button className="photo-delete-button" type="button"
+                              <button className="photo-delete-button delete-action-button" type="button"
+                                aria-label={`Delete photo entry from ${entry.date || 'unknown date'}`}
                                 onClick={() => deletePhotoEntry(entry)}>
                                 🗑️ Delete
                               </button>
@@ -4799,7 +4954,8 @@ function App() {
                             <button type="button" onClick={() => startEditingLogEntry(entry)}>
                               ✏️ Edit
                             </button>
-                            <button className="activity-delete-button" type="button"
+                            <button className="activity-delete-button delete-action-button" type="button"
+                              aria-label={`Delete ${entry.activityType || 'activity'} log entry`}
                               onClick={() => deleteLogEntry(entry)}>
                               🗑️ Delete
                             </button>
@@ -4873,7 +5029,10 @@ function App() {
                           <select id={`tracker-${fieldName}`} value={trackerDraft[fieldName] || ''}
                             onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))}>
                             <option value="">Not set</option>
-                            {(trackerSelectOptions(fieldName, plants) || dropdownOptions[fieldName] || []).map((option) => (
+                            {(fieldName === 'cormParentPlantId'
+                              ? sortOptionsAlphabetically(getEligibleParentPlants(plants, trackerDraft)
+                                .map((plant) => ({ value: plant.id, label: plant.name })))
+                              : trackerSelectOptions(fieldName, plants) || dropdownOptions[fieldName] || []).map((option) => (
                               typeof option === 'object'
                                 ? <option key={option.value} value={option.value}>{option.label}</option>
                                 : <option key={option}>{option}</option>
@@ -4891,10 +5050,17 @@ function App() {
                             required={fieldName === 'cormPhaseDate' && trackerDraft.cormPhase !== (selectedPlant.cormPhase || '')}
                             onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
                         )}
+                        {fieldName === 'cormParentPlantId' && !getParentPlantValidation(plants, trackerDraft).valid && (
+                          <small className="form-error-message" role="alert">
+                            This existing parent is no longer eligible. Choose an established plant or clear it before saving.
+                          </small>
+                        )}
                       </div>
                     ))}
                   </div>
                   {trackerEditor === 'corm' && (
+                    <>
+                    {cormHistoryError && <p className="form-error-message" role="alert">{cormHistoryError}</p>}
                     <ImageUploadField id="corm-progress-photo" value=""
                       onChange={() => {}}
                       onFileSelected={(file) => {
@@ -4905,6 +5071,7 @@ function App() {
                       selectedFileName={trackerPhotoFile?.name || ''}
                       previewUrl={trackerPhotoPreviewUrl}
                       label="Add progress photo" />
+                    </>
                   )}
                   <div className="form-actions">
                     <button type="submit">Save update</button>
@@ -5045,8 +5212,17 @@ function App() {
                 <label htmlFor={`plant-${fieldName}`}>{label}</label>
                 <input id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
                   type={fieldName === 'imageUrl' ? 'url' : 'text'}
+                  inputMode={fieldName === 'purchasePrice' ? 'decimal' : undefined}
+                  aria-describedby={fieldName === 'purchasePrice' && !validatePurchasePrice(newPlant.purchasePrice).valid
+                    ? 'plant-purchasePrice-error' : undefined}
+                  aria-invalid={fieldName === 'purchasePrice' && !validatePurchasePrice(newPlant.purchasePrice).valid}
                   placeholder={fieldName === 'imageUrl' ? 'https://example.com/plant.jpg' : undefined}
                   onChange={handleInputChange} required={fieldName === 'name'} />
+                {fieldName === 'purchasePrice' && !validatePurchasePrice(newPlant.purchasePrice).valid && (
+                  <small id="plant-purchasePrice-error" className="form-error-message" role="alert">
+                    {validatePurchasePrice(newPlant.purchasePrice).error}
+                  </small>
+                )}
               </div>
             ))}
 
@@ -5504,7 +5680,8 @@ function App() {
                     ))}
                     <button type="button" className="secondary-button" onClick={() => editQuickNote(note)}>Edit Entry</button>
                     <button type="button" className="secondary-button" onClick={() => fileQuickNote(note)}>File Entry</button>
-                    <button type="button" className="delete-plant-button" onClick={() => deleteQuickNote(note)}>Delete</button>
+                    <button type="button" className="delete-plant-button delete-text-button" onClick={() => deleteQuickNote(note)}
+                      aria-label="Delete journal entry">Delete</button>
                   </div>
                 </article>
               );
@@ -5777,13 +5954,26 @@ function App() {
                 {changelog.map((release) => (
                   <article className="changelog-entry" key={release.version}>
                     <div className="changelog-entry-heading">
-                      <h4>{release.version}</h4><time dateTime={release.releaseDate}>{release.releaseDate}</time>
+                      <h4>{release.version}{release.releaseName ? ` — ${release.releaseName}` : ''}</h4>
+                      <time dateTime={release.releaseDate}>{release.releaseDate}</time>
                     </div>
                     <ul>{release.changes.map((change) => <li key={change}>{change}</li>)}</ul>
                   </article>
                 ))}
               </div>
             )}
+          </section>
+          <section className="settings-card about-general-card" aria-labelledby="about-general-heading">
+            <h3 id="about-general-heading">General</h3>
+            <dl className="app-info-list">
+              {aboutGeneralItems.map(([label, value]) => (
+                <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+              ))}
+            </dl>
+            <p className="storage-note">
+              Data is stored in this browser's local storage and does not automatically sync.
+              Use manual Cloud Sync or Export/Import JSON backup to move your data.
+            </p>
           </section>
         </section>
         ) : appView === 'settings' ? (
@@ -5812,52 +6002,7 @@ function App() {
             </div>
           </nav>
 
-          <section className="settings-card quick-view-settings-card" id="settings-quick-views"
-            aria-labelledby="settings-quick-views-heading">
-            <div className="settings-card-heading">
-              <div>
-                <h3 id="settings-quick-views-heading">Quick Views</h3>
-                <p className="settings-card-intro">Edit and organize the saved Plant List views available in the Quick View selector.</p>
-              </div>
-              <button type="button" onClick={() => {
-                setAppView('plants');
-                setPlantPage(1);
-              }}>Create from Plant List</button>
-            </div>
-            {settingsQuickViewMessage && <p className="backup-message backup-message-success" role="status">{settingsQuickViewMessage}</p>}
-            <div className="settings-quick-view-list">
-              {quickViews.map((quickView) => (
-                <article className="settings-quick-view-row" key={quickView.id}>
-                  <div className="settings-quick-view-copy">
-                    <div className="settings-quick-view-title">
-                      <h4>{quickView.name}</h4>
-                      {activeQuickView === quickView.id && <span>Currently active</span>}
-                    </div>
-                    <p>{quickViewCriteriaSummary(quickView)}</p>
-                    <time dateTime={quickView.updatedAt}>
-                      Updated {new Date(quickView.updatedAt).toLocaleString()}
-                    </time>
-                  </div>
-                  <div className="settings-quick-view-controls">
-                    <button type="button" onClick={() => openQuickViewEditor(quickView, 'settings')}
-                      aria-label={`Edit Quick View ${quickView.name}`}>Edit</button>
-                    <details>
-                      <summary aria-label={`More actions for Quick View ${quickView.name}`}>More</summary>
-                      <div>
-                        <button type="button" onClick={() => duplicateSavedQuickView(quickView)}
-                          aria-label={`Duplicate Quick View ${quickView.name}`}>Duplicate</button>
-                        <button type="button" onClick={() => deleteSavedQuickView(quickView)}
-                          aria-label={`Delete Quick View ${quickView.name}`}>Delete</button>
-                      </div>
-                    </details>
-                  </div>
-                </article>
-              ))}
-              {!quickViews.length && <p className="empty-message">No Quick Views saved yet. Create one from the Plant List.</p>}
-            </div>
-          </section>
-
-          <section className="settings-card" id="settings-cloud" aria-labelledby="cloud-sync-heading">
+          <section className="settings-card settings-cloud-card" id="settings-cloud" aria-labelledby="cloud-sync-heading">
             <h3 id="cloud-sync-heading">Cloud Sync</h3>
             <p className="settings-card-intro">Cloud sync is manual backup and restore, not live real-time sync across devices.</p>
             <dl className="backup-meta-grid">
@@ -5896,8 +6041,113 @@ function App() {
             )}
           </section>
 
+          <section className="settings-card quick-view-settings-card" id="settings-quick-views"
+            aria-labelledby="settings-quick-views-heading">
+            <button type="button" className="settings-collapse-toggle"
+              aria-expanded={Boolean(expandedSettingsSections['quick-views'])}
+              aria-controls="settings-quick-views-content"
+              onClick={() => toggleSettingsSection('quick-views')}>
+              <span><strong id="settings-quick-views-heading">Quick Views</strong><small>Manage saved Plant List views</small></span>
+              <span aria-hidden="true">{expandedSettingsSections['quick-views'] ? '−' : '+'}</span>
+            </button>
+            <div id="settings-quick-views-content" hidden={!expandedSettingsSections['quick-views']}>
+            <div className="settings-card-heading">
+              <div>
+                <p className="settings-card-intro">Edit and organize the saved Plant List views available in the Quick View selector.</p>
+              </div>
+              <button type="button" onClick={() => {
+                setAppView('plants');
+                setPlantPage(1);
+              }}>Create from Plant List</button>
+            </div>
+            {settingsQuickViewMessage && <p className="backup-message backup-message-success" role="status">{settingsQuickViewMessage}</p>}
+            <div className="settings-quick-view-list">
+              {quickViews.map((quickView) => (
+                <article className="settings-quick-view-row" key={quickView.id}>
+                  <div className="settings-quick-view-copy">
+                    <div className="settings-quick-view-title">
+                      <h4>{quickView.name}</h4>
+                      {activeQuickView === quickView.id && <span>Currently active</span>}
+                    </div>
+                    <p>{quickViewCriteriaSummary(quickView)}</p>
+                    <time dateTime={quickView.updatedAt}>
+                      Updated {new Date(quickView.updatedAt).toLocaleString()}
+                    </time>
+                  </div>
+                  <div className="settings-quick-view-controls">
+                    <button type="button" onClick={() => openQuickViewEditor(quickView, 'settings')}
+                      aria-label={`Edit Quick View ${quickView.name}`}>Edit</button>
+                    <details>
+                      <summary aria-label={`More actions for Quick View ${quickView.name}`}>More</summary>
+                      <div>
+                        <button type="button" onClick={() => duplicateSavedQuickView(quickView)}
+                          aria-label={`Duplicate Quick View ${quickView.name}`}>Duplicate</button>
+                        <button type="button" className="delete-action-button" onClick={() => deleteSavedQuickView(quickView)}
+                          aria-label={`Delete Quick View ${quickView.name}`}>Delete</button>
+                      </div>
+                    </details>
+                  </div>
+                </article>
+              ))}
+              {!quickViews.length && <p className="empty-message">No Quick Views saved yet. Create one from the Plant List.</p>}
+            </div>
+            </div>
+          </section>
+
+          <section className="settings-card" id="settings-dropdown-options"
+            aria-labelledby="settings-dropdown-options-heading">
+            <button type="button" className="settings-collapse-toggle"
+              aria-expanded={Boolean(expandedSettingsSections['dropdown-options'])}
+              aria-controls="settings-dropdown-options-content"
+              onClick={() => toggleSettingsSection('dropdown-options')}>
+              <span><strong id="settings-dropdown-options-heading">Dropdown Options</strong><small>Manage custom field choices</small></span>
+              <span aria-hidden="true">{expandedSettingsSections['dropdown-options'] ? '−' : '+'}</span>
+            </button>
+            <div id="settings-dropdown-options-content" hidden={!expandedSettingsSections['dropdown-options']}>
+            <p className="settings-card-intro">Built-in choices are protected. User-created choices can be replaced or cleared everywhere they are used.</p>
+            <div className="dropdown-option-groups">
+              {Object.entries(dropdownOptions).map(([fieldName, values]) => {
+                const builtIns = new Set((initialDropdownOptions[fieldName] || []).map((value) => value.toLocaleLowerCase()));
+                const custom = values.filter((value) => !builtIns.has(value.toLocaleLowerCase()))
+                  .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+                const expanded = Boolean(expandedDropdownGroups[fieldName]);
+                const label = fieldName.replaceAll(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase());
+                return (
+                  <section key={fieldName} className="dropdown-option-group">
+                    <button type="button" className="dropdown-option-group-toggle"
+                      aria-expanded={expanded} aria-controls={`dropdown-options-${fieldName}`}
+                      onClick={() => setExpandedDropdownGroups((current) => ({ ...current, [fieldName]: !expanded }))}>
+                      <span><strong>{label}</strong><small>{custom.length} custom</small></span>
+                      <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+                    </button>
+                    <div id={`dropdown-options-${fieldName}`} hidden={!expanded}>
+                    <p><strong>Built in:</strong> {(initialDropdownOptions[fieldName] || []).join(', ') || 'None'}</p>
+                    {custom.length ? (
+                      <ul>{custom.map((option) => (
+                        <li key={option}>
+                          <span>{option} · {countOptionUsage(plants, fieldName, option)} plants</span>
+                          <button type="button" className="delete-plant-button delete-text-button"
+                            aria-label={`Delete custom option ${option}`}
+                            onClick={() => requestDropdownOptionDeletion(fieldName, option)}>Delete</button>
+                        </li>
+                      ))}</ul>
+                    ) : <p>No user-created options.</p>}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            </div>
+          </section>
+
           <section className="settings-card" id="settings-backup" aria-labelledby="data-tools-heading">
-            <h3 id="data-tools-heading">Data Backup</h3>
+            <button type="button" className="settings-collapse-toggle"
+              aria-expanded={Boolean(expandedSettingsSections.backup)}
+              aria-controls="settings-backup-content" onClick={() => toggleSettingsSection('backup')}>
+              <span><strong id="data-tools-heading">Data Backup</strong><small>Download, restore, and audit backups</small></span>
+              <span aria-hidden="true">{expandedSettingsSections.backup ? '−' : '+'}</span>
+            </button>
+            <div id="settings-backup-content" hidden={!expandedSettingsSections.backup}>
             <p className="settings-card-intro">JSON backup includes plants, Plant Spaces, placements, logs, reminders, timeline entries, photos as URLs, garden data, wishlist items, Quick Views, dropdown values, and preferences.</p>
             <dl className="backup-summary-grid" aria-label="Current local backup contents">
               <div><dt>Plants</dt><dd>{localBackupSummary.plants}</dd></div>
@@ -5950,10 +6200,17 @@ function App() {
                 {backupMessage}
               </p>
             )}
+            </div>
           </section>
 
           <section className="settings-card" id="settings-export" aria-labelledby="csv-export-heading">
-            <h3 id="csv-export-heading">CSV Export</h3>
+            <button type="button" className="settings-collapse-toggle"
+              aria-expanded={Boolean(expandedSettingsSections.export)}
+              aria-controls="settings-export-content" onClick={() => toggleSettingsSection('export')}>
+              <span><strong id="csv-export-heading">CSV Export</strong><small>Export spreadsheet-friendly data</small></span>
+              <span aria-hidden="true">{expandedSettingsSections.export ? '−' : '+'}</span>
+            </button>
+            <div id="settings-export-content" hidden={!expandedSettingsSections.export}>
             <p className="settings-card-intro">Create spreadsheet-friendly files for reviewing, sorting, or printing your plant data. CSV export is one-way; use Data Backup for full backup and restore.</p>
             <div className="data-tool-row">
               <div><h4>Plant Inventory</h4><p>Includes active, archived, and graveyard plants.</p></div>
@@ -5975,19 +6232,9 @@ function App() {
               <div><h4>Plant Photo Log</h4><p>Export photo links, dates, categories, and captions.</p></div>
               <button type="button" onClick={exportPlantPhotoCsv}>Export Plant Photo Log CSV</button>
             </div>
+            </div>
           </section>
 
-          <section className="settings-card" id="settings-general" aria-labelledby="app-info-heading">
-            <h3 id="app-info-heading">App Info</h3>
-            <dl className="app-info-list">
-              <div><dt>App name</dt><dd>Grow With Gibre Plant Tracker</dd></div>
-              <div><dt>Current storage type</dt><dd>Browser local storage</dd></div>
-            </dl>
-            <p className="storage-note">
-              Data is stored in this browser's local storage and does not automatically sync.
-              Use manual Cloud Sync or Export/Import JSON backup to move your data.
-            </p>
-          </section>
           {quickViewEditor?.context === 'settings' && (
             <div className="tracker-modal-backdrop" role="presentation">
               <section className="tracker-modal quick-view-editor quick-view-settings-editor"
@@ -6531,6 +6778,73 @@ function App() {
           </section>
         </div>
       )}
+      {dropdownDeletion && (
+        <div className="tracker-modal-backdrop" role="presentation">
+          <section className="tracker-modal" role="dialog" aria-modal="true" aria-labelledby="dropdown-deletion-heading">
+            <div className="tracker-modal-heading"><h3 id="dropdown-deletion-heading">Delete “{dropdownDeletion.option}”?</h3></div>
+            <form onSubmit={confirmDropdownOptionDeletion}>
+              <p>This affects {dropdownDeletion.usage} plant{dropdownDeletion.usage === 1 ? '' : 's'} and{' '}
+                {dropdownDeletion.quickViewUsage} Quick View{dropdownDeletion.quickViewUsage === 1 ? '' : 's'}.</p>
+              <fieldset className="deletion-mode-options">
+                <legend>How should existing uses be handled?</legend>
+                <label><input type="radio" name="deletion-mode" value="replace"
+                  checked={dropdownDeletion.mode === 'replace'} disabled={!dropdownDeletion.alternatives.length}
+                  onChange={() => setDropdownDeletion((current) => ({ ...current, mode: 'replace' }))} />
+                  Replace with another option</label>
+                <label><input type="radio" name="deletion-mode" value="clear"
+                  checked={dropdownDeletion.mode === 'clear'}
+                  onChange={() => setDropdownDeletion((current) => ({ ...current, mode: 'clear' }))} />
+                  Clear the field</label>
+              </fieldset>
+              {dropdownDeletion.mode === 'replace' && (
+                <div className="form-field">
+                  <label htmlFor="dropdown-deletion-replacement">Replacement</label>
+                  <select id="dropdown-deletion-replacement" required autoFocus value={dropdownDeletion.replacement}
+                    onChange={(event) => setDropdownDeletion((current) => ({ ...current, replacement: event.target.value }))}>
+                    {dropdownDeletion.alternatives.map((option) => <option key={option}>{option}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="form-actions">
+                <button type="submit" className="delete-plant-button delete-text-button"
+                  disabled={dropdownDeletion.mode === 'replace' && !dropdownDeletion.replacement}>Delete option</button>
+                <button type="button" className="secondary-button" onClick={() => setDropdownDeletion(null)}>Cancel</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {cormHistoryEdit && (
+        <div className="tracker-modal-backdrop" role="presentation">
+          <section className="tracker-modal" role="dialog" aria-modal="true" aria-labelledby="corm-history-edit-heading">
+            <div className="tracker-modal-heading">
+              <h3 id="corm-history-edit-heading">Edit corm phase entry</h3>
+            </div>
+            <form onSubmit={saveCormHistoryEdit}>
+              <div className="form-field">
+                <label htmlFor="corm-history-phase">Phase</label>
+                <select id="corm-history-phase" autoFocus value={cormHistoryEdit.phase}
+                  onChange={(event) => setCormHistoryEdit({ ...cormHistoryEdit, phase: event.target.value })}>
+                  {cormPhaseOptions.map((phase) => <option key={phase}>{phase}</option>)}
+                </select>
+              </div>
+              <div className="form-field">
+                <label htmlFor="corm-history-date">Date</label>
+                <input id="corm-history-date" type="date" required max={todayDate()} value={cormHistoryEdit.date}
+                  onChange={(event) => setCormHistoryEdit({ ...cormHistoryEdit, date: event.target.value })} />
+              </div>
+              <div className="form-actions">
+                <button type="submit">Save</button>
+                <button type="button" className="secondary-button" onClick={() => {
+                  setCormHistoryEdit(null);
+                  setCormHistoryError('');
+                }}>Cancel</button>
+              </div>
+              {cormHistoryError && <p className="form-error-message" role="alert">{cormHistoryError}</p>}
+            </form>
+          </section>
+        </div>
+      )}
       <GlobalNavigation
         activeDestination={activeNavigationDestination({
           appView,
@@ -6541,7 +6855,7 @@ function App() {
         contextualAction={appView === 'plants' && selectedPlant && !isEditing && !showForm
           ? { id: 'edit-plant', label: 'Edit This Plant', icon: '✎' }
           : null}
-        hidden={Boolean(trackerEditor || showQuickNoteForm || quickNoteConversion || quickViewEditor
+        hidden={Boolean(trackerEditor || cormHistoryEdit || showQuickNoteForm || quickNoteConversion || quickViewEditor
           || profilePhotoLightboxOpen || timelineLightboxPhoto || showPhotoComparison)}
       />
       {showReturnToTop && !trackerEditor && !showQuickNoteForm && !quickNoteConversion

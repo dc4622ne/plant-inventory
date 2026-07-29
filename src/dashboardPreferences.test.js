@@ -18,7 +18,7 @@ test('defaults include every supported card in application order', () => {
 test('defaults include restored home sections and Plant Insights', () => {
   assert.deepEqual(defaultDashboardPreferences().cards.map(({ id }) => id), [
     'needs-attention', 'check-ins', 'quarantine', 'recently-added', 'watch-list',
-    'tissue-culture', 'leca', 'corms', 'recent-activity', 'journal',
+    'tissue-culture', 'leca', 'corms', 'recent-activity', 'journal', 'spending',
     'plant-insights', 'statistics',
   ]);
   assert.equal(defaultDashboardPreferences().cards.every(({ visible }) => visible), true);

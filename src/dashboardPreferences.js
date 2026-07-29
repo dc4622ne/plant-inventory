@@ -1,5 +1,5 @@
 export const dashboardPreferencesStorageKey = 'plant-tracker-dashboard-preferences';
-export const dashboardPreferencesVersion = 2;
+export const dashboardPreferencesVersion = 3;
 
 export const dashboardCards = [
   { id: 'needs-attention', title: 'Needs Attention', visible: true, size: 'wide' },
@@ -12,6 +12,7 @@ export const dashboardCards = [
   { id: 'corms', title: 'Corm Progress', visible: true, size: 'standard' },
   { id: 'recent-activity', title: 'Recent Activity', visible: true, size: 'wide' },
   { id: 'journal', title: 'Plant Journal', visible: true, size: 'standard' },
+  { id: 'spending', title: 'Lifetime Recorded Spending', visible: true, size: 'standard' },
   { id: 'plant-insights', title: 'Plant Insights', visible: true, size: 'full' },
   { id: 'statistics', title: 'Quick Statistics', visible: true, size: 'wide' },
 ];

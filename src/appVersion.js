@@ -1,12 +1,26 @@
 export const currentAppVersion = {
-  version: 'v0.24.0',
+  version: 'v0.25.0',
   buildDateTime: '2026-07-29',
-  releaseName: 'Plant Detail UX Overhaul and Interface Consistency',
+  releaseName: 'Collection Control & Insights',
 };
 
 export const changelog = [
   {
+    version: 'v0.25.0',
+    releaseName: 'Collection Control & Insights',
+    releaseDate: '2026-07-29',
+    changes: [
+      'Added in-place Corm phase-history correction with chronological re-sorting.',
+      'Added safe Plant duplication drafts that copy reusable profile setup without identity, photos, or historical activity.',
+      'Added lifetime recorded plant spending to the rearrangeable Dashboard.',
+      'Added protected built-in and replace-or-clear management for user-created dropdown options.',
+      'Restricted Corm and Propagation parent choices to eligible established plants.',
+      'Added documented release names to Release History.',
+    ],
+  },
+  {
     version: 'v0.24.0',
+    releaseName: 'Plant Detail UX Overhaul and Interface Consistency',
     releaseDate: '2026-07-29',
     changes: [
       'Condensed populated Plant Detail fields into responsive rows with clearer section hierarchy.',
@@ -19,6 +33,7 @@ export const changelog = [
   },
   {
     version: 'v0.23.0',
+    releaseName: 'Smart Home Dashboard',
     releaseDate: '2026-07-29',
     changes: [
       'Rebuilt Dashboard as a mobile-first daily home screen with concise, data-backed cards.',
@@ -32,6 +47,7 @@ export const changelog = [
   },
   {
     version: 'v0.22.0',
+    releaseName: 'Mobile Polish and Corrections',
     releaseDate: '2026-07-29',
     changes: [
       'Improved iPhone safe-area spacing for sticky controls, dialogs, and floating actions.',
@@ -64,6 +80,7 @@ export const changelog = [
   },
   {
     version: 'v0.21.0',
+    releaseName: 'Origins, Corms & Plant Journal',
     releaseDate: '2026-07-26',
     changes: [
       'Added Plant Journal with optional plant and photo association plus safe filing and conversion workflows.',

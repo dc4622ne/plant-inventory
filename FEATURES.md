@@ -1,5 +1,14 @@
 # Plant Tracker Features
 
+## Collection Control & Insights
+
+- Existing Corm phase-history entries can be corrected in place and are re-sorted chronologically.
+- Plant Detail can open a reviewable duplicate draft with reusable setup fields but no identity, primary photo, timestamps, or historical activity.
+- The customizable Dashboard includes lifetime recorded spending with priced and unpriced plant counts.
+- Settings manages user-created dropdown choices while protecting built-ins and migrating plant and Quick View references during replace-or-clear deletion.
+- Corm and Propagation parent selectors centralize eligibility and exclude Corm, Tissue Culture, and the current plant.
+- About displays documented release names beside their versions and gracefully leaves older unnamed history intact.
+
 ## Plant Detail UX Overhaul and Interface Consistency
 
 - Compact responsive Plant Detail rows retain every populated field, tracker, action, and history record.
@@ -34,6 +43,7 @@
 - Multi-select category, location, growing medium, status, origin, lifecycle, and other categorical filters use OR logic within a group and AND logic across groups. Each group and the full filter set can be cleared independently.
 - A compact Plant List Quick View selector applies saved configurations, shows Active/Modified state, creates a new view from the current list, and restores defaults without exposing management controls.
 - Settings → Quick Views manages every saved view through edit, rename, duplicate, and confirmed delete actions. Previously built-in views migrate once into the same editable collection without duplicated IDs.
+- Settings opens with Cloud Sync first and always expanded; every remaining Settings area expands independently. Informational General details now live under About alongside release and version information.
 - Responsive Settings section navigation keeps Quick Views, cloud sync, backup/restore, import/export, version information, and general details directly reachable.
 - Active trackers and completed historical trackers remain available from the Plant Detail section navigator.
 - Backup schema v4 preserves Plant Journal entries, user Quick Views, and all additive plant history in local, JSON, restore/undo, and manual cloud-backup flows. Older backups receive an empty Quick Views collection.
