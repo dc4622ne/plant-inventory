@@ -2,12 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   hasCormTrackerData,
+  hasMeaningfulValue,
+  isValidPastOrTodayDate,
   isTrackerCompleted,
   normalizeCormPhase,
   normalizePlantRecord,
   sortCormPhaseHistory,
   shouldShowCormTracker,
 } from './plantData.js';
+
+test('meaningful detail values preserve zero and false while hiding blanks', () => {
+  assert.equal(hasMeaningfulValue(0), true);
+  assert.equal(hasMeaningfulValue(false), true);
+  assert.equal(hasMeaningfulValue('  '), false);
+  assert.equal(hasMeaningfulValue([]), false);
+});
+
+test('Corm phase dates accept real past dates but reject future and invalid dates', () => {
+  assert.equal(isValidPastOrTodayDate('2026-07-28', '2026-07-29'), true);
+  assert.equal(isValidPastOrTodayDate('2026-07-30', '2026-07-29'), false);
+  assert.equal(isValidPastOrTodayDate('2026-02-30', '2026-07-29'), false);
+});
 
 test('normalizes legacy tissue-culture records without discarding fields', () => {
   const legacy = { id: 'plant-1', name: 'Legacy TC', type: 'Tissue Culture', tcNotes: 'Keep warm' };

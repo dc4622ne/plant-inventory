@@ -122,6 +122,20 @@ export function sortCormPhaseHistory(history) {
   ));
 }
 
+export function isValidPastOrTodayDate(value, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime())
+    && parsed.toISOString().slice(0, 10) === value
+    && value <= today;
+}
+
+export function hasMeaningfulValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === null || value === undefined) return false;
+  return typeof value !== 'string' || value.trim().length > 0;
+}
+
 export function getCormPhaseStartedDate(plant) {
   const phase = plant.cormPhase || normalizeCormPhase(plant.cormStage);
   return [...(plant.cormPhaseHistory || [])]

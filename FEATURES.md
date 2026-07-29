@@ -1,5 +1,11 @@
 # Plant Tracker Features
 
+## Mobile Polish and Corrections
+
+- Safe-area-aware mobile navigation, dialogs, floating controls, and page edges.
+- Save and Add resets and returns to the beginning of the Add Plant workflow.
+- Reliable custom substrate values, backdated Corm phases, return-to-top control, photo enlargement, and concise populated-only Plant Details.
+
 ## Origins, lifecycle, Corms, and Plant Journal
 
 - Plant Journal with unfiled/filed status, optional plant/photo, and conversion to Check-in, Activity Log, Health Timeline, Care Note, or a permanent journal entry. Existing pre-rename storage and v4 backups remain compatible.

@@ -1,5 +1,12 @@
 # Plant Tracker
 
+## v0.22.0 — Mobile Polish and Corrections
+
+- Added consistent iPhone safe-area handling, an accessible return-to-top control, and an enlarged Plant Details photo viewer.
+- Save and Add now clears the form, returns to its top, and focuses the plant name after a successful save.
+- Custom Soil Mix / Substrate values and backdated Corm phase dates now save and restore reliably.
+- Blank optional Plant Details rows and empty sections are hidden without hiding meaningful zero or false values.
+
 ## v0.21.0 — Origins, Corms & Plant Journal
 
 - Plant Journal entries can be captured from the Plant List or Plant Detail with automatic timestamps, an optional plant, and an optional stored photo. Unfiled entries remain intact until a destination save succeeds.

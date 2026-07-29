@@ -45,6 +45,8 @@ import {
   getCormPhaseStartedDate,
   getNextCormPhase,
   hasCormTrackerData,
+  hasMeaningfulValue,
+  isValidPastOrTodayDate,
   isTrackerCompleted,
   lifecycleStageOptions,
   normalizePlantRecord,
@@ -502,7 +504,7 @@ function getPlantImage(name, type) {
   return '🪴';
 }
 
-function PlantImage({ plant, detail = false }) {
+function PlantImage({ plant, detail = false, onEnlarge }) {
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = plant.imageUrl?.trim();
   const resolvedImageUrl = useResolvedImageSource(imageUrl);
@@ -510,13 +512,15 @@ function PlantImage({ plant, detail = false }) {
 
   if (resolvedImageUrl && !imageFailed) {
     return (
-      <span className={className}>
+      <button type="button" className={`${className}${onEnlarge ? ' enlargeable-plant-image' : ''}`}
+        onClick={onEnlarge} aria-label={onEnlarge ? `Enlarge photo of ${plant.name}` : undefined}
+        disabled={!onEnlarge}>
         <img
           src={resolvedImageUrl}
           alt={`${plant.name} plant`}
           onError={() => setImageFailed(true)}
         />
-      </span>
+      </button>
     );
   }
 
@@ -973,7 +977,10 @@ function getDetailSections(plant) {
     if (section.title !== 'Care details' || !plant[dateField[0]]) return section;
 
     return { ...section, fields: [...section.fields, dateField] };
-  });
+  }).map((section) => ({
+    ...section,
+    fields: section.fields.filter(([fieldName]) => hasMeaningfulValue(plant[fieldName])),
+  })).filter((section) => section.fields.length > 0);
 }
 
 const wishlistFieldLabels = {
@@ -1097,6 +1104,9 @@ function App() {
   const [timelineEntrySubmitStatus, setTimelineEntrySubmitStatus] = useState('');
   const [isTimelineEntrySubmitting, setIsTimelineEntrySubmitting] = useState(false);
   const [timelineLightboxPhoto, setTimelineLightboxPhoto] = useState(null);
+  const [profilePhotoLightboxOpen, setProfilePhotoLightboxOpen] = useState(false);
+  const [showReturnToTop, setShowReturnToTop] = useState(false);
+  const [soilMixIsCustom, setSoilMixIsCustom] = useState(false);
   const [showPhotoComparison, setShowPhotoComparison] = useState(false);
   const [comparisonPhotoIds, setComparisonPhotoIds] = useState({ before: '', after: '' });
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
@@ -1141,6 +1151,7 @@ function App() {
   const [selectedWishlistItemId, setSelectedWishlistItemId] = useState('');
   const importInputRef = useRef(null);
   const plantResultsRef = useRef(null);
+  const plantFormRef = useRef(null);
   const hasNewOptionDraft = Object.values(newOptionText).some((value) => value.trim());
   const plantFormDirty = showForm && (JSON.stringify(newPlant) !== plantFormBaseline || hasNewOptionDraft || Boolean(plantImageFile));
   const wishlistFormDirty = showWishlistForm && (JSON.stringify(wishlistDraft) !== wishlistFormBaseline || hasNewOptionDraft || Boolean(wishlistImageFile));
@@ -1333,6 +1344,31 @@ function App() {
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
   }, [hasUnsavedFormChanges]);
+
+  useEffect(() => {
+    const onScroll = () => setShowReturnToTop(window.scrollY > 520);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    const lightboxOpen = profilePhotoLightboxOpen || Boolean(timelineLightboxPhoto) || showPhotoComparison;
+    if (!lightboxOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      setProfilePhotoLightboxOpen(false);
+      setTimelineLightboxPhoto(null);
+      setShowPhotoComparison(false);
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [profilePhotoLightboxOpen, timelineLightboxPhoto, showPhotoComparison]);
 
   useEffect(() => () => {
     if (plantImagePreviewUrl) URL.revokeObjectURL(plantImagePreviewUrl);
@@ -2200,6 +2236,12 @@ function App() {
           'lecaNutrientStatus', 'lecaFlushRhythm', 'lecaStressLevel', 'lecaNotes'];
     const updates = Object.fromEntries(fieldNames.map((fieldName) => [fieldName, trackerDraft[fieldName] ?? '']));
     if (trackerEditor === 'corm') {
+      const phaseDate = trackerDraft.cormPhaseDate;
+      if (trackerDraft.cormPhase !== (selectedPlant.cormPhase || '')
+        && !isValidPastOrTodayDate(phaseDate, todayDate())) {
+        event.currentTarget.querySelector('#tracker-cormPhaseDate')?.focus();
+        return;
+      }
       const photoUrl = trackerPhotoFile ? await uploadStoredImage(trackerPhotoFile, 'corm-progress') : '';
       const phaseChanged = trackerDraft.cormPhase
         && trackerDraft.cormPhase !== (selectedPlant.cormPhase || '');
@@ -2208,11 +2250,11 @@ function App() {
         ? [...(selectedPlant.cormPhaseHistory || []), {
           id: makeId('corm-phase'),
           phase: trackerDraft.cormPhase,
-          date: dateInputValue(trackerDraft.cormPhaseDate) || todayDate(),
+          date: phaseDate,
           note: trackerDraft.cormPhaseNote?.trim() || '',
           photoUrl,
           createdAt: new Date().toISOString(),
-        }].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        }].sort((a, b) => String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')))
         : (selectedPlant.cormPhaseHistory || []);
       updates.cormProgressPhotos = photoUrl
         ? [...(selectedPlant.cormProgressPhotos || []), {
@@ -3066,7 +3108,18 @@ function App() {
       setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
       setShowForm(shouldAddAnother);
       setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
+      setSoilMixIsCustom(false);
       setIsEditing(false);
+      if (shouldAddAnother) {
+        requestAnimationFrame(() => {
+          const form = plantFormRef.current;
+          const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          form?.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
+          if (!window.matchMedia('(pointer: coarse)').matches) {
+            form?.querySelector('#plant-name')?.focus({ preventScroll: true });
+          }
+        });
+      }
     } catch (error) {
       console.error('Plant image upload failed:', error);
       setPlantImageUploadError(error.message || String(error));
@@ -3082,15 +3135,18 @@ function App() {
   }
 
   function getSoilMixSelectValue(value) {
+    if (soilMixIsCustom) return '__custom__';
     if (!value) return '';
     return getSoilMixByValue(value)?.id || '__custom__';
   }
 
   function handleSoilMixSelectChange(event) {
     const value = event.target.value;
+    const custom = value === '__custom__';
+    setSoilMixIsCustom(custom);
     setNewPlant((currentPlant) => ({
       ...currentPlant,
-      soilMix: value === '__custom__'
+      soilMix: custom
         ? (getSoilMixByValue(currentPlant.soilMix) ? '' : currentPlant.soilMix)
         : value,
     }));
@@ -3131,6 +3187,7 @@ function App() {
     clearPlantImageSelection();
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
     setAddPlantMessage('');
+    setSoilMixIsCustom(false);
     setShowForm(false);
     setIsEditing(false);
   }
@@ -3153,6 +3210,7 @@ function App() {
       lecaConversionStartDate: dateInputValue(selectedPlant.lecaConversionStartDate),
     };
     setNewPlant(editablePlant);
+    setSoilMixIsCustom(Boolean(editablePlant.soilMix && !getSoilMixByValue(editablePlant.soilMix)));
     setPlantFormBaseline(JSON.stringify(editablePlant));
     clearPlantImageSelection();
     setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
@@ -3679,7 +3737,8 @@ function App() {
             </div>
           </div>
           <div className="detail-heading" id="plant-overview">
-            <PlantImage key={selectedPlant.imageUrl || 'placeholder'} plant={selectedPlant} detail />
+            <PlantImage key={selectedPlant.imageUrl || 'placeholder'} plant={selectedPlant} detail
+              onEnlarge={selectedPlant.imageUrl?.trim() ? () => setProfilePhotoLightboxOpen(true) : undefined} />
             <div>
               <p className="detail-eyebrow">Plant details</p>
               <h2 id="plant-detail-heading">{selectedPlant.name}</h2>
@@ -4429,6 +4488,8 @@ function App() {
                             onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
                         ) : (
                           <input id={`tracker-${fieldName}`} type="date" value={trackerDraft[fieldName] || ''}
+                            max={fieldName === 'cormPhaseDate' ? todayDate() : undefined}
+                            required={fieldName === 'cormPhaseDate' && trackerDraft.cormPhase !== (selectedPlant.cormPhase || '')}
                             onChange={(event) => setTrackerDraft((draft) => ({ ...draft, [fieldName]: event.target.value }))} />
                         )}
                       </div>
@@ -4469,6 +4530,23 @@ function App() {
                   <span>{timelineLightboxPhoto.date}</span>
                   {timelineLightboxPhoto.note && <p>{timelineLightboxPhoto.note}</p>}
                 </div>
+              </div>
+            </div>
+          )}
+          {profilePhotoLightboxOpen && selectedPlant.imageUrl?.trim() && (
+            <div className="image-lightbox profile-photo-lightbox" role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setProfilePhotoLightboxOpen(false);
+              }}>
+              <div className="image-lightbox-panel" role="dialog" aria-modal="true"
+                aria-labelledby="profile-photo-lightbox-heading">
+                <button type="button" className="image-lightbox-close"
+                  onClick={() => setProfilePhotoLightboxOpen(false)} autoFocus>
+                  Close
+                </button>
+                <h3 id="profile-photo-lightbox-heading">{selectedPlant.name}</h3>
+                <SafeImage src={selectedPlant.imageUrl} alt={`${selectedPlant.name} plant, enlarged`}
+                  fallback={<div className="image-preview-fallback">Photo unavailable</div>} />
               </div>
             </div>
           )}
@@ -4533,7 +4611,7 @@ function App() {
           )}
         </article>
         ) : showForm || isEditing ? (
-        <form className="plant-form" onSubmit={handleSubmit}>
+        <form className="plant-form" onSubmit={handleSubmit} ref={plantFormRef}>
           <h2>{isEditing ? `Edit ${selectedPlant.name}` : 'Add New Plant'}</h2>
           {!isEditing && addPlantMessage && (
             <p className="form-success-message" role="status">{addPlantMessage}</p>
@@ -4806,6 +4884,7 @@ function App() {
                 setAddPlantMessage('');
                 setNewPlant(emptyPlant);
                 setPlantFormBaseline(JSON.stringify(emptyPlant));
+                setSoilMixIsCustom(false);
                 clearPlantImageSelection();
                 setShowForm(true);
               }}>+ Add New Plant</button>
@@ -5643,6 +5722,7 @@ function App() {
             setAddPlantMessage('');
             setNewPlant(emptyPlant);
             setPlantFormBaseline(JSON.stringify(emptyPlant));
+            setSoilMixIsCustom(false);
             clearPlantImageSelection();
             setShowForm(true);
           }}
@@ -6047,6 +6127,16 @@ function App() {
             </form>
           </section>
         </div>
+      )}
+      {showReturnToTop && !trackerEditor && !showQuickNoteForm && !quickNoteConversion
+        && !profilePhotoLightboxOpen && !timelineLightboxPhoto && !showPhotoComparison && (
+        <button type="button" className="return-to-top" aria-label="Return to top"
+          onClick={() => window.scrollTo({
+            top: 0,
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+          })}>
+          ↑
+        </button>
       )}
     </main>
   );

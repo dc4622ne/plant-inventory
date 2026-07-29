@@ -1,10 +1,22 @@
 export const currentAppVersion = {
-  version: 'v0.21.2',
-  buildDateTime: '2026-07-28',
-  releaseName: 'iOS Photo Storage Migration',
+  version: 'v0.22.0',
+  buildDateTime: '2026-07-29',
+  releaseName: 'Mobile Polish and Corrections',
 };
 
 export const changelog = [
+  {
+    version: 'v0.22.0',
+    releaseDate: '2026-07-29',
+    changes: [
+      'Improved iPhone safe-area spacing for sticky controls, dialogs, and floating actions.',
+      'Reset and returned Save and Add to the top of a ready Add Plant form.',
+      'Fixed custom Soil Mix / Substrate values across add, edit, display, and backup workflows.',
+      'Added backdated Corm phase entries with date validation and chronological history.',
+      'Added an accessible return-to-top control and enlarged Plant Details photo viewer.',
+      'Removed blank optional rows and sections from Plant Details while preserving zero and false values.',
+    ],
+  },
   {
     version: 'v0.21.2',
     releaseDate: '2026-07-28',
