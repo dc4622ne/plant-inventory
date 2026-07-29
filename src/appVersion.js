@@ -1,10 +1,23 @@
 export const currentAppVersion = {
-  version: 'v0.22.0',
+  version: 'v0.23.0',
   buildDateTime: '2026-07-29',
-  releaseName: 'Mobile Polish and Corrections',
+  releaseName: 'Smart Home Dashboard',
 };
 
 export const changelog = [
+  {
+    version: 'v0.23.0',
+    releaseDate: '2026-07-29',
+    changes: [
+      'Rebuilt Dashboard as a mobile-first daily home screen with concise, data-backed cards.',
+      'Added Needs Attention, Recently Added, Watch List, Tissue Culture, LECA, Corm, activity, journal, and statistics summaries.',
+      'Restored Quarantine, Check-ins, Plant Insights charts, Add Plant, and New Journal Entry on the home screen.',
+      'Expanded Plant Insights to type, growing medium, current lifecycle phase, LECA status, Tissue Culture stages, and corm progress.',
+      'Kept Plant List filters collapsed when opening filtered lists while preserving active criteria and counts.',
+      'Added accessible Dashboard show, hide, move, and Restore Default controls.',
+      'Persisted versioned Dashboard preferences with safe normalization for new, missing, or outdated cards.',
+    ],
+  },
   {
     version: 'v0.22.0',
     releaseDate: '2026-07-29',

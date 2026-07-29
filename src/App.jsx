@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
+import {
+  dashboardCards,
+  defaultDashboardPreferences,
+  loadDashboardPreferences,
+  saveDashboardPreferences,
+} from './dashboardPreferences.js';
 import Garden from './Garden';
 import PlantSpaces from './PlantSpaces';
 import Resources from './ResourceLibrary';
@@ -61,6 +67,17 @@ import {
   matchesOriginLifecycleFilters,
   missingFilterValue,
 } from './plantFilters';
+import {
+  aggregateCormPhases,
+  aggregateLecaStatuses,
+  aggregateLifecyclePhases,
+  aggregateTissueCultureStages,
+  isLecaTrackedPlant,
+  isTissueCulturePlant,
+  lecaStatusOptions,
+  matchesPlantInsightFilter,
+  tissueCultureStageOptions as tcStageOptions,
+} from './plantInsights';
 import {
   defaultPlantListState,
   duplicateQuickView,
@@ -227,10 +244,6 @@ const wateringRhythmOptions = [
 const moisturePreferenceOptions = ['Dry', 'Moderate', 'Moist', 'Wet / boggy'];
 const careDifficultyOptions = ['Easy', 'Moderate', 'Fussy', 'Rehab / watch closely'];
 const careRhythmFields = ['wateringRhythm', 'moisturePreference', 'careDifficulty'];
-const tcStageOptions = [
-  'In vitro / unopened', 'Deflasked', 'Community cup', 'High humidity acclimation',
-  'Venting', 'Transitioning to ambient', 'Fully acclimated', 'Failed / lost',
-];
 const tcSetupOptions = [
   'Original TC cup', 'Community cup', 'Prop box', 'Humidity dome',
   'Greenhouse cabinet', 'Open air', 'Other',
@@ -240,7 +253,6 @@ const acclimatingTcStages = [
   'Deflasked', 'Community cup', 'High humidity acclimation', 'Venting',
   'Transitioning to ambient',
 ];
-const lecaStatusOptions = ['Planning', 'Converted', 'Transitioning', 'Rooting', 'Stable', 'Struggling', 'Failed / reverted to soil'];
 const lecaRootStatusOptions = ['No new roots yet', 'Existing roots adapting', 'New water roots showing', 'Strong water roots', 'Root rot concern', 'Root trim done'];
 const lecaReservoirOptions = ['No reservoir yet', 'Low reservoir', 'Standard reservoir', 'Wick system', 'Cachepot setup', 'Self-watering pot', 'Other'];
 const lecaNutrientOptions = ['Plain water', 'Diluted nutrients', 'Full nutrients', 'Flush only', 'Paused nutrients'];
@@ -560,9 +572,7 @@ function normalizedFilterValue(value) {
 }
 
 function isTissueCulture(plant) {
-  return plant.origin === 'Tissue culture'
-    || plant.lifecycleStage === 'Tissue Culture'
-    || normalizedFilterValue(plant.type).toLowerCase() === 'tissue culture';
+  return isTissueCulturePlant(plant);
 }
 
 function hasTcTrackerData(plant) {
@@ -586,7 +596,7 @@ function hasLecaTrackerData(plant) {
 }
 
 function shouldShowLecaTracker(plant) {
-  return isLecaMedium(plant) || isSemiHydro(plant) || Boolean(plant.trackLecaConversion) || hasLecaTrackerData(plant);
+  return isLecaTrackedPlant(plant);
 }
 
 function hasLecaStress(plant) {
@@ -1039,6 +1049,8 @@ function App() {
   const [gardenFilter, setGardenFilter] = useState({});
   const [focusedPlantSpace, setFocusedPlantSpace] = useState({ spaceId: plantWallSpaceId, plantId: '' });
   const [appView, setAppView] = useState('dashboard');
+  const [dashboardPreferences, setDashboardPreferences] = useState(loadDashboardPreferences);
+  const [isCustomizingDashboard, setIsCustomizingDashboard] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState('');
   const [selectedSoilMixRecipeId, setSelectedSoilMixRecipeId] = useState('');
   const [resourceReturnPlantId, setResourceReturnPlantId] = useState('');
@@ -1062,6 +1074,7 @@ function App() {
   const [quarantineFilter, setQuarantineFilter] = useState('');
   const [recentlyCheckedFilter, setRecentlyCheckedFilter] = useState(false);
   const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
+  const [plantInsightFilter, setPlantInsightFilter] = useState(null);
   const [activeQuickView, setActiveQuickView] = useState('');
   const [quickViewEditor, setQuickViewEditor] = useState(null);
   const [settingsSection, setSettingsSection] = useState('quick-views');
@@ -1636,6 +1649,7 @@ function App() {
           if (fieldName === 'tcStage' && selectedFilter === '__acclimating__') {
             return acclimatingTcStages.includes(plantValue);
           }
+          if (fieldName === 'type' && selectedFilter === '__tissue_culture__') return isTissueCulture(plant);
           if (fieldName === 'lecaStatus' && selectedFilter === '__leca__') return shouldShowLecaTracker(plant);
           if (fieldName === 'lecaStatus' && selectedFilter === '__transitioning__') return lecaTransitionStatuses.includes(plantValue);
           if (fieldName === 'lecaStressLevel' && selectedFilter === '__stress__') return hasLecaStress(plant);
@@ -1663,9 +1677,14 @@ function App() {
         Boolean(acquiredDate) && acquiredDate >= fourteenDaysAgo && acquiredDate <= todayDate()
       );
 
-      return matchesLifecycle && matchesFilters && matchesOriginLifecycleFilters(plant, plantFilters)
+      const matchesOriginLifecycle = plantFilters.origin.includes('__corm__')
+        ? shouldShowCormTracker(plant) && matchesFilterValue(plant.lifecycleStage, plantFilters.lifecycleStage)
+        : matchesOriginLifecycleFilters(plant, plantFilters);
+
+      return matchesLifecycle && matchesFilters && matchesOriginLifecycle
         && matchesSearch && matchesQuarantine
-        && matchesRecentlyChecked && matchesRecentlyAcquired;
+        && matchesRecentlyChecked && matchesRecentlyAcquired
+        && matchesPlantInsightFilter(plant, plantInsightFilter);
     })
     .sort(comparePlants);
 
@@ -1685,7 +1704,7 @@ function App() {
   useEffect(() => {
     setPlantPage(1);
   }, [searchText, plantFilters, lifecycleView, quarantineFilter, recentlyCheckedFilter,
-    recentlyAcquiredFilter, plantViewMode, plantSort]);
+    recentlyAcquiredFilter, plantInsightFilter, plantViewMode, plantSort]);
 
   useEffect(() => {
     if (plantPage > plantPageCount) setPlantPage(plantPageCount);
@@ -1849,19 +1868,28 @@ function App() {
       fieldName: 'medium',
     },
     {
-      title: 'Plants by attention status',
+      title: 'Current Lifecycle Phase',
       description: 'Active plants',
-      rows: countPlantsByField(activePlants, 'attention', attentionOptions),
-      fieldName: 'attention',
+      rows: aggregateLifecyclePhases(plants),
+      insightChart: 'lifecycle-phase',
     },
     {
-      title: 'Plants by lifecycle state',
-      description: 'All plants',
-      rows: [
-        { label: 'Active', count: lifecycleCounts.active, lifecycle: 'active' },
-        { label: 'Archived', count: lifecycleCounts.archived, lifecycle: 'archived' },
-        { label: 'Graveyard', count: lifecycleCounts.graveyard, lifecycle: 'graveyard' },
-      ],
+      title: 'LECA Status',
+      description: 'Active LECA-tracked plants',
+      rows: aggregateLecaStatuses(plants),
+      insightChart: 'leca-status',
+    },
+    {
+      title: 'Tissue Culture Stages',
+      description: 'Active Tissue Culture plants',
+      rows: aggregateTissueCultureStages(plants),
+      insightChart: 'tc-stage',
+    },
+    {
+      title: 'Corm Progress',
+      description: 'Active corm-tracked plants',
+      rows: aggregateCormPhases(plants),
+      insightChart: 'corm-phase',
     },
   ];
 
@@ -1883,12 +1911,12 @@ function App() {
     setSearchText('');
     setQuarantineFilter(metric.quarantine || '');
     setRecentlyCheckedFilter(Boolean(metric.recentlyChecked));
-    setRecentlyAcquiredFilter(false);
+    setRecentlyAcquiredFilter(Boolean(metric.recentlyAcquired));
+    setPlantInsightFilter(metric.insight || null);
+    if (metric.sort) setPlantSort(metric.sort);
     setActiveQuickView(matchingQuickView?.id || '');
     setLifecycleView(nextLifecycle);
-    setAreMoreFiltersVisible(Boolean(
-      metric.filter && advancedFilterFields.some(([fieldName]) => fieldName === metric.filter[0])
-    ));
+    setAreMoreFiltersVisible(false);
     setSelectedPlant(null);
     setPlantPage(1);
     setAppView('plants');
@@ -1903,6 +1931,28 @@ function App() {
     setAddPlantMessage('');
     setQuickCheckMessage('');
     setAppView('dashboard');
+  }
+
+  function updateDashboardPreferences(nextPreferences) {
+    setDashboardPreferences(saveDashboardPreferences(nextPreferences));
+  }
+
+  function moveDashboardCard(cardId, direction) {
+    const cards = [...dashboardPreferences.cards];
+    const index = cards.findIndex((card) => card.id === cardId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= cards.length) return;
+    [cards[index], cards[nextIndex]] = [cards[nextIndex], cards[index]];
+    updateDashboardPreferences({ ...dashboardPreferences, cards });
+  }
+
+  function toggleDashboardCard(cardId) {
+    updateDashboardPreferences({
+      ...dashboardPreferences,
+      cards: dashboardPreferences.cards.map((card) => (
+        card.id === cardId ? { ...card, visible: !card.visible } : card
+      )),
+    });
   }
 
   function openSettings() {
@@ -2368,6 +2418,7 @@ function App() {
     setQuarantineFilter('');
     setRecentlyCheckedFilter(false);
     setRecentlyAcquiredFilter(false);
+    setPlantInsightFilter(null);
     setLifecycleView('active');
     setActiveQuickView('');
     setPlantPage(1);
@@ -2397,6 +2448,7 @@ function App() {
     + (quarantineFilter ? 1 : 0)
     + (recentlyCheckedFilter ? 1 : 0)
     + (recentlyAcquiredFilter ? 1 : 0)
+    + (plantInsightFilter ? 1 : 0)
     + (searchText.trim() ? 1 : 0);
   const activeQuickViewRecord = quickViews.find((quickView) => quickView.id === activeQuickView);
   const activeQuickViewLabel = activeQuickViewRecord?.name || '';
@@ -2413,6 +2465,7 @@ function App() {
     setQuarantineFilter(state.quarantineFilter);
     setRecentlyCheckedFilter(state.recentlyCheckedFilter);
     setRecentlyAcquiredFilter(state.recentlyAcquiredFilter);
+    setPlantInsightFilter(null);
     changePlantSort(state.sort);
     changePlantViewMode(state.viewMode);
     if (state.pageSize !== undefined) {
@@ -2420,9 +2473,7 @@ function App() {
       setPlantPageSizes(updatedPageSizes);
       localStorage.setItem(plantPageSizesStorageKey, JSON.stringify(updatedPageSizes));
     }
-    setAreMoreFiltersVisible(Object.entries(state.filters).some(([fieldName, values]) => (
-      values.length && advancedFilterFields.some(([advancedField]) => advancedField === fieldName)
-    )));
+    setAreMoreFiltersVisible(false);
     setActiveQuickView(quickView.id);
     setPlantPage(1);
     scrollPlantResultsIntoView();
@@ -2436,6 +2487,7 @@ function App() {
     setQuarantineFilter('');
     setRecentlyCheckedFilter(false);
     setRecentlyAcquiredFilter(false);
+    setPlantInsightFilter(null);
     changePlantSort(state.sort);
     changePlantViewMode(state.viewMode);
     const resetPageSizes = { ...plantPageSizes, cards: defaultPlantPageSizes.cards };
@@ -3632,6 +3684,269 @@ function App() {
         </div>
         <div className="reminder-list">
           {items.length ? items.map((reminder) => renderReminderCard(reminder)) : <p className="empty-message">{emptyText}</p>}
+        </div>
+      </section>
+    );
+  }
+
+  function renderDashboardHome() {
+    const cardMetadata = new Map(dashboardCards.map((card) => [card.id, card]));
+    const highAttentionPlants = activePlants.filter(
+      (plant) => normalizedFilterValue(plant.attention).toLowerCase() === 'high',
+    );
+    const watchPlants = activePlants.filter(
+      (plant) => ['watch', 'watch list'].includes(normalizedFilterValue(plant.attention).toLowerCase()),
+    );
+    const tissueCulturePlants = activePlants.filter(isTissueCulture);
+    const lecaPlants = activePlants.filter(shouldShowLecaTracker);
+    const cormPlants = activePlants.filter(shouldShowCormTracker);
+    const quarantinedPlants = activePlants.filter(isPlantInQuarantine);
+    const recentlyAddedPlants = [...activePlants]
+      .filter((plant) => plant.createdAt || plant.acquiredDate)
+      .sort((a, b) => (b.createdAt || b.acquiredDate || '').localeCompare(a.createdAt || a.acquiredDate || ''))
+      .slice(0, 3);
+    const recentActivity = [
+      ...plants.flatMap((plant) => (plant.activityLog || []).map((entry) => ({
+        id: `activity-${plant.id}-${entry.id || entry.date}`,
+        date: entry.date || '',
+        title: entry.title || entry.type || 'Plant activity',
+        context: plant.name,
+      }))),
+      ...quickNotes.map((note) => ({
+        id: `journal-${note.id}`,
+        date: note.createdAt || note.date || '',
+        title: 'Journal entry',
+        context: note.plantId ? reminderPlantById.get(note.plantId)?.name || 'Plant journal' : 'Plant journal',
+      })),
+    ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
+
+    const cardContent = {
+      'needs-attention': {
+        count: highAttentionPlants.length + dueNowReminders.length,
+        summary: highAttentionPlants.length || dueNowReminders.length
+          ? `${highAttentionPlants.length} high-priority plant${highAttentionPlants.length === 1 ? '' : 's'} · ${dueNowReminders.length} check-in${dueNowReminders.length === 1 ? '' : 's'} due`
+          : 'Nothing marked high priority and no check-ins due.',
+        action: () => (highAttentionPlants.length
+          ? openPlantList({ lifecycle: 'active', filter: ['attention', 'High'] })
+          : openReminders()),
+        actionLabel: highAttentionPlants.length ? 'View high-priority plants' : 'View check-ins',
+      },
+      'check-ins': {
+        count: dueNowReminders.length,
+        summary: dueNowReminders.length
+          ? `${overdueReminders.length} overdue · ${thisWeekReminders.length} upcoming this week`
+          : `${thisWeekReminders.length} upcoming this week · ${recentlyCompletedReminders.length} recently completed`,
+        action: openReminders,
+        actionLabel: 'Open check-ins',
+      },
+      quarantine: {
+        count: quarantinedPlants.length,
+        summary: quarantinedPlants.length
+          ? `${activePlants.filter(isPlantLeavingQuarantineSoon).length} ending soon · ${activePlants.filter((plant) => getQuarantineStatus(plant).isInPestQuarantine).length} pest-related`
+          : 'No active plants are currently quarantined.',
+        action: () => openPlantList({ lifecycle: 'active', quarantine: 'current' }),
+        actionLabel: 'View quarantined plants',
+      },
+      'recently-added': {
+        count: recentlyAddedPlants.length,
+        summary: recentlyAddedPlants.length
+          ? recentlyAddedPlants.map((plant) => plant.name).join(', ')
+          : 'New plants will appear here.',
+        action: () => openPlantList({ lifecycle: 'active', sort: 'added-desc' }),
+        actionLabel: 'View newest plants',
+      },
+      'watch-list': {
+        count: watchPlants.length,
+        summary: watchPlants.length ? 'Plants you have marked to monitor closely.' : 'No plants are on your Watch List.',
+        action: () => openPlantList({ lifecycle: 'active', filter: ['attention', 'Watch list'] }),
+        actionLabel: 'Open Watch List',
+      },
+      'tissue-culture': {
+        count: tissueCulturePlants.length,
+        summary: tissueCulturePlants.length
+          ? `${tissueCulturePlants.filter((plant) => acclimatingTcStages.includes(plant.tcStage)).length} currently acclimating`
+          : 'No tissue cultures are being tracked.',
+        action: () => openPlantList({ lifecycle: 'active', filter: ['type', '__tissue_culture__'] }),
+        actionLabel: 'View tissue cultures',
+      },
+      leca: {
+        count: lecaPlants.length,
+        summary: lecaPlants.length
+          ? `${lecaPlants.filter((plant) => lecaTransitionStatuses.includes(plant.lecaStatus)).length} currently transitioning`
+          : 'No LECA conversions are being tracked.',
+        action: () => openPlantList({ lifecycle: 'active', filter: ['lecaStatus', '__leca__'] }),
+        actionLabel: 'View LECA plants',
+      },
+      corms: {
+        count: cormPlants.length,
+        summary: cormPlants.length
+          ? `${cormPlants.filter((plant) => !['Established', 'Unsuccessful'].includes(plant.cormPhase)).length} in progress`
+          : 'No corm progress is being tracked.',
+        action: () => openPlantList({ lifecycle: 'active', filter: ['origin', '__corm__'] }),
+        actionLabel: 'View corm plants',
+      },
+      'recent-activity': {
+        count: recentActivity.length,
+        summary: recentActivity.length ? (
+          <ul className="dashboard-activity-list">
+            {recentActivity.map((entry) => (
+              <li key={entry.id}><strong>{entry.title}</strong><span>{entry.context}{entry.date ? ` · ${String(entry.date).slice(0, 10)}` : ''}</span></li>
+            ))}
+          </ul>
+        ) : 'Activity and journal updates will appear here.',
+        action: () => openPlantList({ lifecycle: 'active', sort: 'checked-desc' }),
+        actionLabel: 'View recent plants',
+      },
+      journal: {
+        count: unprocessedQuickNotes.length,
+        summary: unprocessedQuickNotes.length
+          ? `${unprocessedQuickNotes.length} unfiled entr${unprocessedQuickNotes.length === 1 ? 'y' : 'ies'} ready to organize.`
+          : 'No unfiled entries. Capture an observation whenever you need.',
+        action: () => setAppView('quick-notes'),
+        actionLabel: 'Open Plant Journal',
+      },
+      'plant-insights': {
+        count: dashboardCharts.length,
+        summary: (
+          <div className="dashboard-charts" aria-label="Collection breakdown charts">
+            {dashboardCharts.map((chart) => {
+              const total = chart.rows.reduce((sum, row) => sum + row.count, 0);
+              const coloredRows = chart.rows.map((row, index) => ({
+                ...row,
+                color: chartColors[index % chartColors.length],
+              }));
+              return (
+                <section className="dashboard-chart" key={chart.title}>
+                  <div className="dashboard-chart-heading"><h4>{chart.title}</h4><span>{chart.description}</span></div>
+                  {coloredRows.length && total ? (
+                    <div className="dashboard-chart-content">
+                      <div className="dashboard-donut" style={{ background: getDonutBackground(coloredRows) }}
+                        role="img" aria-label={`${chart.title}: ${total} plants total`}>
+                        <span><strong>{total}</strong>plants</span>
+                      </div>
+                      <div className="dashboard-chart-rows">
+                        {coloredRows.map((row) => {
+                          const filterValue = row.label === 'Not set' ? missingFilterValue : row.label;
+                          const chartTarget = chart.insightChart
+                            ? { lifecycle: 'active', insight: { chart: chart.insightChart, value: row.label } }
+                            : row.lifecycle
+                              ? { lifecycle: row.lifecycle }
+                              : { lifecycle: 'active', filter: [chart.fieldName, filterValue] };
+                          return row.isOther ? (
+                            <div className="dashboard-chart-row dashboard-chart-row-static" key={row.label}>
+                              <span className="dashboard-chart-key" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                              <span className="dashboard-chart-label">{row.label}</span>
+                              <span className="dashboard-chart-count">{row.count}</span>
+                            </div>
+                          ) : (
+                            <button className="dashboard-chart-row" type="button" key={row.label}
+                              onClick={() => openPlantList(chartTarget)}>
+                              <span className="dashboard-chart-key" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                              <span className="dashboard-chart-label">{row.label}</span>
+                              <span className="dashboard-chart-count">{row.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : <p className="dashboard-chart-empty">Add plant details to see this insight.</p>}
+                </section>
+              );
+            })}
+          </div>
+        ),
+        action: () => openPlantList({ lifecycle: 'all' }),
+        actionLabel: 'Explore all plants',
+      },
+      statistics: {
+        count: activePlants.length,
+        summary: (
+          <dl className="dashboard-stat-list">
+            <div><dt>Total plants</dt><dd>{plants.length}</dd></div>
+            <div><dt>Watch List</dt><dd>{watchPlants.length}</dd></div>
+            <div><dt>Tissue Culture</dt><dd>{tissueCulturePlants.length}</dd></div>
+            <div><dt>LECA</dt><dd>{lecaPlants.length}</dd></div>
+            <div><dt>Corms</dt><dd>{cormPlants.length}</dd></div>
+            <div><dt>Due today</dt><dd>{dueNowReminders.length}</dd></div>
+          </dl>
+        ),
+        action: () => openPlantList({ lifecycle: 'all' }),
+        actionLabel: 'View full collection',
+      },
+    };
+
+    return (
+      <section className="dashboard-home dashboard-smart-home" aria-labelledby="dashboard-heading">
+        <div className="dashboard-heading">
+          <div>
+            <p className="detail-eyebrow">Today at a glance</p>
+            <h2 id="dashboard-heading">Your plant home</h2>
+            <p>See what needs attention, then pick up where you left off.</p>
+          </div>
+          <button className="secondary-button dashboard-customize-button" type="button"
+            aria-expanded={isCustomizingDashboard}
+            onClick={() => setIsCustomizingDashboard((visible) => !visible)}>
+            {isCustomizingDashboard ? 'Done' : 'Customize Dashboard'}
+          </button>
+        </div>
+        <section className="dashboard-primary-actions" aria-label="Quick add actions">
+          <button className="dashboard-add-button" type="button" onClick={() => {
+            setAddPlantMessage('');
+            setNewPlant(emptyPlant);
+            setPlantFormBaseline(JSON.stringify(emptyPlant));
+            setSoilMixIsCustom(false);
+            clearPlantImageSelection();
+            setShowForm(true);
+          }}>+ Add New Plant</button>
+          <button className="secondary-button" type="button" onClick={() => openQuickNote()}>
+            + New Journal Entry
+          </button>
+        </section>
+        {isCustomizingDashboard && (
+          <section className="dashboard-customizer" aria-labelledby="dashboard-customizer-heading">
+            <div className="dashboard-customizer-heading">
+              <div><h3 id="dashboard-customizer-heading">Customize Dashboard</h3><p>Choose sections and adjust their order.</p></div>
+              <button className="secondary-button" type="button"
+                onClick={() => updateDashboardPreferences(defaultDashboardPreferences())}>Restore Default</button>
+            </div>
+            <ol className="dashboard-customizer-list">
+              {dashboardPreferences.cards.map((card, index) => (
+                <li key={card.id}>
+                  <label><input type="checkbox" checked={card.visible}
+                    onChange={() => toggleDashboardCard(card.id)} />{cardMetadata.get(card.id)?.title}</label>
+                  <span className="dashboard-move-controls">
+                    <button type="button" disabled={index === 0} onClick={() => moveDashboardCard(card.id, -1)}
+                      aria-label={`Move ${cardMetadata.get(card.id)?.title} up`}>↑</button>
+                    <button type="button" disabled={index === dashboardPreferences.cards.length - 1}
+                      onClick={() => moveDashboardCard(card.id, 1)}
+                      aria-label={`Move ${cardMetadata.get(card.id)?.title} down`}>↓</button>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+        <div className="dashboard-card-grid">
+          {dashboardPreferences.cards.filter((card) => card.visible).map((preference) => {
+            const metadata = cardMetadata.get(preference.id);
+            const content = cardContent[preference.id];
+            if (!metadata || !content) return null;
+            return (
+              <article className={`dashboard-home-card dashboard-home-card-${metadata.size}`} key={preference.id}>
+                <div className="dashboard-home-card-heading">
+                  <h3>{metadata.title}</h3><strong>{content.count}</strong>
+                </div>
+                <div className="dashboard-home-card-summary">{content.summary}</div>
+                <button type="button" onClick={content.action}>{content.actionLabel} →</button>
+              </article>
+            );
+          })}
+          {!dashboardPreferences.cards.some((card) => card.visible) && (
+            <div className="dashboard-empty-state">
+              <h3>Your Dashboard is clear</h3>
+              <p>Use Customize Dashboard to show any section again.</p>
+            </div>
+          )}
         </div>
       </section>
     );
@@ -4865,7 +5180,7 @@ function App() {
           </div>
         </form>
         ) : (
-        appView === 'dashboard' ? (
+        appView === 'dashboard' ? (/* oxlint-disable-next-line no-constant-condition */ false ? (
         <section className="dashboard-home" aria-labelledby="dashboard-heading">
           <div className="dashboard-heading">
             <div>
@@ -5061,7 +5376,7 @@ function App() {
             </div>
           </section>
         </section>
-        ) : appView === 'quick-notes' ? (
+        ) : renderDashboardHome()) : appView === 'quick-notes' ? (
         <section className="quick-notes-view" aria-labelledby="quick-notes-heading">
           <div className="section-heading">
             <div>
@@ -5711,7 +6026,9 @@ function App() {
               </section>
             </div>
           )}
-          <p className="settings-version-footer">Grow With Gibre Plant Tracker {currentAppVersion.version}</p>
+          <p className="settings-version-footer">
+            Grow With Gibre Plant Tracker {currentAppVersion.version} — {currentAppVersion.releaseName}
+          </p>
         </section>
         ) : (
         <>

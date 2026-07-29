@@ -1,5 +1,13 @@
 # Plant Tracker
 
+## v0.23.0 — Smart Home Dashboard
+
+The Dashboard is now a calm, mobile-first daily home screen with concise cards for Needs Attention, Check-ins, Quarantine, Recently Added, Watch List, Tissue Culture, LECA conversions, Corm progress, recent activity, Plant Journal, restored Plant Insights charts, and collection statistics. Add New Plant and New Journal Entry remain permanently available above the customizable cards. Every card links into an existing Plant Tracker destination or filtered Plant List.
+
+Choose **Customize Dashboard** to show or hide sections, move them with touch-friendly up/down controls, or restore the application default. Preferences are stored locally in a versioned format; newly introduced and restored cards are inserted without overwriting existing order or visibility choices, and invalid old card IDs are ignored safely. Plant List filters remain collapsed when opening any filtered Dashboard or Quick View destination; active criteria, results, and the compact Filter count remain intact.
+
+Plant Insights contains six interactive charts: Plants by Type/Category, Plants by Growing Medium, Current Lifecycle Phase, LECA Status, Tissue Culture Stages, and Corm Progress. Tracker charts select the latest valid current history value, count each active plant once, and keep legacy or missing records visible as Other or Not specified.
+
 ## v0.22.0 — Mobile Polish and Corrections
 
 - Added consistent iPhone safe-area handling, an accessible return-to-top control, and an enlarged Plant Details photo viewer.
