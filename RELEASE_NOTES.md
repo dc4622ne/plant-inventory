@@ -1,12 +1,13 @@
 # Release Notes
 
-## v0.26.0 — Database Foundation (2026-08-04)
+## v0.26.0 — Connected Collection Foundation (2026-08-04)
 
-- Added database, authentication, data-access, diagnostics, and private photo-storage foundations.
-- Added version-controlled schema migrations, per-user row-level security, schema metadata, and optimistic record concurrency.
-- Supabase database, authentication, and realtime functionality remain disabled by default.
-- The current local/manual-sync system remains active; no existing user data is migrated or modified.
-- Release F will introduce reviewed migration and automatic multi-device saving. This release does not claim automatic sync.
+- Added stable device identity, sync-ready plant metadata, a persistent collapsing change queue, and soft-delete tombstones.
+- Routed plant persistence through a compatible local repository while preserving tracker, journal, photo, health, and history fields.
+- Added provider-neutral conflict detection and a sync engine with retry-safe push and pull behavior.
+- Added a development-only browser mirror provider that is never enabled automatically and is not cross-device storage.
+- Renamed Settings → Cloud Sync to Data & Sync with honest local, pending, conflict, device, and connection status.
+- Preserved manual Cloud Sync, backup, restore, import, export, localStorage compatibility, and legacy-backup migration without automatic uploads.
 
 ## v0.25.0 — Collection Control & Insights
 
