@@ -1,5 +1,12 @@
 # Plant Tracker Features
 
+## v0.26.0 — Database Foundation
+
+- Added an inactive Supabase database and authentication foundation behind disabled-by-default feature flags.
+- Added version-controlled user-owned tables, row-level security, private user-scoped photo storage, schema compatibility metadata, and record-level optimistic concurrency.
+- Added local and Supabase repository contracts, normalized application errors, auth services, and development diagnostics without routing the UI through them yet.
+- Preserved browser localStorage, IndexedDB photos, manual Cloud Sync, backup/restore, import/export, and all existing application behavior. No data migration occurs in this release.
+
 ## Collection Control & Insights
 
 - Existing Corm phase-history entries can be corrected in place and are re-sorted chronologically.

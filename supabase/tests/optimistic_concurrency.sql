@@ -1,0 +1,21 @@
+-- Verification examples for a local Supabase test project.
+-- Replace the UUID below with an existing auth.users test fixture, run as that
+-- authenticated user, and wrap the checks in a transaction that is rolled back.
+--
+-- insert into public.plants (id, user_id, name) values
+--   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '<test-user>', 'A'),
+--   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '<test-user>', 'B');
+--
+-- Version 1 succeeds and returns record_version 2:
+-- select * from public.update_versioned_record(
+--   'plants', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1, '{"name":"A2"}'
+-- );
+--
+-- Repeating the same call with expected version 1 must raise SQLSTATE PT409.
+-- Plant B still updates from version 1 independently:
+-- select * from public.update_versioned_record(
+--   'plants', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 1, '{"name":"B2"}'
+-- );
+--
+-- Insert a plant_journal_entries row for plant A, then confirm plant A remains
+-- at record_version 2. Event insertion must not conflict with plant-field edits.

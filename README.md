@@ -1,5 +1,9 @@
 # Plant Tracker
 
+## v0.26.0 — Database Foundation
+
+This release adds a secure, version-controlled Supabase database, authentication, repository, diagnostics, private photo-storage, and optimistic-concurrency foundation. All new database features are disabled by default. The existing browser-local data, manual Cloud Sync, backup, restore, import, and export systems remain active, and no user data is migrated. Future releases will add an explicit migration workflow and automatic multi-device saving.
+
 ## v0.25.0 — Collection Control & Insights
 
 Release D adds correction controls for existing Corm phase dates and phases, safe Plant duplication into a reviewable unsaved draft, and lifetime recorded spending across active, archived, and graveyard plants. Spending includes valid non-negative purchase prices (including zero and legacy dollar-formatted values) and excludes missing or malformed prices.

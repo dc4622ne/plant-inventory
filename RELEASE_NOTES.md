@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.26.0 — Database Foundation (2026-08-04)
+
+- Added database, authentication, data-access, diagnostics, and private photo-storage foundations.
+- Added version-controlled schema migrations, per-user row-level security, schema metadata, and optimistic record concurrency.
+- Supabase database, authentication, and realtime functionality remain disabled by default.
+- The current local/manual-sync system remains active; no existing user data is migrated or modified.
+- Release F will introduce reviewed migration and automatic multi-device saving. This release does not claim automatic sync.
+
 ## v0.25.0 — Collection Control & Insights
 
 - Correct existing Corm phase-history dates and phases without creating duplicate events.

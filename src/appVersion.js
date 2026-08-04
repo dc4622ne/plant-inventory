@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.25.0',
-  buildDateTime: '2026-07-29',
-  releaseName: 'Collection Control & Insights',
+  version: 'v0.26.0',
+  buildDateTime: '2026-08-04',
+  releaseName: 'Database Foundation',
 };
 
 export const changelog = [
+  {
+    version: 'v0.26.0',
+    releaseName: 'Database Foundation',
+    releaseDate: '2026-08-04',
+    changes: [
+      'Added secure database, authentication, repository, diagnostics, and private photo-storage foundations.',
+      'Kept local browser data and the existing manual Cloud Sync system active and unchanged.',
+      'Added versioned migrations, row-level ownership policies, and optimistic record concurrency.',
+      'Left all database, authentication, and realtime features disabled by default; no user data is migrated.',
+    ],
+  },
   {
     version: 'v0.25.0',
     releaseName: 'Collection Control & Insights',
