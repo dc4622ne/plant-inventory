@@ -1,11 +1,16 @@
 # Plant Tracker Features
 
-## v0.26.0 — Database Foundation
+## v0.26.0 — Connected Collection Foundation (Release F)
 
-- Added an inactive Supabase database and authentication foundation behind disabled-by-default feature flags.
-- Added version-controlled user-owned tables, row-level security, private user-scoped photo storage, schema compatibility metadata, and record-level optimistic concurrency.
-- Added local and Supabase repository contracts, normalized application errors, auth services, and development diagnostics without routing the UI through them yet.
-- Preserved browser localStorage, IndexedDB photos, manual Cloud Sync, backup/restore, import/export, and all existing application behavior. No data migration occurs in this release.
+- Plant records receive stable IDs and additive sync metadata while preserving every existing field and timestamp.
+- A stable, editable local device identity identifies future changes without connecting a live provider.
+- A persistent, collapsing outbox records local creates, edits, and soft-delete tombstones for future delivery.
+- The local plant repository is the preferred persistence boundary and keeps `plant-inventory-plants` compatible with existing browser data.
+- Provider-neutral conflict detection preserves simultaneous edits and delete/update conflicts instead of overwriting either side.
+- A provider-neutral sync engine and separate development-only local mirror validate push, pull, retry, status, and conflict behavior; the mirror is never enabled automatically.
+- Data & Sync shows honest local storage, pending-change, conflict, device, and connection status. It does not claim data is synced without a completed provider run.
+- Current backups retain metadata and tombstones; legacy backups gain missing IDs and metadata when first loaded without generating migration-only outgoing changes.
+- Manual Cloud Sync, backup, restore, import, export, IndexedDB photos, and all existing tracker workflows remain available. No automatic production upload is enabled.
 
 ## Collection Control & Insights
 

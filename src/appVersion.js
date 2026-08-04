@@ -1,19 +1,19 @@
 export const currentAppVersion = {
   version: 'v0.26.0',
   buildDateTime: '2026-08-04',
-  releaseName: 'Database Foundation',
+  releaseName: 'Connected Collection Foundation',
 };
 
 export const changelog = [
   {
     version: 'v0.26.0',
-    releaseName: 'Database Foundation',
+    releaseName: 'Connected Collection Foundation',
     releaseDate: '2026-08-04',
     changes: [
-      'Added secure database, authentication, repository, diagnostics, and private photo-storage foundations.',
-      'Kept local browser data and the existing manual Cloud Sync system active and unchanged.',
-      'Added versioned migrations, row-level ownership policies, and optimistic record concurrency.',
-      'Left all database, authentication, and realtime features disabled by default; no user data is migrated.',
+      'Added stable device identity, sync-ready plant metadata, soft deletes, and a persistent local change queue.',
+      'Added a local plant repository, conflict protection, provider-neutral sync engine, and development-only mirror provider.',
+      'Added honest Data & Sync status while retaining manual Cloud Sync, backup, restore, import, and export tools.',
+      'Migrated existing local plants non-destructively without uploading data or queuing migration-only changes.',
     ],
   },
   {

@@ -5909,6 +5909,14 @@ button.detail-image:disabled { opacity: 1; }
 .deletion-mode-options label { display: flex; align-items: center; gap: .55rem; min-height: 44px; }
 .corm-duplicate-warning { padding: .75rem; border: 1px solid #b76a2f; border-radius: 10px; background: #fff4e9; color: #6e3514; }
 .corm-duplicate-entry { border-color: #b76a2f !important; }
+.sync-status-pill {
+  display: inline-flex; align-items: center; gap: .55rem; max-width: 100%; margin: .25rem 0 .8rem;
+  padding: .5rem .75rem; border: 1px solid #b8cbb4; border-radius: 999px; background: #f3f8f1; color: #315f35;
+}
+.sync-status-pill span { font-size: .82rem; }
+.sync-status-conflict, .sync-status-error { border-color: #c88965; background: #fff4e9; color: #743917; }
+.sync-foundation-grid input { width: 100%; min-width: 0; padding: .4rem .5rem; }
+.sync-foundation-grid code { overflow-wrap: anywhere; }
 
 @media (min-width: 760px) {
   .dashboard-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }

@@ -6,8 +6,8 @@ import {
   settingsSections,
 } from './settingsLayout.js';
 
-test('Cloud Sync is first and is the only always-expanded Settings section', () => {
-  assert.deepEqual(settingsSections[0], ['cloud', 'Cloud Sync']);
+test('Data & Sync is first and is the only always-expanded Settings section', () => {
+  assert.deepEqual(settingsSections[0], ['cloud', 'Data & Sync']);
   assert.deepEqual(alwaysExpandedSettingsSections, ['cloud']);
 });
 

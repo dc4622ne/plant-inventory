@@ -47,6 +47,14 @@ import { reminderRules } from './reminderRules';
 import { aboutGeneralItems, settingsSections } from './settingsLayout';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import {
+  createConflictStore,
+  getDeviceIdentity,
+  localPlantRepository,
+  setDeviceName,
+  syncStatusLabels,
+  useSyncStatus,
+} from './sync';
+import {
   cormInitialConditionOptions,
   cormOutcomeOptions,
   cormPhaseOptions,
@@ -436,22 +444,12 @@ function makeId(prefix = 'id') {
 }
 
 function loadPlants() {
-  const savedPlants = localStorage.getItem(plantsStorageKey);
   const plantsWithLogs = initialPlants.map((plant, index) => normalizePlantRecord(
     plant,
     plant.id || makeId(`starter-${index}`),
   ));
-
-  if (!savedPlants) return plantsWithLogs;
-
-  try {
-    const parsedPlants = JSON.parse(savedPlants);
-    if (!Array.isArray(parsedPlants)) return plantsWithLogs;
-
-    return parsedPlants.map((plant, index) => normalizePlantRecord(plant, makeId(`plant-${index}`)));
-  } catch {
-    return plantsWithLogs;
-  }
+  if (!localStorage.getItem(plantsStorageKey)) localPlantRepository.saveAll(plantsWithLogs);
+  return localPlantRepository.getAll().map((plant) => normalizePlantRecord(plant, plant.id));
 }
 
 function loadReminders() {
@@ -1052,6 +1050,8 @@ function getWishlistDetailFields(item) {
 
 function App() {
   const [plants, setPlants] = useState(loadPlants);
+  const syncStatus = useSyncStatus();
+  const [deviceIdentity, setDeviceIdentityState] = useState(getDeviceIdentity);
   const [reminders, setReminders] = useState(loadReminders);
   const [quickNotes, setQuickNotes] = useState(loadQuickNotes);
   const [userQuickViews, setUserQuickViews] = useState(loadQuickViews);
@@ -2172,12 +2172,13 @@ function App() {
   }
 
   function savePlants(nextPlants, reason = 'plants') {
-    localStorage.setItem(plantsStorageKey, JSON.stringify(nextPlants));
+    const persistedPlants = localPlantRepository.applyCollectionChanges(nextPlants);
     markLocalDataChanged(reason);
-    setPlants(nextPlants);
+    setPlants(persistedPlants);
     if (selectedPlant) {
-      setSelectedPlant(nextPlants.find((plant) => plant.id === selectedPlant.id) || selectedPlant);
+      setSelectedPlant(persistedPlants.find((plant) => plant.id === selectedPlant.id) || selectedPlant);
     }
+    return persistedPlants;
   }
 
   function saveQuickNotes(nextNotes, reason = 'quick-notes') {
@@ -2510,11 +2511,8 @@ function App() {
       purchasePrice: item.price,
       image: getPlantImage(item.name, item.type),
     };
-    const updatedPlants = [...plants, newInventoryPlant];
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('plants');
-    setPlants(updatedPlants);
-    createAutomaticRemindersForPlant(newInventoryPlant);
+    const persistedPlants = savePlants([...plants, newInventoryPlant], 'plants');
+    createAutomaticRemindersForPlant(persistedPlants.find((plant) => plant.id === plantId) || newInventoryPlant);
     saveWishlist(wishlistItems.map((current) => current.id === item.id
       ? { ...current, converted: true, convertedPlantId: plantId, desiredStatus: 'Converted' }
       : current));
@@ -3268,12 +3266,11 @@ function App() {
         ? plants.map((plant) => plant === selectedPlant ? savedPlant : plant)
         : [...plants, savedPlant];
 
-      localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-      markLocalDataChanged('plants');
-      setPlants(updatedPlants);
-      createAutomaticRemindersForPlant(savedPlant, isEditing ? selectedPlant : null);
+      const persistedPlants = savePlants(updatedPlants, 'plants');
+      const persistedPlant = persistedPlants.find((plant) => plant.id === savedPlant.id) || savedPlant;
+      createAutomaticRemindersForPlant(persistedPlant, isEditing ? selectedPlant : null);
 
-      if (isEditing) setSelectedPlant(savedPlant);
+      if (isEditing) setSelectedPlant(persistedPlant);
       setNewPlant(emptyPlant);
       setPlantFormBaseline(JSON.stringify(emptyPlant));
       clearPlantImageSelection();
@@ -3472,7 +3469,7 @@ function App() {
 
   function deleteSelectedPlant() {
     const shouldDelete = window.confirm(
-      `Permanently delete ${selectedPlant.name}? This cannot be undone.`,
+      `Delete ${selectedPlant.name}? It will be hidden and retained as a synchronization tombstone.`,
     );
 
     if (!shouldDelete) return;
@@ -3498,10 +3495,8 @@ function App() {
 
     const updatedPlant = { ...selectedPlant, lifecycleStatus: nextStatus };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('plants');
-    setPlants(updatedPlants);
-    setSelectedPlant(nextStatus === 'active' ? updatedPlant : null);
+    const persistedPlants = savePlants(updatedPlants, 'plants');
+    setSelectedPlant(nextStatus === 'active' ? persistedPlants.find((plant) => plant.id === updatedPlant.id) : null);
     setLifecycleView(nextStatus);
   }
 
@@ -3560,10 +3555,8 @@ function App() {
     };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('activity-log');
-    setPlants(updatedPlants);
-    setSelectedPlant(updatedPlant);
+    const persistedPlants = savePlants(updatedPlants, 'activity-log');
+    setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
     setNewLogEntry(emptyLogEntry());
     setQuickCheckMessage('');
   }
@@ -3582,10 +3575,8 @@ function App() {
     };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('activity-log');
-    setPlants(updatedPlants);
-    setSelectedPlant(updatedPlant);
+    const persistedPlants = savePlants(updatedPlants, 'activity-log');
+    setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
     setQuickCheckMessage("Checked in today — you're all set.");
   }
 
@@ -3622,10 +3613,8 @@ function App() {
     };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('activity-log');
-    setPlants(updatedPlants);
-    setSelectedPlant(updatedPlant);
+    const persistedPlants = savePlants(updatedPlants, 'activity-log');
+    setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
     cancelEditingLogEntry();
   }
 
@@ -3643,10 +3632,8 @@ function App() {
     };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('activity-log');
-    setPlants(updatedPlants);
-    setSelectedPlant(updatedPlant);
+    const persistedPlants = savePlants(updatedPlants, 'activity-log');
+    setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
     if (editingLogEntry === entryToDelete) cancelEditingLogEntry();
   }
 
@@ -3654,10 +3641,8 @@ function App() {
     const updatedPlant = { ...selectedPlant, photoLog };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('photo-log');
-    setPlants(updatedPlants);
-    setSelectedPlant(updatedPlant);
+    const persistedPlants = savePlants(updatedPlants, 'photo-log');
+    setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
   }
 
   async function addPhotoEntry(event) {
@@ -3757,10 +3742,8 @@ function App() {
     const updatedPlant = { ...selectedPlant, timelineEntries };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
-    localStorage.setItem(plantsStorageKey, JSON.stringify(updatedPlants));
-    markLocalDataChanged('timeline');
-    setPlants(updatedPlants);
-    setSelectedPlant(updatedPlant);
+    const persistedPlants = savePlants(updatedPlants, 'timeline');
+    setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
   }
 
   async function saveManualTimelineEntry(event) {
@@ -6003,8 +5986,31 @@ function App() {
           </nav>
 
           <section className="settings-card settings-cloud-card" id="settings-cloud" aria-labelledby="cloud-sync-heading">
-            <h3 id="cloud-sync-heading">Cloud Sync</h3>
-            <p className="settings-card-intro">Cloud sync is manual backup and restore, not live real-time sync across devices.</p>
+            <h3 id="cloud-sync-heading">Data &amp; Sync</h3>
+            <div className={`sync-status-pill sync-status-${syncStatus.state}`} role="status" aria-live="polite">
+              <strong>{syncStatusLabels[syncStatus.state] || 'Saved on this device'}</strong>
+              {syncStatus.pendingChanges > 0 && <span>{syncStatus.pendingChanges} pending</span>}
+            </div>
+            <p className="settings-card-intro">Plants are stored in this browser. Live automatic cross-device sync is not connected yet.</p>
+            <dl className="backup-meta-grid sync-foundation-grid">
+              <div><dt>Current storage mode</dt><dd>Browser local storage</dd></div>
+              <div><dt>Device name</dt><dd>
+                <input aria-label="Device name" value={deviceIdentity.name}
+                  onChange={(event) => setDeviceIdentityState((current) => ({ ...current, name: event.target.value }))}
+                  onBlur={(event) => {
+                    try {
+                      const name = setDeviceName(event.target.value);
+                      setDeviceIdentityState((current) => ({ ...current, name }));
+                    } catch { setDeviceIdentityState(getDeviceIdentity()); }
+                  }} />
+              </dd></div>
+              <div><dt>Pending local changes</dt><dd>{syncStatus.pendingChanges}</dd></div>
+              <div><dt>Detected conflicts</dt><dd>{createConflictStore().getAll().length}</dd></div>
+              <div><dt>Last successful sync</dt><dd>{syncStatus.lastSuccessfulSyncAt ? new Date(syncStatus.lastSuccessfulSyncAt).toLocaleString() : 'Not connected'}</dd></div>
+              <div><dt>Device identity</dt><dd><details><summary>Show ID</summary><code>{deviceIdentity.id.slice(0, 8)}…</code></details></dd></div>
+            </dl>
+            <h4>Manual Cloud Sync</h4>
+            <p className="settings-card-intro">These existing controls save and restore a manual cloud backup; they are not live synchronization.</p>
             <dl className="backup-meta-grid">
               <div><dt>Supabase</dt><dd>{isSupabaseConfigured ? 'Configured' : 'Not configured'}</dd></div>
               <div><dt>Sync status</dt><dd>{cloudBusy ? 'Working...' : 'Ready'}</dd></div>

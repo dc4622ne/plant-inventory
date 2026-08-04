@@ -1,5 +1,5 @@
 export const settingsSections = [
-  ['cloud', 'Cloud Sync'],
+  ['cloud', 'Data & Sync'],
   ['quick-views', 'Quick Views'],
   ['dropdown-options', 'Dropdown Options'],
   ['backup', 'Backup & Restore'],

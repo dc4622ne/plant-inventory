@@ -1,6 +1,14 @@
 # Plant Tracker
 
-## v0.26.0 — Database Foundation
+## v0.26.0 — Connected Collection Foundation
+
+Release F adds a sync-ready data boundary while keeping localStorage as the production plant store. Plant reads and writes now pass through a local repository that preserves the compatible `plant-inventory-plants` key, migrates legacy records with stable IDs and versioned sync metadata, records local work in a persistent collapsing outbox, and represents deletion with tombstones.
+
+Provider-neutral conflict handling preserves simultaneous changes instead of overwriting them. The sync engine accepts any provider implementing record lookup, change application, and incremental pull methods. A separate local mirror provider exists only for development and tests; it is not cross-device storage and is never activated automatically. Manual Cloud Sync, JSON backup/restore, import/export, and existing photo handling remain available. A future live provider can connect through the same interface without changing the local record model.
+
+Existing records and older backups are migrated additively when loaded. Migration itself does not create outgoing changes, does not replace valid IDs, and does not upload any production data.
+
+## Previous v0.26.0 database groundwork
 
 This release adds a secure, version-controlled Supabase database, authentication, repository, diagnostics, private photo-storage, and optimistic-concurrency foundation. All new database features are disabled by default. The existing browser-local data, manual Cloud Sync, backup, restore, import, and export systems remain active, and no user data is migrated. Future releases will add an explicit migration workflow and automatic multi-device saving.
 
