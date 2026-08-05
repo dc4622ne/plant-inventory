@@ -35,3 +35,16 @@ test('expired processing leases recover while active leases remain protected', a
   const coordinator = createLiveSyncCoordinator({userId:'user-a',store,storage,provider,device:{id:'d'}}); await coordinator.sync();
   assert.equal(uploads,1); assert.ok(await store.get('mutations',['user-a','active']));
 });
+
+test('migrated plant edit uses hosted revision, strips legacy sync metadata, and rebases', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); const plantDomain = synchronizedCollections.find((item) => item.entityType === 'plant');
+  storage.setItem(plantDomain.storageKey, JSON.stringify([{ id: 'legacy', name: 'Old', type: 'Houseplant', sync: { version: 10144, baseVersion: 55 } }]));
+  await store.put('records', { userId: 'user-a', entityType: 'plant', entityId: 'legacy', record: { id: 'legacy', name: 'Before', type: 'Houseplant' }, serverRecord: { id: 'legacy', name: 'Before', type: 'Houseplant' }, revision: 7 });
+  for (const entityType of ['dropdown_options','dashboard_preferences']) await store.put('records', { userId:'user-a', entityType, entityId:'singleton', record:{}, serverRecord:{}, revision:0 });
+  let uploaded;
+  const provider = { async getRecord(){ return { id:'legacy', name:'Before', type:'Houseplant', __syncEntityType:'plant', __syncEntityId:'legacy', sync:{version:7} }; }, async applyChange(change){ uploaded = change; return {...change.payload,__syncEntityType:'plant',__syncEntityId:'legacy',sync:{version:8}}; }, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'user-a',store,storage,provider,device:{id:'mobile'}});
+  await coordinator.sync();
+  assert.equal(uploaded.baseRevision, 7); assert.equal(uploaded.payload.type, 'Houseplant'); assert.equal(uploaded.payload.sync, undefined);
+  assert.equal((await store.get('records',['user-a','plant','legacy'])).revision, 8);
+});

@@ -3,8 +3,9 @@ import { readLocalEntities } from '../sync/entityRegistry.js';
 import { changeQueueStorageKey } from '../sync/changeQueue.js';
 import { conflictsStorageKey } from '../sync/conflictResolver.js';
 import { syncStatusStorageKey } from '../sync/syncStatus.js';
+import { applicationPayload, isMetadataOnlyConflict } from '../sync/syncPayload.js';
 
-export const liveMigrationVersion = 2;
+export const liveMigrationVersion = 3;
 const legacyClaimKey = 'plant-inventory-legacy-data-claimed-by';
 const now = () => new Date().toISOString();
 const parse = (value, fallback) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
@@ -30,28 +31,29 @@ export async function prepareInitialMigration({ userId, store, provider, storage
   for (const entity of local) {
     const key = `${entity.entityType}:${entity.entityId}`; const remoteRecord = remoteMap.get(key);
     if (remoteRecord) {
-      const remotePayload = remoteRecord.__syncPayload || remoteRecord;
-      const same = JSON.stringify(entity.record) === JSON.stringify(remotePayload);
+      const remotePayload = applicationPayload(remoteRecord.__syncPayload || remoteRecord);
+      const localPayload = applicationPayload(entity.record);
+      const same = JSON.stringify(localPayload) === JSON.stringify(remotePayload);
       await store.put('records', { userId, entityType: entity.entityType, entityId: entity.entityId,
-        record: same ? remotePayload : entity.record, serverRecord: remotePayload, revision: remoteRecord.sync?.version || 0,
+        record: same ? remotePayload : localPayload, serverRecord: remotePayload, revision: remoteRecord.sync?.version || 0,
         localUpdatedAt: now(), serverUpdatedAt: remoteRecord.updatedAt, deletedAt: remoteRecord.sync?.deletedAt || null });
       if (!same) {
         const mutationId = crypto.randomUUID(); const conflictId = `migration:${entity.entityType}:${entity.entityId}:record`;
         await store.put('mutations', { userId, id: mutationId, deviceId: '', entityType: entity.entityType, entityId: entity.entityId,
-          operation: 'update', baseRevision: remoteRecord.sync?.version || 0, baseRecord: remotePayload, payload: entity.record,
+          operation: 'update', baseRevision: remoteRecord.sync?.version || 0, baseRecord: remotePayload, payload: localPayload,
           createdAt: now(), updatedAt: now(), attempts: 0, state: 'blocked_conflict', leaseUntil: null });
         await store.put('conflicts', { userId, id: conflictId, entityType: entity.entityType, entityId: entity.entityId,
-          displayLabel: entity.record.name || entity.record.title || entity.record.text?.slice?.(0, 60) || entity.entityId,
-          fieldPath: 'record', pathSegments: [], baseValue: null, localValue: entity.record, remoteValue: remotePayload,
+          displayLabel: localPayload.name || localPayload.title || localPayload.text?.slice?.(0, 60) || entity.entityId,
+          fieldPath: 'record', pathSegments: [], baseValue: null, localValue: localPayload, remoteValue: remotePayload,
           localTimestamp: entity.record.updatedAt || now(), remoteTimestamp: remoteRecord.updatedAt || now(), localDeviceId: '', remoteDeviceId: remoteRecord.sync?.deviceId || '',
           status: 'unresolved', resolutionChoice: null, resolvedAt: null, mutationId, createdAt: now() });
       }
       continue;
     }
     if (!cached.some((item) => item.entityType === entity.entityType && item.entityId === entity.entityId)) {
-      await store.put('records', { userId, ...entity, revision: 0, serverRecord: {}, localUpdatedAt: now(), serverUpdatedAt: null, deletedAt: null });
+      await store.put('records', { userId, ...entity, record: applicationPayload(entity.record), revision: 0, serverRecord: {}, localUpdatedAt: now(), serverUpdatedAt: null, deletedAt: null });
       await store.put('mutations', { userId, id: crypto.randomUUID(), deviceId: '', entityType: entity.entityType, entityId: entity.entityId,
-        operation: 'create', baseRevision: 0, baseRecord: {}, payload: entity.record, createdAt: now(), updatedAt: now(), attempts: 0,
+        operation: 'create', baseRevision: 0, baseRecord: {}, payload: applicationPayload(entity.record), createdAt: now(), updatedAt: now(), attempts: 0,
         lastAttemptAt: null, nextAttemptAt: null, failureClass: null, errorCode: null, state: 'pending', leaseUntil: null });
       uploaded[entity.entityType] = (uploaded[entity.entityType] || 0) + 1;
     }
@@ -81,6 +83,12 @@ export async function prepareInitialMigration({ userId, store, provider, storage
     userId, ...conflict, id: conflict.id || crypto.randomUUID(), entityType: conflict.entityType || 'plant', entityId: conflict.local?.id || conflict.remote?.id,
     fieldPath: conflict.fieldPath || 'record', status: 'unresolved', createdAt: conflict.detectedAt || now(),
   });
+  for (const conflict of await store.forUser('conflicts', userId)) {
+    if (!isMetadataOnlyConflict(conflict)) continue;
+    await store.remove('conflicts', [userId, conflict.id]);
+    const mutation = conflict.mutationId && await store.get('mutations', [userId, conflict.mutationId]);
+    if (mutation?.state === 'blocked_conflict') await store.remove('mutations', [userId, mutation.id]);
+  }
   const legacyStatus = parse(storage.getItem(syncStatusStorageKey), {});
   await store.put('syncMetadata', { userId, key: 'status', ...legacyStatus, migrationVersion: liveMigrationVersion });
   storage.removeItem(changeQueueStorageKey); storage.removeItem(conflictsStorageKey); storage.removeItem(syncStatusStorageKey);

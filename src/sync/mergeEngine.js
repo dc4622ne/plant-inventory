@@ -1,3 +1,5 @@
+import { applicationPayload, isInternalConflictPath } from './syncPayload.js';
+
 const missing = Symbol('missing');
 const equal = (a, b) => JSON.stringify(a === missing ? ['missing'] : a) === JSON.stringify(b === missing ? ['missing'] : b);
 const plain = (value) => value && typeof value === 'object' && !Array.isArray(value);
@@ -51,6 +53,7 @@ function mergeValue(base, local, remote, path, conflicts) {
 
 export function threeWayMerge(base = {}, local = {}, remote = {}) {
   const conflicts = [];
-  const merged = mergeValue(base, local, remote, [], conflicts);
-  return { merged, conflicts, clean: conflicts.length === 0 };
+  const merged = mergeValue(applicationPayload(base), applicationPayload(local), applicationPayload(remote), [], conflicts);
+  const visibleConflicts = conflicts.filter((conflict) => !isInternalConflictPath(conflict.fieldPath));
+  return { merged, conflicts: visibleConflicts, clean: visibleConflicts.length === 0 };
 }

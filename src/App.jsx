@@ -3274,7 +3274,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syn
         });
       }
       const updatedPlants = isEditing
-        ? plants.map((plant) => plant === selectedPlant ? savedPlant : plant)
+        ? plants.map((plant) => plant.id === selectedPlant.id ? savedPlant : plant)
         : [...plants, savedPlant];
 
       const persistedPlants = savePlants(updatedPlants, 'plants');
@@ -3667,7 +3667,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syn
 
     try {
       const uploadedPhotoUrl = photoEntryFile
-        ? await uploadStoredImage(photoEntryFile, 'photo-log')
+        ? await uploadStoredImage(photoEntryFile, 'photo-log', selectedPlant.id)
         : newPhotoEntry.photoUrl.trim();
       setPhotoEntrySubmitStatus('Saving photo...');
       const photoEntry = {
@@ -3718,7 +3718,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syn
 
     try {
       const uploadedPhotoUrl = photoEditFile
-        ? await uploadStoredImage(photoEditFile, 'photo-log')
+        ? await uploadStoredImage(photoEditFile, 'photo-log', selectedPlant.id)
         : photoEntryDraft.photoUrl.trim();
       setPhotoEditSubmitStatus('Saving changes...');
       const updatedEntry = {
@@ -3767,7 +3767,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syn
 
     try {
       const uploadedPhotoUrl = timelineEntryFile
-        ? await uploadStoredImage(timelineEntryFile, 'timeline')
+        ? await uploadStoredImage(timelineEntryFile, 'timeline', selectedPlant.id)
         : timelineDraft.photoUrl.trim();
       setTimelineEntrySubmitStatus('Saving timeline entry...');
       const now = new Date().toISOString();

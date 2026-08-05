@@ -1,4 +1,5 @@
 import { normalizeDataError } from '../data/errors.js';
+import { applicationPayload } from '../sync/syncPayload.js';
 
 const rowToRecord = (row) => row ? ({
   ...row.payload,
@@ -37,7 +38,7 @@ export function createLiveSyncProvider({ client, userId }) {
         p_entity_type: change.entityType,
         p_entity_id: change.entityId,
         p_expected_revision: Math.max(0, Number(change.baseRevision ?? change.payload?.sync?.baseVersion ?? 0)),
-        p_payload: change.payload,
+        p_payload: applicationPayload(change.payload),
         p_deleted_at: change.payload?.sync?.deletedAt || null,
         p_device_id: change.deviceId || null,
       }));

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { threeWayMerge } from './mergeEngine.js';
+import { isMetadataOnlyConflict } from './syncPayload.js';
 
 test('three-way merge accepts local-only, remote-only, shared, null, and removed field changes', () => {
   const base = { local: 1, remote: 1, same: 1, nullable: null, removed: 'old' };
@@ -32,4 +33,19 @@ test('arrays without stable child IDs are never index-merged', () => {
 test('update/delete and delete/delete follow explicit three-way rules', () => {
   assert.equal(threeWayMerge({ value: 1 }, { value: 2 }, {}).clean, false);
   assert.deepEqual(threeWayMerge({ value: 1 }, {}, {}).merged, {});
+});
+
+test('transport metadata is excluded from merge payloads and conflicts', () => {
+  const result = threeWayMerge(
+    { id: 'p', type: 'Houseplant', sync: { baseVersion: 55 } },
+    { id: 'p', type: 'Garden', sync: { baseVersion: 55 } },
+    { id: 'p', type: 'Houseplant', sync: { baseVersion: 10144 }, __syncEntityType: 'plant' },
+  );
+  assert.equal(result.clean, true);
+  assert.deepEqual(result.merged, { id: 'p', type: 'Garden' });
+});
+
+test('metadata-only whole-record conflicts are cleanable but genuine conflicts remain', () => {
+  assert.equal(isMetadataOnlyConflict({ fieldPath: 'record', localValue: { id: 'p', sync: { baseVersion: 55 } }, remoteValue: { id: 'p', sync: { baseVersion: 10144 } } }), true);
+  assert.equal(isMetadataOnlyConflict({ fieldPath: 'record', localValue: { id: 'p', name: 'A' }, remoteValue: { id: 'p', name: 'B' } }), false);
 });

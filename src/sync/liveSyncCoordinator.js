@@ -1,6 +1,7 @@
 import { getDeviceIdentity } from './deviceIdentity.js';
 import { readLocalEntities, writeEntitiesToCompatibilityStorage } from './entityRegistry.js';
 import { threeWayMerge } from './mergeEngine.js';
+import { applicationPayload, isInternalConflictPath } from './syncPayload.js';
 
 const uuid = () => globalThis.crypto?.randomUUID?.() || `mutation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const now = () => new Date().toISOString();
@@ -47,7 +48,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
       operation: existing?.operation === 'create' ? 'create' : operation,
       baseRevision: existing?.baseRevision ?? cached?.revision ?? 0,
       baseRecord: existing?.baseRecord ?? cached?.serverRecord ?? cached?.record ?? {},
-      payload: entity.record, createdAt: existing?.createdAt || now(), updatedAt: now(), attempts: existing?.attempts || 0,
+      payload: applicationPayload(entity.record), createdAt: existing?.createdAt || now(), updatedAt: now(), attempts: existing?.attempts || 0,
       lastAttemptAt: existing?.lastAttemptAt || null, nextAttemptAt: null, failureClass: null, errorCode: null, state: 'pending', leaseUntil: null,
     };
     await store.put('mutations', mutation);
@@ -70,10 +71,15 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
   }
 
   async function addConflicts(mutation, remote, fields) {
-    for (const field of fields) {
+    const records = await getRecords();
+    const parentId = mutation.payload?.plantId || mutation.payload?.parentPlantId || (mutation.entityType === 'plant' ? mutation.entityId : '');
+    const parent = records.find((item) => item.entityType === 'plant' && item.entityId === parentId)?.record;
+    const typeLabel = ({ plant: 'Plant Details', check_in: 'Check-in', journal_entry: 'Journal entry' })[mutation.entityType] || mutation.entityType.replaceAll('_', ' ');
+    for (const field of fields.filter((item) => !isInternalConflictPath(item.fieldPath))) {
       const id = `${mutation.entityType}:${mutation.entityId}:${field.fieldPath}`;
       await store.put('conflicts', { userId, id, entityType: mutation.entityType, entityId: mutation.entityId,
-        displayLabel: mutation.payload?.name || mutation.payload?.title || mutation.payload?.text?.slice?.(0, 60) || mutation.entityId,
+        displayLabel: parent?.name ? `${parent.name} — ${typeLabel}` : mutation.payload?.name || mutation.payload?.title || mutation.payload?.text?.slice?.(0, 60) || `${typeLabel} for unavailable plant`,
+        recordTypeLabel: typeLabel, parentPlantId: parentId || null, parentPlantName: parent?.name || '',
         fieldPath: field.fieldPath || 'record', pathSegments: field.pathSegments || [], baseValue: field.baseValue, localValue: field.localValue, remoteValue: field.remoteValue,
         localTimestamp: mutation.updatedAt, remoteTimestamp: remote?.updatedAt || remote?.sync?.lastModifiedAt || now(),
         localDeviceId: device.id, remoteDeviceId: remote?.sync?.deviceId || '', status: 'unresolved', resolutionChoice: null,
