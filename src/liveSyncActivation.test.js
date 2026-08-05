@@ -57,3 +57,11 @@ test('browser runtime refreshes Realtime auth and uses a dedicated recoverable s
   assert.match(source, /TOKEN_REFRESHED/); assert.match(source, /reconnect\?\.\(nextSession\.access_token/);
   assert.match(source, /plant-sync-now/); assert.match(source, /CHANNEL_ERROR','TIMED_OUT','CLOSED/);
 });
+
+test('restored authentication starts Realtime with its token and Sync now can restart a stopped runtime', () => {
+  const source = readFileSync(new URL('./ConnectedApp.jsx', import.meta.url), 'utf8');
+  assert.match(source, /connectRealtime\(restoredToken, 'session-restored'\)/);
+  assert.match(source, /featureFlags\.realtimeEnabled \|\| applicationEnvironment\.isStaging/);
+  assert.match(source, /if \(runtimeRef\.current\) return runtimeRef\.current\.sync\(\)/);
+  assert.match(source, /setRuntimeGeneration\(\(value\) => value \+ 1\)/);
+});

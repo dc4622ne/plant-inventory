@@ -1050,7 +1050,7 @@ function getWishlistDetailFields(item) {
   return [...knownFields, ...extraFields];
 }
 
-function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syncStatusOverride = null, migrationReport = null, passkeySettings = null }) {
+function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onSyncNow = null, syncStatusOverride = null, migrationReport = null, passkeySettings = null }) {
   const [plants, setPlants] = useState(loadPlants);
   useEffect(() => {
     const refreshPlants = () => {
@@ -6042,7 +6042,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syn
               <h4>Pending queue</h4>{syncStatus.queueGroups?.length ? <ul>{syncStatus.queueGroups.map((group) => <li key={`${group.entityType}:${group.state}`}><code>{group.entityType}</code> · {group.state} · {group.count} · base queue since {group.oldestAt ? new Date(group.oldestAt).toLocaleString() : 'unknown'}{group.lastErrorCode ? ` · ${group.lastErrorCode}` : ''}</li>)}</ul> : <p>No queued records.</p>}
             </details>}
             <div className="cloud-sync-actions">
-              <button type="button" onClick={() => window.dispatchEvent(new Event('plant-sync-now'))}>Sync now</button>
+              <button type="button" onClick={() => onSyncNow ? onSyncNow() : window.dispatchEvent(new Event('plant-sync-now'))}>Sync now</button>
               {onSignOut && <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>}
               {onRemoveOfflineData && <button type="button" className="secondary-button" onClick={onRemoveOfflineData}>Remove offline data</button>}
             </div>

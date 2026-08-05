@@ -109,8 +109,11 @@ export default function ConnectedApp() {
   const [coordinator, setCoordinator] = useState(null); const [syncStatus, setSyncStatus] = useState(null);
   const [removeOfflineData, setRemoveOfflineData] = useState(null);
   const [migrationReport, setMigrationReport] = useState(null);
+  const [runtimeGeneration, setRuntimeGeneration] = useState(0);
   const runtimeRef = useRef(null);
+  const sessionRef = useRef(session); sessionRef.current = session;
   const userId = session?.user?.id || '';
+  const realtimeEnabled = featureFlags.realtimeEnabled || applicationEnvironment.isStaging;
   useEffect(() => { if (!supabase) { setRestoring(false); return undefined; }
     let active = true;
     const timeout = window.setTimeout(() => { if (active) { setAuthError('Session restoration timed out. Please sign in again.'); setRestoring(false); } }, sessionRestoreTimeoutMs);
@@ -128,7 +131,9 @@ export default function ConnectedApp() {
     const active = createLiveSyncCoordinator({ userId, store, provider }); setCoordinator(active);
     const updateRealtime = (state, error, extra = {}) => active.setRealtimeState(state, { ...safeRealtimeError(error), ...extra, online: navigator.onLine !== false, coordinatorRunning: !stopped });
     const connectRealtime = async (token, reason = 'startup') => {
-      if (stopped || !featureFlags.realtimeEnabled || navigator.onLine === false) return;
+      if (stopped) return;
+      if (!realtimeEnabled) { await updateRealtime('disabled', null, { realtimeJwtConfigured: false, lastSubscriptionReason: reason }); return; }
+      if (navigator.onLine === false) { await updateRealtime('offline', null, { realtimeJwtConfigured: Boolean(token), realtimeJwtExpiresAt: jwtExpiration(token), lastSubscriptionReason: reason }); return; }
       clearTimeout(reconnectTimer); if (unsubscribeRealtime) { intentionalClose = true; await unsubscribeRealtime(); unsubscribeRealtime = null; intentionalClose = false; }
       try { unsubscribeRealtime = await provider.subscribe(async (record) => { await active.ingestRemote(record); await active.hydrate(); }, (state, error, extra) => {
         const subscribed = state === 'SUBSCRIBED'; if (subscribed) reconnectAttempts = 0;
@@ -141,25 +146,36 @@ export default function ConnectedApp() {
       const { data, error } = await supabase.auth.getSession(); if (error || !data.session?.access_token) { await active.setDiagnostics({ state: 'error', syncStage: 'validate-session', ...safeRealtimeError(error || new Error('SESSION_MISSING')) }); return; }
       await connectRealtime(data.session.access_token, 'sync-now'); await active.setDiagnostics({ syncStage: 'records' }); await active.sync();
       await active.setDiagnostics({ syncStage: 'photos' }); await processImageUploads(userId); setMigrationReport(await verifyAndCompleteMigration({ userId, store })); await active.setDiagnostics({ syncStage: 'complete' }); };
-    runtimeRef.current = { reconnect: connectRealtime, stop: () => { stopped = true; clearTimeout(reconnectTimer); unsubscribeRealtime?.(); }, sync };
+    const runtime = { reconnect: connectRealtime, stop: () => { stopped = true; clearTimeout(reconnectTimer); unsubscribeRealtime?.(); }, sync };
+    runtimeRef.current = runtime;
+    const restoredToken = sessionRef.current?.access_token || '';
+    active.setDiagnostics({ coordinatorRunning: true, realtimeEnabled, realtimeJwtConfigured: Boolean(restoredToken),
+      realtimeJwtExpiresAt: jwtExpiration(restoredToken), syncStage: 'starting' });
     setRemoveOfflineData(() => async () => {
       const status = await active.getStatus();
       const warning = status.pendingChanges ? ` This account has ${status.pendingChanges} unsynced change(s), which will be removed from this device.` : '';
       if (!window.confirm(`Remove this account’s offline data from this device? Hosted data will not be deleted.${warning}`)) return;
       await store.removeUser(userId); clearUserOwnedCompatibilityStorage(); await service.signOut();
     });
-    (async () => { setMigrationReport(await prepareInitialMigration({ userId, store, provider })); await active.hydrate(); await migrateLegacyImages(userId); if (!stopped) setReady(true); await sync(); })();
+    (async () => { if (restoredToken) await connectRealtime(restoredToken, 'session-restored');
+      setMigrationReport(await prepareInitialMigration({ userId, store, provider })); await active.hydrate(); await migrateLegacyImages(userId); if (!stopped) setReady(true); await sync(); })();
     const unsubscribeStatus = active.subscribe(setSyncStatus);
     const onSync = () => { clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
     const onVisibility = () => { if (!document.hidden) onSync(); };
     window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onSync); window.addEventListener('plant-all-collections-change', onSync);
     const scanner = window.setInterval(() => { if (!document.hidden) active.captureLocalChanges(); }, 5_000); const timer = window.setInterval(sync, 60_000);
-    return () => { stopped = true; runtimeRef.current = null; globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
+    return () => { stopped = true; if (runtimeRef.current === runtime) runtimeRef.current = null; globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
       window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-sync-now', onSync); window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('plant-collection-change', onSync); window.removeEventListener('plant-all-collections-change', onSync); };
-  }, [userId, service]);
+  }, [userId, service, runtimeGeneration, realtimeEnabled]);
+  const syncNow = useCallback(async () => {
+    if (runtimeRef.current) return runtimeRef.current.sync();
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.user?.id || !data.session.access_token) { setAuthError(error?.message || 'Your session could not be restored. Please sign in again.'); return; }
+    setSession(data.session); setReady(false); setRuntimeGeneration((value) => value + 1);
+  }, []);
   const authView = resolveAuthView({ configured: supabaseConfiguration.configured, restoring, session, error: authError });
   if (authView === 'configuration') return <><StagingBadge /><ConfigurationScreen /></>;
   if (authView === 'loading' || (authView === 'application' && !ready)) return <><StagingBadge /><main className="auth-shell"><p role="status">Restoring your secure collection…</p><StagingDiagnostic sessionState="Loading" /></main></>;
   if (authView === 'authentication') return <><StagingBadge /><AuthScreen service={service} initialError={authError} /></>;
-  return <><StagingBadge /><App account={session?.user || null} onSignOut={() => service.signOut()} onRemoveOfflineData={removeOfflineData} syncStatusOverride={syncStatus} migrationReport={migrationReport} passkeySettings={<PasskeySettings service={service} />} /><ConflictReview coordinator={coordinator} status={syncStatus} /></>;
+  return <><StagingBadge /><App account={session?.user || null} onSignOut={() => service.signOut()} onRemoveOfflineData={removeOfflineData} onSyncNow={syncNow} syncStatusOverride={syncStatus} migrationReport={migrationReport} passkeySettings={<PasskeySettings service={service} />} /><ConflictReview coordinator={coordinator} status={syncStatus} /></>;
 }

@@ -7,7 +7,8 @@ test('authenticated wrapper never keys App to hydration, sync, or realtime revis
   const source = readFileSync(new URL('./ConnectedApp.jsx', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /collectionRevision/);
   assert.doesNotMatch(source, /<App\s+key=/);
-  assert.match(source, /\[userId, service\]/);
+  assert.match(source, /\[userId, service, runtimeGeneration, realtimeEnabled\]/);
+  assert.doesNotMatch(source, /\[userId, service, runtimeGeneration, realtimeEnabled, session/);
 });
 
 test('every main destination remains owned by the existing application navigator', () => {
