@@ -5,7 +5,7 @@ import { conflictsStorageKey } from '../sync/conflictResolver.js';
 import { syncStatusStorageKey } from '../sync/syncStatus.js';
 import { applicationPayload, isMetadataOnlyConflict } from '../sync/syncPayload.js';
 
-export const liveMigrationVersion = 3;
+export const liveMigrationVersion = 4;
 const legacyClaimKey = 'plant-inventory-legacy-data-claimed-by';
 const now = () => new Date().toISOString();
 const parse = (value, fallback) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };

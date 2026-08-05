@@ -49,13 +49,23 @@ export function createLiveSyncProvider({ client, userId }) {
       if (timestamp) query = query.gt('updated_at', timestamp);
       return (await run('sync.reconcile', query.limit(1000))).map(rowToRecord);
     },
-    subscribe(onChange, onStatus = () => {}) {
+    async subscribe(onChange, onStatus = () => {}, accessToken = '') {
+      const attemptedAt = new Date().toISOString();
+      onStatus('CONNECTING', null, { attemptedAt, jwtConfigured: Boolean(accessToken) });
+      if (!accessToken) throw new Error('REALTIME_SESSION_TOKEN_MISSING');
+      await client.realtime.setAuth(accessToken);
       const channel = client.channel(`collection:${userId}`)
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'sync_records', filter: `user_id=eq.${userId}`,
-        }, (event) => onChange(rowToRecord(event.new || event.old), event))
-        .subscribe((status) => onStatus(status));
-      return () => client.removeChannel(channel);
+        }, (event) => {
+          onStatus('EVENT', null, { eventAt: new Date().toISOString(), eventType: event.eventType || event.type || 'change' });
+          onChange(rowToRecord(event.new || event.old), event);
+        })
+        .subscribe((status, error) => onStatus(status, error, {
+          attemptedAt, activeChannelCount: client.getChannels?.().length ?? 1,
+          socketState: client.realtime?.isConnected?.() ? 'connected' : 'disconnected',
+        }));
+      return async () => { await client.removeChannel(channel); };
     },
   });
 }

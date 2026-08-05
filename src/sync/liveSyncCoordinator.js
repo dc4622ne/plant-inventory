@@ -29,10 +29,12 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     const allMutations = await store.forUser('mutations', userId); const mutations = await pendingMutations(); const conflicts = await unresolvedConflicts();
     const metadata = await store.get('syncMetadata', [userId, 'status']);
     const uploads = (await store.forUser('imageUploadQueue', userId)).filter((item) => !['complete'].includes(item.state));
+    const queueGroups = Object.values(allMutations.reduce((groups, item) => { const key = `${item.entityType}:${item.state}`; const group = groups[key] ||= { entityType: item.entityType, state: item.state, count: 0, oldestAt: item.createdAt, lastErrorCode: '' };
+      group.count += 1; if (Date.parse(item.createdAt || 0) < Date.parse(group.oldestAt || 0)) group.oldestAt = item.createdAt; group.lastErrorCode = item.errorCode || group.lastErrorCode; return groups; }, {}));
     return { state: metadata?.state || (mutations.length ? 'pending' : 'synced'), pendingChanges: mutations.length, conflicts: conflicts.length,
       pendingImages: uploads.length, permanentFailures: allMutations.filter((item) => item.state === 'failed_permanent').length,
       lastSuccessfulSyncAt: metadata?.lastSuccessfulSyncAt || null, lastReconciliationAt: metadata?.lastReconciliationAt || null,
-      realtimeState: metadata?.realtimeState || 'disconnected', error: metadata?.error || null, userId, deviceId: device.id };
+      realtimeState: metadata?.realtimeState || 'disconnected', error: metadata?.error || null, queueGroups, ...metadata, userId, deviceId: device.id };
   };
   const setStatus = async (changes) => {
     const current = await store.get('syncMetadata', [userId, 'status']);
@@ -148,7 +150,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
       await hydrate();
       const status = await getStatus();
       await setStatus({ state: status.conflicts ? 'conflict' : status.pendingChanges ? 'pending' : 'synced', lastReconciliationAt: now(),
-        ...(status.pendingChanges || status.conflicts ? {} : { lastSuccessfulSyncAt: now() }) });
+        lastSuccessfulSyncAt: now() });
     } catch (error) { await setStatus({ state: 'error', error: String(error?.message || error) }); }
     finally { running = false; }
     return getStatus();
@@ -177,5 +179,6 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     return notify();
   }
   return { captureLocalChanges, sync, ingestRemote, hydrate, getStatus, getConflicts: unresolvedConflicts, resolveConflict,
-    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }, setRealtimeState: (state) => setStatus({ realtimeState: state }) };
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    setRealtimeState: (state, details = {}) => setStatus({ realtimeState: state, ...details }), setDiagnostics: (details) => setStatus(details) };
 }

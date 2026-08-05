@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import App from './App.jsx';
 import { currentAppVersion } from './appVersion.js';
 import { featureFlags } from './config/featureFlags.js';
@@ -23,6 +23,14 @@ function StagingDiagnostic({ sessionState }) {
     <div><dt>Project host</dt><dd>{supabaseConfiguration.projectHost || 'Unavailable'}</dd></div>
   </dl></details>;
 }
+
+const safeRealtimeError = (error) => error ? {
+  realtimeErrorName: String(error.name || error.cause?.name || 'RealtimeError'),
+  realtimeErrorCode: String(error.code || error.cause?.code || ''),
+  realtimeErrorMessage: String(error.message || error.cause?.message || error).slice(0, 240),
+} : { realtimeErrorName: '', realtimeErrorCode: '', realtimeErrorMessage: '' };
+
+const jwtExpiration = (token) => { try { return new Date(JSON.parse(atob(token.split('.')[1].replaceAll('-', '+').replaceAll('_', '/'))).exp * 1000).toISOString(); } catch { return null; } };
 
 function StagingBadge() {
   if (!applicationEnvironment.isStaging) return null;
@@ -101,20 +109,39 @@ export default function ConnectedApp() {
   const [coordinator, setCoordinator] = useState(null); const [syncStatus, setSyncStatus] = useState(null);
   const [removeOfflineData, setRemoveOfflineData] = useState(null);
   const [migrationReport, setMigrationReport] = useState(null);
+  const runtimeRef = useRef(null);
   const userId = session?.user?.id || '';
   useEffect(() => { if (!supabase) { setRestoring(false); return undefined; }
     let active = true;
     const timeout = window.setTimeout(() => { if (active) { setAuthError('Session restoration timed out. Please sign in again.'); setRestoring(false); } }, sessionRestoreTimeoutMs);
     supabase.auth.getSession().then(({ data, error }) => { if (!active) return; clearTimeout(timeout); setSession(data?.session || null); setAuthError(error?.message || ''); setRestoring(false); })
       .catch(() => { if (active) { clearTimeout(timeout); setAuthError('We could not restore your session. Please sign in again.'); setRestoring(false); } });
-    const subscription = service.onAuthStateChange((_event, nextSession) => { if (!active) return; setSession(nextSession); setAuthError(''); setRestoring(false); if (!nextSession) { clearUserPhotoCache(); setReady(false); clearUserOwnedCompatibilityStorage(); } });
+    const subscription = service.onAuthStateChange((event, nextSession) => { if (!active) return; setSession(nextSession); setAuthError(''); setRestoring(false);
+      if (event === 'TOKEN_REFRESHED' && nextSession?.access_token) runtimeRef.current?.reconnect?.(nextSession.access_token, 'token-refresh');
+      if (!nextSession) { runtimeRef.current?.stop?.(); runtimeRef.current = null; clearUserPhotoCache(); setReady(false); clearUserOwnedCompatibilityStorage(); } });
     return () => { active = false; clearTimeout(timeout); subscription.unsubscribe(); }; }, [service]);
   useEffect(() => {
     if (!userId) { setReady(false); return undefined; }
     globalThis.__plantIndexedSyncActive = true;
-    let stopped = false; let debounceTimer = 0; const store = createIndexedDbStore(); const provider = createLiveSyncProvider({ client: supabase, userId });
+    let stopped = false; let debounceTimer = 0; let reconnectTimer = 0; let unsubscribeRealtime = null; let reconnectAttempts = 0; let intentionalClose = false;
+    const store = createIndexedDbStore(); const provider = createLiveSyncProvider({ client: supabase, userId });
     const active = createLiveSyncCoordinator({ userId, store, provider }); setCoordinator(active);
-    const sync = async () => { if (stopped) return; await active.sync(); await processImageUploads(userId); setMigrationReport(await verifyAndCompleteMigration({ userId, store })); };
+    const updateRealtime = (state, error, extra = {}) => active.setRealtimeState(state, { ...safeRealtimeError(error), ...extra, online: navigator.onLine !== false, coordinatorRunning: !stopped });
+    const connectRealtime = async (token, reason = 'startup') => {
+      if (stopped || !featureFlags.realtimeEnabled || navigator.onLine === false) return;
+      clearTimeout(reconnectTimer); if (unsubscribeRealtime) { intentionalClose = true; await unsubscribeRealtime(); unsubscribeRealtime = null; intentionalClose = false; }
+      try { unsubscribeRealtime = await provider.subscribe(async (record) => { await active.ingestRemote(record); await active.hydrate(); }, (state, error, extra) => {
+        const subscribed = state === 'SUBSCRIBED'; if (subscribed) reconnectAttempts = 0;
+        updateRealtime(state, error, { ...extra, realtimeJwtConfigured: Boolean(token), realtimeJwtExpiresAt: jwtExpiration(token), lastSubscriptionReason: reason,
+          ...(subscribed ? { lastSubscribedAt: new Date().toISOString() } : {}) });
+        if (!stopped && !intentionalClose && ['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(state)) { const delay = Math.min(30_000, 1000 * (2 ** reconnectAttempts++)); reconnectTimer = window.setTimeout(() => connectRealtime(token, `reconnect-${state.toLowerCase()}`), delay); }
+      }, token); } catch (error) { updateRealtime('CHANNEL_ERROR', error, { lastSubscriptionReason: reason }); }
+    };
+    const sync = async () => { if (stopped) return; await active.setDiagnostics({ syncStage: 'validate-session' });
+      const { data, error } = await supabase.auth.getSession(); if (error || !data.session?.access_token) { await active.setDiagnostics({ state: 'error', syncStage: 'validate-session', ...safeRealtimeError(error || new Error('SESSION_MISSING')) }); return; }
+      await connectRealtime(data.session.access_token, 'sync-now'); await active.setDiagnostics({ syncStage: 'records' }); await active.sync();
+      await active.setDiagnostics({ syncStage: 'photos' }); await processImageUploads(userId); setMigrationReport(await verifyAndCompleteMigration({ userId, store })); await active.setDiagnostics({ syncStage: 'complete' }); };
+    runtimeRef.current = { reconnect: connectRealtime, stop: () => { stopped = true; clearTimeout(reconnectTimer); unsubscribeRealtime?.(); }, sync };
     setRemoveOfflineData(() => async () => {
       const status = await active.getStatus();
       const warning = status.pendingChanges ? ` This account has ${status.pendingChanges} unsynced change(s), which will be removed from this device.` : '';
@@ -123,12 +150,12 @@ export default function ConnectedApp() {
     });
     (async () => { setMigrationReport(await prepareInitialMigration({ userId, store, provider })); await active.hydrate(); await migrateLegacyImages(userId); if (!stopped) setReady(true); await sync(); })();
     const unsubscribeStatus = active.subscribe(setSyncStatus);
-    const unsubscribeRealtime = featureFlags.realtimeEnabled ? provider.subscribe(async (record) => { await active.ingestRemote(record); await active.hydrate(); }, (state) => active.setRealtimeState(state)) : () => {};
     const onSync = () => { clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
-    window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-collection-change', onSync); window.addEventListener('plant-all-collections-change', onSync);
+    const onVisibility = () => { if (!document.hidden) onSync(); };
+    window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onSync); window.addEventListener('plant-all-collections-change', onSync);
     const scanner = window.setInterval(() => { if (!document.hidden) active.captureLocalChanges(); }, 5_000); const timer = window.setInterval(sync, 60_000);
-    return () => { stopped = true; globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime(); clearInterval(scanner); clearInterval(timer); clearTimeout(debounceTimer); store.close();
-      window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-collection-change', onSync); window.removeEventListener('plant-all-collections-change', onSync); };
+    return () => { stopped = true; runtimeRef.current = null; globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
+      window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-sync-now', onSync); window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('plant-collection-change', onSync); window.removeEventListener('plant-all-collections-change', onSync); };
   }, [userId, service]);
   const authView = resolveAuthView({ configured: supabaseConfiguration.configured, restoring, session, error: authError });
   if (authView === 'configuration') return <><StagingBadge /><ConfigurationScreen /></>;

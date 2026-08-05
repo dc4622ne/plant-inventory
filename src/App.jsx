@@ -47,6 +47,7 @@ import {
 import { reminderRules } from './reminderRules';
 import { aboutGeneralItems, settingsSections } from './settingsLayout';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+import { applicationEnvironment } from './config/environment.js';
 import {
   createConflictStore,
   getDeviceIdentity,
@@ -6024,8 +6025,24 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syn
               {syncStatus.userId && <div><dt>Account ID</dt><dd><code>{syncStatus.userId.slice(0, 8)}…</code></dd></div>}
               <div><dt>Realtime</dt><dd>{syncStatus.realtimeState || 'Not connected'}</dd></div>
             </dl>
+            {applicationEnvironment.isStaging && <details className="sync-diagnostics"><summary>Realtime and queue diagnostics</summary>
+              <dl className="backup-meta-grid">
+                <div><dt>JWT configured</dt><dd>{syncStatus.realtimeJwtConfigured ? 'Yes' : 'No'}</dd></div>
+                <div><dt>JWT expires</dt><dd>{syncStatus.realtimeJwtExpiresAt ? new Date(syncStatus.realtimeJwtExpiresAt).toLocaleString() : 'Unavailable'}</dd></div>
+                <div><dt>Last attempt</dt><dd>{syncStatus.attemptedAt ? new Date(syncStatus.attemptedAt).toLocaleString() : 'None'}</dd></div>
+                <div><dt>Last subscribed</dt><dd>{syncStatus.lastSubscribedAt ? new Date(syncStatus.lastSubscribedAt).toLocaleString() : 'Never'}</dd></div>
+                <div><dt>Last event</dt><dd>{syncStatus.eventAt ? `${syncStatus.eventType} · ${new Date(syncStatus.eventAt).toLocaleString()}` : 'None'}</dd></div>
+                <div><dt>Active channels</dt><dd>{syncStatus.activeChannelCount ?? 0}</dd></div>
+                <div><dt>Socket</dt><dd>{syncStatus.socketState || 'unknown'}</dd></div>
+                <div><dt>Online</dt><dd>{syncStatus.online === false ? 'No' : 'Yes'}</dd></div>
+                <div><dt>Coordinator</dt><dd>{syncStatus.coordinatorRunning ? 'Running' : 'Stopped'}</dd></div>
+                <div><dt>Sync stage</dt><dd>{syncStatus.syncStage || 'idle'}</dd></div>
+                {syncStatus.realtimeErrorMessage && <div><dt>Last channel error</dt><dd>{[syncStatus.realtimeErrorCode, syncStatus.realtimeErrorName, syncStatus.realtimeErrorMessage].filter(Boolean).join(' · ')}</dd></div>}
+              </dl>
+              <h4>Pending queue</h4>{syncStatus.queueGroups?.length ? <ul>{syncStatus.queueGroups.map((group) => <li key={`${group.entityType}:${group.state}`}><code>{group.entityType}</code> · {group.state} · {group.count} · base queue since {group.oldestAt ? new Date(group.oldestAt).toLocaleString() : 'unknown'}{group.lastErrorCode ? ` · ${group.lastErrorCode}` : ''}</li>)}</ul> : <p>No queued records.</p>}
+            </details>}
             <div className="cloud-sync-actions">
-              <button type="button" onClick={() => window.dispatchEvent(new Event('focus'))}>Sync now</button>
+              <button type="button" onClick={() => window.dispatchEvent(new Event('plant-sync-now'))}>Sync now</button>
               {onSignOut && <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>}
               {onRemoveOfflineData && <button type="button" className="secondary-button" onClick={onRemoveOfflineData}>Remove offline data</button>}
             </div>
