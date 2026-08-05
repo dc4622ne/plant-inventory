@@ -16,6 +16,7 @@ const rowToRecord = (row) => row ? ({
   },
   __syncEntityType: row.entity_type,
   __syncEntityId: row.entity_id,
+  __syncMutationId: row.last_mutation_id || null,
   __syncPayload: row.payload,
 }) : null;
 

@@ -90,3 +90,8 @@ test('migrates seeded and formerly system views into ordinary editable records o
   saveQuickViews(removeQuickView(migrated, 'all-active'));
   assert.equal(loadQuickViews().some((view) => view.id === 'all-active'), false);
 });
+
+test('Quick View normalization is deterministic and does not invent timestamps for valid records', () => {
+  const input = [{ id:'view', name:'View', state:baseState, createdAt:'created', updatedAt:'updated' }];
+  assert.equal(JSON.stringify(normalizeQuickViews(input)), JSON.stringify(normalizeQuickViews(normalizeQuickViews(input))));
+});

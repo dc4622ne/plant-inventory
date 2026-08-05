@@ -160,7 +160,7 @@ export default function ConnectedApp() {
     (async () => { if (restoredToken) await connectRealtime(restoredToken, 'session-restored');
       setMigrationReport(await prepareInitialMigration({ userId, store, provider })); await active.hydrate(); await migrateLegacyImages(userId); if (!stopped) setReady(true); await sync(); })();
     const unsubscribeStatus = active.subscribe(setSyncStatus);
-    const onSync = () => { clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
+    const onSync = (event) => { if (event?.detail?.queueMutation === false) return; clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
     const onVisibility = () => { if (!document.hidden) onSync(); };
     window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onSync); window.addEventListener('plant-all-collections-change', onSync);
     const scanner = window.setInterval(() => { if (!document.hidden) active.captureLocalChanges(); }, 5_000); const timer = window.setInterval(sync, 60_000);

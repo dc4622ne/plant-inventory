@@ -7,6 +7,7 @@ export const internalSyncFields = new Set([
 export function applicationPayload(value) {
   if (Array.isArray(value)) return value.map(applicationPayload);
   if (!value || typeof value !== 'object') return value;
+  if (value.__syncPayload && typeof value.__syncPayload === 'object') return applicationPayload(value.__syncPayload);
   return Object.fromEntries(Object.entries(value)
     .filter(([key]) => !key.startsWith('__sync') && !internalSyncFields.has(key))
     .map(([key, item]) => [key, applicationPayload(item)]));

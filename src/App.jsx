@@ -6040,6 +6040,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
                 {syncStatus.realtimeErrorMessage && <div><dt>Last channel error</dt><dd>{[syncStatus.realtimeErrorCode, syncStatus.realtimeErrorName, syncStatus.realtimeErrorMessage].filter(Boolean).join(' · ')}</dd></div>}
               </dl>
               <h4>Pending queue</h4>{syncStatus.queueGroups?.length ? <ul>{syncStatus.queueGroups.map((group) => <li key={`${group.entityType}:${group.state}`}><code>{group.entityType}</code> · {group.state} · {group.count} · base queue since {group.oldestAt ? new Date(group.oldestAt).toLocaleString() : 'unknown'}{group.lastErrorCode ? ` · ${group.lastErrorCode}` : ''}</li>)}</ul> : <p>No queued records.</p>}
+              {syncStatus.requeueLoops?.length > 0 && <><h4>Paused queue loops</h4><ul>{syncStatus.requeueLoops.map((item) => <li key={item.entity}><code>{item.entity}</code> · {item.requeueCount} queues · {item.lastSource} · {item.lastQueueReason}</li>)}</ul></>}
             </details>}
             <div className="cloud-sync-actions">
               <button type="button" onClick={() => onSyncNow ? onSyncNow() : window.dispatchEvent(new Event('plant-sync-now'))}>Sync now</button>

@@ -13,6 +13,8 @@ function memoryStore() {
     async forUser(name, userId) { return structuredClone(values(name).filter((item) => item.userId === userId)); } };
 }
 function memoryStorage() { const map = new Map(); return { getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, value), removeItem: (key) => map.delete(key) }; }
+function seedStorage(storage, records = {}) { synchronizedCollections.forEach((domain) => storage.setItem(domain.storageKey, JSON.stringify(domain.kind === 'array' ? (records[domain.entityType] || []) : (records[domain.entityType] || {})))); }
+async function seedSingletonRecords(store, userId) { for (const entityType of ['dropdown_options','dashboard_preferences']) await store.put('records', { userId, entityType, entityId:'singleton', record:{}, serverRecord:{}, revision:0 }); }
 
 test('all registered entity types queue, upload, and remain user scoped', async () => {
   const store = memoryStore(); const storage = memoryStorage(); const remote = new Map();
@@ -47,4 +49,40 @@ test('migrated plant edit uses hosted revision, strips legacy sync metadata, and
   await coordinator.sync();
   assert.equal(uploaded.baseRevision, 7); assert.equal(uploaded.payload.type, 'Houseplant'); assert.equal(uploaded.payload.sync, undefined);
   assert.equal((await store.get('records',['user-a','plant','legacy'])).revision, 8);
+});
+
+test('acknowledgement hydration does not regenerate a replacement mutation', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage, { plant: [{ id:'p', name:'Monstera', createdAt:'app-created' }] }); await seedSingletonRecords(store,'u'); let revision = 0;
+  const provider = { async getRecord(){return null;}, async applyChange(change){ revision += 1; return { ...change.payload, createdAt:'row-created', updatedAt:'row-updated', __syncEntityType:change.entityType, __syncEntityId:change.entityId, __syncMutationId:change.id, __syncPayload:change.payload, sync:{version:revision} }; }, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}});
+  await coordinator.sync(); assert.equal((await store.forUser('mutations','u')).length,0);
+  await coordinator.hydrate(); await coordinator.captureLocalChanges({source:'scan'});
+  { const queued = await store.forUser('mutations','u'); assert.equal(queued.length,0,JSON.stringify(queued)); }
+});
+
+test('remote pull and realtime application remain read-only after hydration', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage); await seedSingletonRecords(store,'u');
+  const provider = { async getRecord(){return null;}, async applyChange(){throw new Error('unexpected upload');}, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}});
+  const remote = { id:'p', name:'Remote', createdAt:'row-time', __syncEntityType:'plant', __syncEntityId:'p', __syncPayload:{id:'p',name:'Remote',createdAt:'app-time'}, sync:{version:4} };
+  await coordinator.ingestRemote(remote); await coordinator.hydrate(); await coordinator.captureLocalChanges({source:'scan'});
+  { const queued = await store.forUser('mutations','u'); assert.equal(queued.length,0,JSON.stringify(queued)); } assert.equal((await store.get('records',['u','plant','p'])).record.createdAt,'app-time');
+});
+
+test('same mutation realtime echo removes the mutation and never conflicts or requeues', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage, { plant:[{id:'p',name:'Local'}] }); await seedSingletonRecords(store,'u');
+  const provider = { async getRecord(){return null;}, async applyChange(){throw new Error('not reached');}, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}}); await coordinator.captureLocalChanges({source:'user'});
+  const mutation = (await store.forUser('mutations','u'))[0];
+  await coordinator.ingestRemote({ ...mutation.payload, __syncEntityType:'plant', __syncEntityId:'p', __syncMutationId:mutation.id, __syncPayload:mutation.payload, sync:{version:1} });
+  assert.equal((await store.forUser('mutations','u')).length,0); assert.equal((await store.forUser('conflicts','u')).length,0);
+  await coordinator.hydrate(); await coordinator.captureLocalChanges({source:'scan'}); { const queued = await store.forUser('mutations','u'); assert.equal(queued.length,0,JSON.stringify(queued)); }
+});
+
+test('non-user requeue loop is paused after the safe threshold', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage, { plant:[{id:'p',name:'A'}] });
+  const provider = { async getRecord(){return null;}, async applyChange(){throw new Error('offline');}, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}});
+  for (let index=0; index<7; index += 1) { await store.remove('records',['u','plant','p']); await store.remove('mutations',['u',(await store.forUser('mutations','u'))[0]?.id]); await coordinator.captureLocalChanges({source:'hydration'}); }
+  const status = await coordinator.getStatus(); assert.equal(status.requeueLoops.length,1); assert.equal(status.requeueLoops[0].requeueCount,7);
 });

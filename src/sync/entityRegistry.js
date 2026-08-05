@@ -57,13 +57,14 @@ export function writeEntitiesToCompatibilityStorage(entities, storage = globalTh
   let changed = false;
   synchronizedCollections.forEach((domain) => {
     let values = byType.get(domain.entityType) || [];
-    if (domain.entityType === 'plant_space') values = normalizePlantSpaces(values);
+    if (domain.entityType === 'plant_space') values = normalizePlantSpaces(values, { ensureDefault: false });
     const serialized = JSON.stringify(domain.kind === 'array' ? values : values[0] || {});
     if (storage.getItem(domain.storageKey) !== serialized) { storage.setItem(domain.storageKey, serialized); changed = true; }
   });
   if (changed) {
-    globalThis.dispatchEvent?.(new Event('plant-collection-change'));
-    globalThis.dispatchEvent?.(new Event('plant-all-collections-change'));
+    const event = (name) => typeof CustomEvent === 'function' ? new CustomEvent(name, { detail: { source: 'compatibility-hydration', queueMutation: false } }) : new Event(name);
+    globalThis.dispatchEvent?.(event('plant-collection-change'));
+    globalThis.dispatchEvent?.(event('plant-all-collections-change'));
   }
   return changed;
 }

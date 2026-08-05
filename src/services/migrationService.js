@@ -4,11 +4,35 @@ import { changeQueueStorageKey } from '../sync/changeQueue.js';
 import { conflictsStorageKey } from '../sync/conflictResolver.js';
 import { syncStatusStorageKey } from '../sync/syncStatus.js';
 import { applicationPayload, isMetadataOnlyConflict } from '../sync/syncPayload.js';
+import { threeWayMerge } from '../sync/mergeEngine.js';
 
-export const liveMigrationVersion = 4;
+export const liveMigrationVersion = 5;
 const legacyClaimKey = 'plant-inventory-legacy-data-claimed-by';
 const now = () => new Date().toISOString();
 const parse = (value, fallback) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
+
+export async function repairFalseConflicts({ userId, store, provider }) {
+  const conflicts = (await store.forUser('conflicts', userId)).filter((item) => item.status !== 'resolved');
+  const mutationIds = [...new Set(conflicts.map((item) => item.mutationId).filter(Boolean))];
+  let removed = 0; let released = 0; let retained = 0;
+  for (const mutationId of mutationIds) {
+    const mutation = await store.get('mutations', [userId, mutationId]);
+    const associated = conflicts.filter((item) => item.mutationId === mutationId);
+    if (!mutation) { retained += associated.length; continue; }
+    const remote = await provider.getRecord(mutation.entityType, mutation.entityId); if (!remote) { retained += associated.length; continue; }
+    const remotePayload = applicationPayload(remote); const localPayload = applicationPayload(mutation.payload);
+    const converged = JSON.stringify(localPayload) === JSON.stringify(remotePayload);
+    const merge = converged ? { clean: true, merged: remotePayload } : threeWayMerge(mutation.baseRecord || remotePayload, localPayload, remotePayload);
+    if (!merge.clean && !associated.every(isMetadataOnlyConflict)) { retained += associated.length; continue; }
+    for (const conflict of associated) { await store.remove('conflicts', [userId, conflict.id]); removed += 1; }
+    const revision = Number(remote.sync?.version || 0);
+    await store.put('records', { userId, entityType: mutation.entityType, entityId: mutation.entityId, record: remotePayload, serverRecord: remotePayload,
+      revision, localUpdatedAt: now(), serverUpdatedAt: remote.updatedAt || remote.sync?.lastModifiedAt || null, deletedAt: remote.sync?.deletedAt || null });
+    if (converged) await store.remove('mutations', [userId, mutation.id]);
+    else { await store.put('mutations', { ...mutation, payload: applicationPayload(merge.merged), baseRecord: remotePayload, baseRevision: revision, state: 'pending', leaseUntil: null, queueSource: 'conflict-repair', queueReason: 'clean-rebase' }); released += 1; }
+  }
+  return { removed, released, retained };
+}
 
 export async function prepareInitialMigration({ userId, store, provider, storage = localStorage }) {
   const existing = await store.get('migrationRuns', [userId, liveMigrationVersion]);
@@ -44,6 +68,7 @@ export async function prepareInitialMigration({ userId, store, provider, storage
           createdAt: now(), updatedAt: now(), attempts: 0, state: 'blocked_conflict', leaseUntil: null });
         await store.put('conflicts', { userId, id: conflictId, entityType: entity.entityType, entityId: entity.entityId,
           displayLabel: localPayload.name || localPayload.title || localPayload.text?.slice?.(0, 60) || entity.entityId,
+          conflictOrigin: 'migration-no-common-base', localRevision: 0, remoteRevision: remoteRecord.sync?.version || 0,
           fieldPath: 'record', pathSegments: [], baseValue: null, localValue: localPayload, remoteValue: remotePayload,
           localTimestamp: entity.record.updatedAt || now(), remoteTimestamp: remoteRecord.updatedAt || now(), localDeviceId: '', remoteDeviceId: remoteRecord.sync?.deviceId || '',
           status: 'unresolved', resolutionChoice: null, resolvedAt: null, mutationId, createdAt: now() });
@@ -61,7 +86,8 @@ export async function prepareInitialMigration({ userId, store, provider, storage
   for (const record of remote) {
     const exists = local.some((item) => item.entityType === record.__syncEntityType && item.entityId === record.__syncEntityId);
     if (!exists) {
-      await store.put('records', { userId, entityType: record.__syncEntityType, entityId: record.__syncEntityId, record, serverRecord: record,
+      const payload = applicationPayload(record);
+      await store.put('records', { userId, entityType: record.__syncEntityType, entityId: record.__syncEntityId, record: payload, serverRecord: payload,
         revision: record.sync?.version || 0, localUpdatedAt: now(), serverUpdatedAt: record.updatedAt, deletedAt: record.sync?.deletedAt || null });
       downloaded[record.__syncEntityType] = (downloaded[record.__syncEntityType] || 0) + 1;
     }
@@ -89,8 +115,9 @@ export async function prepareInitialMigration({ userId, store, provider, storage
     const mutation = conflict.mutationId && await store.get('mutations', [userId, conflict.mutationId]);
     if (mutation?.state === 'blocked_conflict') await store.remove('mutations', [userId, mutation.id]);
   }
+  const conflictRepair = await repairFalseConflicts({ userId, store, provider });
   const legacyStatus = parse(storage.getItem(syncStatusStorageKey), {});
-  await store.put('syncMetadata', { userId, key: 'status', ...legacyStatus, migrationVersion: liveMigrationVersion });
+  await store.put('syncMetadata', { userId, key: 'status', ...legacyStatus, migrationVersion: liveMigrationVersion, conflictRepair });
   storage.removeItem(changeQueueStorageKey); storage.removeItem(conflictsStorageKey); storage.removeItem(syncStatusStorageKey);
   return run;
 }
