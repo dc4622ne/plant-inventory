@@ -64,6 +64,26 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     return notify();
   };
 
+  async function completeAcknowledgedMutation(mutation, acknowledged, revision) {
+    // The hosted row echoes the submitted application payload in __syncPayload.
+    // Fall back to the submitted payload for test/local providers that decorate
+    // their acknowledgement with row timestamps but do not expose that envelope.
+    const acknowledgedPayload = applicationPayload(acknowledged?.__syncPayload ?? mutation.payload);
+    const current = await store.get('mutations', [userId, mutation.id]);
+    if (current) {
+      if (comparable(current.payload) === comparable(acknowledgedPayload)) await store.remove('mutations', [userId, current.id]);
+      else await store.put('mutations', { ...current, baseRecord: acknowledgedPayload, baseRevision: Number(revision || 0), state: 'pending', leaseUntil: null, nextAttemptAt: null });
+    }
+    // A scan may have regenerated the same converged entity while its original
+    // mutation was leased. Compact every acknowledged duplicate, regardless of type.
+    for (const queued of await pendingMutations()) {
+      if (queued.entityType === mutation.entityType && queued.entityId === mutation.entityId
+        && comparable(queued.payload) === comparable(acknowledgedPayload)) await store.remove('mutations', [userId, queued.id]);
+    }
+    const remains = (await pendingMutations()).some((queued) => queued.entityType === mutation.entityType && queued.entityId === mutation.entityId);
+    if (!remains) await store.remove('syncMetadata', [userId, `queue:${mutation.entityType}:${mutation.entityId}`]);
+  }
+
   async function queueRecord(entity, cached, operation = 'update', source = 'user', reason = 'application-payload-changed') {
     const mutations = await pendingMutations();
     const existing = mutations.find((item) => item.entityType === entity.entityType && item.entityId === entity.entityId && item.state !== 'blocked_conflict');
@@ -134,8 +154,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
       const acknowledged = await provider.applyChange({ ...mutation, payload, baseRevision });
       const rebased = await putRemoteRecord(mutation.entityType, mutation.entityId, acknowledged, baseRevision + 1, { force: true, source: 'acknowledgement' });
       rememberAcknowledgement(mutation.entityType, mutation.entityId, acknowledged?.__syncMutationId || mutation.id, rebased.revision, rebased.payload);
-      await store.remove('mutations', [userId, mutation.id]);
-      await store.remove('syncMetadata', [userId, `queue:${mutation.entityType}:${mutation.entityId}`]);
+      await completeAcknowledgedMutation(mutation, acknowledged, rebased.revision);
     } catch (error) {
       const attempts = (mutation.attempts || 0) + 1; const failureClass = errorClass(error);
       await store.put('mutations', { ...mutation, attempts, lastAttemptAt: now(), leaseUntil: null, failureClass,
@@ -157,9 +176,8 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     if (isMutationEcho) {
       await putRemoteRecord(entityType, entityId, remote, remoteRevision, { source: 'realtime-echo' });
       if (mutation?.id === remote.__syncMutationId) {
-        await store.remove('mutations', [userId, mutation.id]);
+        await completeAcknowledgedMutation(mutation, remote, remoteRevision);
         for (const conflict of await unresolvedConflicts()) if (conflict.mutationId === mutation.id) await store.remove('conflicts', [userId, conflict.id]);
-        await store.remove('syncMetadata', [userId, `queue:${entityType}:${entityId}`]);
       }
       rememberAcknowledgement(entityType, entityId, remote.__syncMutationId, remoteRevision, remotePayload); return;
     }

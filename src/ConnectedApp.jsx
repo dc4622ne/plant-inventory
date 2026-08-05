@@ -6,6 +6,7 @@ import { applicationEnvironment } from './config/environment.js';
 import { resolveAuthView, sessionRestoreTimeoutMs } from './authGate.js';
 import { supabase, supabaseConfiguration } from './lib/supabaseClient.js';
 import { isPasskeyCancellation, isPasskeySupported } from './passkeySupport.js';
+import { passkeyActionMessage, passkeyOriginDetails, registerPasskeyAndRefresh } from './passkeyRegistration.js';
 import { createAuthService } from './services/authService.js';
 import { clearUserPhotoCache, migrateLegacyImages, processImageUploads } from './services/imageSyncService.js';
 import { createLiveSyncProvider } from './services/liveSyncProvider.js';
@@ -70,17 +71,21 @@ function AuthScreen({ service, initialError = '' }) {
 }
 
 function PasskeySettings({ service }) {
-  const supported = isPasskeySupported(); const [passkeys, setPasskeys] = useState([]); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
-  const refresh = useCallback(async () => { if (!supported) return; try { setPasskeys(await service.listPasskeys() || []); } catch (error) { setMessage(error?.message || 'Passkeys could not be loaded.'); } }, [service, supported]);
+  const supported = isPasskeySupported(); const [passkeys, setPasskeys] = useState([]); const [loaded, setLoaded] = useState(false); const [message, setMessage] = useState(null); const [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => { if (!supported) return []; try { const next = await service.listPasskeys() || []; setPasskeys(next); setLoaded(true); return next; } catch (error) { setMessage({ kind: 'error', text: error?.message || 'Passkeys could not be loaded.' }); return []; } }, [service, supported]);
   useEffect(() => { refresh(); }, [refresh]);
-  const run = async (action, success) => { setBusy(true); setMessage(''); try { await action(); setMessage(success); await refresh(); } catch (error) { setMessage(isPasskeyCancellation(error) ? 'Passkey setup was cancelled. Your password still works.' : (error?.message || 'That passkey action could not be completed.')); } finally { setBusy(false); } };
+  const run = async (action, success) => { setBusy(true); setMessage(null); try { await action(); setMessage({ kind: 'success', text: success }); } catch (error) { setMessage(passkeyActionMessage(error)); } finally { setBusy(false); } };
+  const register = () => run(async () => { const next = await registerPasskeyAndRefresh(service); setPasskeys(next); setLoaded(true); }, 'Passkey added.');
+  const origin = passkeyOriginDetails();
   if (!supported) return <section className="passkey-settings" aria-labelledby="passkey-heading"><h4 id="passkey-heading">Face ID and passkeys</h4><p>This browser does not support passkeys. Email and password sign-in remains available.</p></section>;
   return <section className="passkey-settings" aria-labelledby="passkey-heading"><div><h4 id="passkey-heading">Face ID and passkeys</h4><p>Optional, experimental Supabase sign-in using Face ID, Touch ID, a device passcode, or another platform authenticator.</p></div>
-    <button type="button" disabled={busy} onClick={() => run(() => service.registerPasskey(), 'Passkey added.')}>Set up Face ID or passkey</button>
+    <button type="button" disabled={busy} onClick={register}>{busy ? 'Waiting for Face ID or passkey…' : 'Add passkey'}</button>
     {passkeys.length > 0 && <ul className="passkey-list">{passkeys.map((passkey) => <li key={passkey.id}><span><strong>{passkey.friendly_name || 'Passkey'}</strong><small>{passkey.created_at ? `Added ${new Date(passkey.created_at).toLocaleDateString()}` : ''}</small></span><div>
       <button type="button" className="text-button" disabled={busy} onClick={() => { const name = window.prompt('Passkey name', passkey.friendly_name || 'Passkey'); if (name?.trim()) run(() => service.renamePasskey(passkey.id, name.trim()), 'Passkey renamed.'); }}>Rename</button>
       <button type="button" className="text-button" disabled={busy} onClick={() => { if (window.confirm('Remove this passkey? Password sign-in will remain available.')) run(() => service.removePasskey(passkey.id), 'Passkey removed.'); }}>Remove</button></div></li>)}</ul>}
-    {!passkeys.length && <p>No passkeys are registered for this account.</p>}{message && <p role="status">{message}</p>}</section>;
+    {loaded && !busy && !passkeys.length && <p>No passkeys are registered for this account.</p>}
+    {applicationEnvironment.isStaging && <details className="auth-diagnostic"><summary>Passkey configuration</summary><dl><div><dt>Relying-party ID</dt><dd>{origin.relyingPartyId || 'Unavailable'}</dd></div><div><dt>Allowed origin</dt><dd>{origin.origin || 'Unavailable'}</dd></div></dl><p>These values must exactly match Supabase Authentication → Passkeys for this preview.</p></details>}
+    {message && <p className={message.kind === 'error' ? 'form-error-message' : undefined} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}</p>}</section>;
 }
 
 function ConflictReview({ coordinator, status }) {

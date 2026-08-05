@@ -10,6 +10,14 @@ export function createAuthService({ client } = {}) {
     if (error) throw normalizeDataError(error, operation);
     return data;
   };
+  const callPasskey = async (action) => {
+    requireEnabled();
+    const { data, error } = await action();
+    // WebAuthn errors contain the actionable RP/origin or cancellation detail.
+    // Do not replace them with the generic data-access message.
+    if (error) throw error;
+    return data;
+  };
   return Object.freeze({
     signInWithPassword(email, password) {
       return call('signInWithPassword', () => client.auth.signInWithPassword({ email, password }));
@@ -19,14 +27,14 @@ export function createAuthService({ client } = {}) {
     },
     signOut() { return call('signOut', () => client.auth.signOut()); },
     getCurrentUser() { return call('getCurrentUser', () => client.auth.getUser()).then((data) => data.user || null); },
-    registerPasskey() { return call('registerPasskey', () => client.auth.registerPasskey()); },
-    signInWithPasskey() { return call('signInWithPasskey', () => client.auth.signInWithPasskey()); },
-    listPasskeys() { return call('listPasskeys', () => client.auth.passkey.list()); },
+    registerPasskey() { return callPasskey(() => client.auth.registerPasskey()); },
+    signInWithPasskey() { return callPasskey(() => client.auth.signInWithPasskey()); },
+    listPasskeys() { return callPasskey(() => client.auth.passkey.list()); },
     renamePasskey(passkeyId, friendlyName) {
-      return call('renamePasskey', () => client.auth.passkey.update({ passkeyId, friendlyName }));
+      return callPasskey(() => client.auth.passkey.update({ passkeyId, friendlyName }));
     },
     removePasskey(passkeyId) {
-      return call('removePasskey', () => client.auth.passkey.delete({ passkeyId }));
+      return callPasskey(() => client.auth.passkey.delete({ passkeyId }));
     },
     onAuthStateChange(callback) {
       requireEnabled();
