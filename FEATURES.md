@@ -1,5 +1,19 @@
 # Plant Tracker Features
 
+## v0.27.0 — Connected Collection: Live Sync
+
+- Email/password sign-up, sign-in, persistent session restoration, sign-out, and password-reset entry point.
+- User-owned Supabase records protected by Row Level Security and composite identity `(user_id, entity_type, entity_id)`.
+- Immediate local edits with a persistent, collapsing mutation queue, automatic reconnect/focus/periodic retry, and realtime reconciliation.
+- Idempotent mutation IDs, soft-delete tombstones, revision checks, and retained conflict diagnostics.
+- Resumable first-connection preparation with a local safety snapshot and stable-ID comparison.
+- Calm, safe-area-aware authentication and compact Account & Live Sync status in Settings.
+- User-scoped IndexedDB cache, leased outbox, conflict/migration metadata, offline image blobs, and independent photo upload queue.
+- Live synchronization for plants, journal, check-ins, spaces, garden, wishlist, Quick Views, dropdowns, and dashboard preferences.
+- Recursive three-way merge with stable-ID history merging and an iPhone-ready Conflict Review workflow.
+- Private Supabase Storage paths, content-hash deduplication, signed image access, and resumable legacy-image migration.
+- Independent JSON/CSV backup and restore workflows retained; manual cloud snapshots are labeled emergency recovery.
+
 ## v0.26.0 — Connected Collection Foundation (Release F)
 
 - Plant records receive stable IDs and additive sync metadata while preserving every existing field and timestamp.

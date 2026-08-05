@@ -1,13 +1,27 @@
-import { StrictMode } from 'react'
+/* oxlint-disable react/only-export-components -- this is the application entry module. */
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.jsx'
+const ConnectedApp = lazy(() => import('./ConnectedApp.jsx'))
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <Suspense fallback={<main className="auth-shell"><p>Opening Plant Tracker…</p></main>}><ConnectedApp /></Suspense>
   </StrictMode>,
 )
+
+// A previously installed production PWA must never control the local Vite app.
+if ('serviceWorker' in navigator && import.meta.env.DEV) {
+  navigator.serviceWorker.getRegistrations()
+    .then(async (registrations) => {
+      await Promise.all(registrations.map((registration) => registration.unregister()))
+      if (navigator.serviceWorker.controller && !sessionStorage.getItem('plant-dev-sw-reset')) {
+        sessionStorage.setItem('plant-dev-sw-reset', '1')
+        window.location.reload()
+      }
+    })
+    .catch(() => {})
+}
 
 // Keep PWA support small and predictable: cache only the built app shell.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {

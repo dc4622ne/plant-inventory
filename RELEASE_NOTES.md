@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.27.0 — Connected Collection: Live Sync (2026-08-04)
+
+- Activated Supabase email authentication and session-gated collection access.
+- Added user-scoped generic sync records, RLS, realtime publication, optimistic concurrency, idempotent mutation handling, and tombstones.
+- Added automatic sync after session start, reconnect, focus, realtime changes, and a battery-conscious 60-second reconciliation interval.
+- Added first-connection safety snapshots and resumable stable-ID migration preparation.
+- Added an Account & Live Sync Settings experience and relabeled manual cloud snapshots as emergency recovery.
+- Preserved existing backup schema v4 compatibility, JSON/CSV export, restore safety, and legacy local data.
+- Moved sync-critical cache, queue, conflicts, migration, metadata, and image retries into user-scoped IndexedDB.
+- Activated all independent persisted collections and stable-ID merging for nested history records.
+- Added three-way field merging, mobile Conflict Review, private signed image delivery, resumable legacy-image migration, and account-scoped offline-data removal.
+- Split the initial JavaScript entry from 718 kB to approximately 192 kB, with the authenticated application loaded on demand.
+
 ## v0.26.0 — Connected Collection Foundation (2026-08-04)
 
 - Added stable device identity, sync-ready plant metadata, a persistent collapsing change queue, and soft-delete tombstones.

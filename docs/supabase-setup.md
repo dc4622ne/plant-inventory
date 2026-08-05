@@ -29,3 +29,30 @@ Before production use, rollback is primarily operational: disable all three flag
 For an isolated development project, restore the pre-migration project backup or recreate the development branch. For a shared environment, never improvise destructive `drop` statements. Prepare a separately reviewed down migration in dependency order: revoke function execution, remove Storage policies, remove the bucket only after confirming it has no objects, remove table policies, then drop dependent tables before parent tables and finally schema metadata. Preserve `migration_runs` and `migration_conflicts` exports for audit. Auth users and existing legacy `app_backups` are outside this migration and must not be deleted.
 
 If migration application fails, retain the exact SQL error and migration-history state. Do not edit an already-applied timestamped migration; correct it with a new forward migration. Because this file has not yet been applied anywhere, review corrections may still be made directly before approval.
+# v0.27.0 Live Sync activation
+
+Apply both migration files in lexical order. The second migration adds the user-owned `sync_records` envelope, revision/idempotency RPC, Realtime publication, photo metadata additions, and private Storage integration used by the local-first coordinator. The browser must receive only a publishable or legacy anon key; never expose a secret/service-role key.
+
+For hosted policy verification, export these temporary shell variables without committing their values:
+
+```text
+SUPABASE_TEST_URL="https://YOUR-STAGING-PROJECT.supabase.co"
+SUPABASE_TEST_PUBLISHABLE_KEY="YOUR_STAGING_PUBLISHABLE_KEY"
+SUPABASE_TEST_USER_A_JWT="A_FRESH_TEMPORARY_USER_A_ACCESS_TOKEN"
+SUPABASE_TEST_USER_B_JWT="A_FRESH_TEMPORARY_USER_B_ACCESS_TOKEN"
+
+```
+
+Run `npm run test:integration`. The test is skipped with an explicit reason when credentials are absent. See `docs/live-sync-manual-qa.md` for project, Auth, Realtime, Storage, PWA, and safe-reset steps.
+
+## Experimental passkey setup
+
+Supabase passkeys are currently experimental. Plant Tracker keeps every passkey call inside `src/services/authService.js` so API changes cannot affect collection storage or synchronization, and email/password remains the recovery path.
+
+In the staging project, open **Authentication → Passkeys**, enable passkey authentication, and configure:
+
+- Relying Party Display Name: `Plant Tracker`
+- Relying Party ID: the bare staging application domain, without a scheme, port, or path
+- Relying Party Origins: the exact staging HTTPS origin; add a loopback development origin only when local passkey testing is required
+
+Choose the relying-party ID carefully because changing it invalidates previously registered passkeys. The installed PWA and Safari must use an origin permitted by the same relying-party configuration. Registration requires a signed-in, confirmed, non-anonymous account. Face ID, Touch ID, a device passcode, or another platform authenticator is handled entirely by the operating system; Plant Tracker never receives biometric data or private key material.

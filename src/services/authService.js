@@ -1,9 +1,8 @@
-import { featureFlags } from '../config/featureFlags.js';
 import { disabledServiceError, normalizeDataError } from '../data/errors.js';
 
-export function createAuthService({ client, flags = featureFlags } = {}) {
+export function createAuthService({ client } = {}) {
   const requireEnabled = () => {
-    if (!flags.authEnabled || !client) throw disabledServiceError('Authentication');
+    if (!client) throw disabledServiceError('Authentication');
   };
   const call = async (operation, action) => {
     requireEnabled();
@@ -20,6 +19,15 @@ export function createAuthService({ client, flags = featureFlags } = {}) {
     },
     signOut() { return call('signOut', () => client.auth.signOut()); },
     getCurrentUser() { return call('getCurrentUser', () => client.auth.getUser()).then((data) => data.user || null); },
+    registerPasskey() { return call('registerPasskey', () => client.auth.registerPasskey()); },
+    signInWithPasskey() { return call('signInWithPasskey', () => client.auth.signInWithPasskey()); },
+    listPasskeys() { return call('listPasskeys', () => client.auth.passkey.list()); },
+    renamePasskey(passkeyId, friendlyName) {
+      return call('renamePasskey', () => client.auth.passkey.update({ passkeyId, friendlyName }));
+    },
+    removePasskey(passkeyId) {
+      return call('removePasskey', () => client.auth.passkey.delete({ passkeyId }));
+    },
     onAuthStateChange(callback) {
       requireEnabled();
       return client.auth.onAuthStateChange(callback).data.subscription;

@@ -5,9 +5,13 @@ import { useResolvedImageSource } from './resolvedImageSource';
 
 export function SafeImage({ src, alt, className, fallback = null }) {
   const [failed, setFailed] = useState(false);
-  const resolvedSource = useResolvedImageSource(src);
-  if (!resolvedSource || failed) return fallback;
-  return <img className={className} src={resolvedSource} alt={alt} onError={() => setFailed(true)} />;
+  const [retry, setRetry] = useState(0);
+  const resolvedSource = useResolvedImageSource(src, retry);
+  if (!resolvedSource || failed) return fallback || (failed ? <span className="image-preview-fallback">Photo unavailable <button type="button" className="text-button" onClick={() => { setFailed(false); setRetry((value) => value + 1); }}>Retry photo</button></span> : null);
+  return <img className={className} src={resolvedSource} alt={alt} onError={() => {
+    if (src?.startsWith('supabase-image://') && retry === 0) setRetry(1);
+    else setFailed(true);
+  }} />;
 }
 
 export default function ImageUploadField({

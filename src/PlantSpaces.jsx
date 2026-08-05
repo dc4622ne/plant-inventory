@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { uploadStoredImage } from './imageUploadUtils';
-import { getPlannedPlantSpaces, plantSpaceDisplayModes, plantWallSpaceId } from './plantSpacesData';
+import { getPlannedPlantSpaces, normalizePlantSpaces, plantSpaceDisplayModes, plantWallSpaceId } from './plantSpacesData';
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -166,10 +166,10 @@ function SpaceBackgroundEditor({ space, onSave }) {
 }
 
 export default function PlantSpaces({
-  spaces,
-  plants,
-  reminders,
-  dropdownOptions,
+  spaces: rawSpaces,
+  plants: rawPlants,
+  reminders: rawReminders,
+  dropdownOptions: rawDropdownOptions,
   focusSpaceId,
   focusPlantId,
   onChange,
@@ -177,6 +177,10 @@ export default function PlantSpaces({
   onOpenPlant,
   onFocusHandled,
 }) {
+  const spaces = useMemo(() => normalizePlantSpaces(rawSpaces, { ensureDefault: false }), [rawSpaces]);
+  const plants = useMemo(() => Array.isArray(rawPlants) ? rawPlants.filter((plant) => plant && typeof plant === 'object' && plant.id) : [], [rawPlants]);
+  const reminders = useMemo(() => Array.isArray(rawReminders) ? rawReminders : [], [rawReminders]);
+  const dropdownOptions = rawDropdownOptions && typeof rawDropdownOptions === 'object' ? rawDropdownOptions : {};
   const [selectedSpaceId, setSelectedSpaceId] = useState(focusSpaceId || plantWallSpaceId);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [isAddingPlants, setIsAddingPlants] = useState(false);
@@ -407,14 +411,14 @@ export default function PlantSpaces({
   }
 
   const searchResults = placedPlants.filter((plant) => (
-    plant.name.toLowerCase().includes(spaceSearch.trim().toLowerCase())
+    String(plant.name || '').toLowerCase().includes(spaceSearch.trim().toLowerCase())
   ));
 
   const chooserPlants = plants
     .filter((plant) => !placedPlantIds.has(plant.id))
     .filter((plant) => {
       const query = chooserSearch.trim().toLowerCase();
-      if (query && !plant.name.toLowerCase().includes(query)) return false;
+      if (query && !String(plant.name || '').toLowerCase().includes(query)) return false;
       if (chooserFilters.genus && plant.genus !== chooserFilters.genus) return false;
       if (chooserFilters.medium && plant.medium !== chooserFilters.medium) return false;
       if (chooserFilters.status && plant.status !== chooserFilters.status) return false;
@@ -424,10 +428,10 @@ export default function PlantSpaces({
     .sort((first, second) => {
       const firstMatch = plantMatchesLocation(first, activeSpace.locationValue) ? 0 : 1;
       const secondMatch = plantMatchesLocation(second, activeSpace.locationValue) ? 0 : 1;
-      return firstMatch - secondMatch || first.name.localeCompare(second.name);
+    return firstMatch - secondMatch || String(first.name || '').localeCompare(String(second.name || ''));
     });
 
-  if (!activeSpace) return null;
+  if (!activeSpace) return <section className="plant-spaces-view" aria-labelledby="plant-spaces-heading"><h2 id="plant-spaces-heading">Plant Spaces</h2><p className="empty-message">No plant spaces yet.</p></section>;
 
   return (
     <section className="plant-spaces-view" aria-labelledby="plant-spaces-heading">
@@ -443,7 +447,7 @@ export default function PlantSpaces({
         {[...spaces, ...plannedSpaces].map((space) => {
           const plantCount = space.comingSoon
             ? plants.filter((plant) => plantMatchesLocation(plant, space.locationValue)).length
-            : space.placements.length;
+            : (space.placements || []).length;
           return (
             <button className={`space-card${space.id === activeSpace.id ? ' space-card-active' : ''}`} type="button"
               key={space.id} disabled={space.comingSoon}

@@ -1,10 +1,21 @@
 export const currentAppVersion = {
-  version: 'v0.26.0',
+  version: 'v0.27.0',
   buildDateTime: '2026-08-04',
-  releaseName: 'Connected Collection Foundation',
+  releaseName: 'Connected Collection: Live Sync',
 };
 
 export const changelog = [
+  {
+    version: 'v0.27.0',
+    releaseName: 'Connected Collection: Live Sync',
+    releaseDate: '2026-08-04',
+    changes: [
+      'Added persistent email authentication and an authenticated application shell.',
+      'Activated record-level Supabase synchronization, realtime reconciliation, retry, tombstones, and optimistic concurrency.',
+      'Added resumable first-connection migration with a local safety snapshot and user-scoped cloud records.',
+      'Reframed manual cloud backups as emergency tools while retaining JSON, CSV, and restore workflows.',
+    ],
+  },
   {
     version: 'v0.26.0',
     releaseName: 'Connected Collection Foundation',

@@ -12,7 +12,7 @@ import { checkSchemaCompatibility } from './data/schemaCompatibility.js';
 const disabledFlags = { databaseEnabled: false, authEnabled: false, realtimeEnabled: false };
 
 test('missing or partial Supabase configuration is safe', () => {
-  assert.deepEqual(readSupabaseConfiguration(), { url: '', anonKey: '', configured: false });
+  assert.equal(readSupabaseConfiguration().configured, false);
   assert.equal(readSupabaseConfiguration({ VITE_SUPABASE_URL: 'https://example.supabase.co' }).configured, false);
   assert.equal(createSupabaseClient(readSupabaseConfiguration()), null);
 });

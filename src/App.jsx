@@ -8,6 +8,7 @@ import {
 } from './dashboardPreferences.js';
 import Garden from './Garden';
 import PlantSpaces from './PlantSpaces';
+import SectionErrorBoundary from './SectionErrorBoundary.jsx';
 import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
 import GlobalNavigation from './GlobalNavMenu';
@@ -1048,9 +1049,18 @@ function getWishlistDetailFields(item) {
   return [...knownFields, ...extraFields];
 }
 
-function App() {
+function App({ account = null, onSignOut = null, onRemoveOfflineData = null, syncStatusOverride = null, migrationReport = null, passkeySettings = null }) {
   const [plants, setPlants] = useState(loadPlants);
-  const syncStatus = useSyncStatus();
+  useEffect(() => {
+    const refreshPlants = () => {
+      setPlants(loadPlants());
+      setPlantSpaces(loadPlantSpaces());
+    };
+    window.addEventListener('plant-collection-change', refreshPlants);
+    return () => window.removeEventListener('plant-collection-change', refreshPlants);
+  }, []);
+  const localSyncStatus = useSyncStatus();
+  const syncStatus = syncStatusOverride || localSyncStatus;
   const [deviceIdentity, setDeviceIdentityState] = useState(getDeviceIdentity);
   const [reminders, setReminders] = useState(loadReminders);
   const [quickNotes, setQuickNotes] = useState(loadQuickNotes);
@@ -3231,13 +3241,14 @@ function App() {
         setPlantImageUploadError('Choose an eligible established parent plant or clear the parent relationship.');
         return;
       }
-      const uploadedImageUrl = plantImageFile ? await uploadStoredImage(plantImageFile, 'plants') : newPlant.imageUrl;
+      const savedPlantId = newPlant.id || makeId('plant');
+      const uploadedImageUrl = plantImageFile ? await uploadStoredImage(plantImageFile, 'plant', savedPlantId) : newPlant.imageUrl;
       setPlantSubmitStatus('Saving plant...');
 
       const savedPlant = {
         ...newPlant,
         purchasePrice: purchasePriceValidation.value,
-        id: newPlant.id || makeId('plant'),
+        id: savedPlantId,
         createdAt: newPlant.createdAt || new Date().toISOString(),
         imageUrl: uploadedImageUrl,
         image: getPlantImage(newPlant.name, newPlant.type),
@@ -5713,7 +5724,7 @@ function App() {
           <Garden key={JSON.stringify(gardenFilter)} beds={gardenBeds} onChange={setGardenBeds}
             initialFilter={gardenFilter} onDirtyChange={setGardenFormDirty} />
         ) : appView === 'plant-spaces' ? (
-          <PlantSpaces
+          <SectionErrorBoundary section="Plant Spaces"><PlantSpaces
             spaces={plantSpaces}
             plants={plants}
             reminders={reminders}
@@ -5724,7 +5735,7 @@ function App() {
             onPlantsChange={(nextPlants) => savePlants(nextPlants)}
             onOpenPlant={openPlantDetails}
             onFocusHandled={() => setFocusedPlantSpace((current) => ({ ...current, plantId: '' }))}
-          />
+          /></SectionErrorBoundary>
         ) : appView === 'resources' ? (
           <Resources
             selectedResourceId={selectedResourceId}
@@ -5986,14 +5997,14 @@ function App() {
           </nav>
 
           <section className="settings-card settings-cloud-card" id="settings-cloud" aria-labelledby="cloud-sync-heading">
-            <h3 id="cloud-sync-heading">Data &amp; Sync</h3>
+            <h3 id="cloud-sync-heading">Account &amp; Live Sync</h3>
             <div className={`sync-status-pill sync-status-${syncStatus.state}`} role="status" aria-live="polite">
               <strong>{syncStatusLabels[syncStatus.state] || 'Saved on this device'}</strong>
               {syncStatus.pendingChanges > 0 && <span>{syncStatus.pendingChanges} pending</span>}
             </div>
-            <p className="settings-card-intro">Plants are stored in this browser. Live automatic cross-device sync is not connected yet.</p>
+            <p className="settings-card-intro">Changes save on this device first, then synchronize automatically whenever a connection is available.</p>
             <dl className="backup-meta-grid sync-foundation-grid">
-              <div><dt>Current storage mode</dt><dd>Browser local storage</dd></div>
+              <div><dt>Account</dt><dd>{account?.email || 'Local compatibility mode'}</dd></div>
               <div><dt>Device name</dt><dd>
                 <input aria-label="Device name" value={deviceIdentity.name}
                   onChange={(event) => setDeviceIdentityState((current) => ({ ...current, name: event.target.value }))}
@@ -6005,12 +6016,33 @@ function App() {
                   }} />
               </dd></div>
               <div><dt>Pending local changes</dt><dd>{syncStatus.pendingChanges}</dd></div>
-              <div><dt>Detected conflicts</dt><dd>{createConflictStore().getAll().length}</dd></div>
+              <div><dt>Detected conflicts</dt><dd>{syncStatus.conflicts || createConflictStore().getAll().length}</dd></div>
+              <div><dt>Pending photos</dt><dd>{syncStatus.pendingImages || 0}</dd></div>
+              <div><dt>Permanent failures</dt><dd>{syncStatus.permanentFailures || 0}</dd></div>
               <div><dt>Last successful sync</dt><dd>{syncStatus.lastSuccessfulSyncAt ? new Date(syncStatus.lastSuccessfulSyncAt).toLocaleString() : 'Not connected'}</dd></div>
               <div><dt>Device identity</dt><dd><details><summary>Show ID</summary><code>{deviceIdentity.id.slice(0, 8)}…</code></details></dd></div>
+              {syncStatus.userId && <div><dt>Account ID</dt><dd><code>{syncStatus.userId.slice(0, 8)}…</code></dd></div>}
+              <div><dt>Realtime</dt><dd>{syncStatus.realtimeState || 'Not connected'}</dd></div>
             </dl>
-            <h4>Manual Cloud Sync</h4>
-            <p className="settings-card-intro">These existing controls save and restore a manual cloud backup; they are not live synchronization.</p>
+            <div className="cloud-sync-actions">
+              <button type="button" onClick={() => window.dispatchEvent(new Event('focus'))}>Sync now</button>
+              {onSignOut && <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>}
+              {onRemoveOfflineData && <button type="button" className="secondary-button" onClick={onRemoveOfflineData}>Remove offline data</button>}
+            </div>
+            {passkeySettings}
+            {migrationReport && <details className="sync-diagnostics"><summary>Migration and reconciliation report</summary>
+              <dl className="backup-meta-grid">
+                <div><dt>Status</dt><dd>{migrationReport.status}</dd></div>
+                <div><dt>Local records</dt><dd>{Object.values(migrationReport.localCounts || {}).reduce((sum, value) => sum + value, 0)}</dd></div>
+                <div><dt>Cloud records</dt><dd>{migrationReport.cloudCount || 0}</dd></div>
+                <div><dt>Matching IDs</dt><dd>{migrationReport.potentialMatches || 0}</dd></div>
+                <div><dt>Legacy images</dt><dd>{migrationReport.localImageCount || 0}</dd></div>
+                <div><dt>Estimated image bytes</dt><dd>{(migrationReport.estimatedImageBytes || 0).toLocaleString()}</dd></div>
+                <div><dt>Pending records</dt><dd>{migrationReport.pendingMutations || 0}</dd></div>
+                <div><dt>Orphaned records</dt><dd>{migrationReport.orphaned || 0}</dd></div>
+              </dl></details>}
+            <h4>Legacy emergency cloud backup</h4>
+            <p className="settings-card-intro">Live Sync is the normal workflow. These comparison-first backup controls remain temporarily for recovery.</p>
             <dl className="backup-meta-grid">
               <div><dt>Supabase</dt><dd>{isSupabaseConfigured ? 'Configured' : 'Not configured'}</dd></div>
               <div><dt>Sync status</dt><dd>{cloudBusy ? 'Working...' : 'Ready'}</dd></div>

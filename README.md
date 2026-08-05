@@ -1,6 +1,24 @@
 # Plant Tracker
 
-## v0.26.0 — Connected Collection Foundation
+## v0.27.0 — Connected Collection: Live Sync
+
+Plant Tracker now has an authenticated, local-first connection path for one collection across devices. The browser applies edits immediately, retains a durable outbox, retries after reconnect/focus and once per minute while open, reconciles record-level changes, and listens for user-scoped Supabase Realtime events. Revision checks and idempotent mutation IDs prevent stale or repeated writes from silently replacing newer data.
+
+Sync-critical state is stored in user-scoped IndexedDB, including all persisted collection entities, conflicts, migration reports, pending image blobs, and upload retries. Three-way merging preserves independent field edits and stable-ID history additions; true same-field collisions open the mobile-ready Conflict Review interface. Photos use private user-scoped Storage paths and signed URLs.
+
+On first sign-in, the app creates a browser safety snapshot, compares stable plant IDs, queues local-only records, downloads cloud-only records, and leaves true conflicts in the diagnostic conflict store. Manual cloud backup remains available as a clearly labeled emergency recovery tool; JSON/CSV export and validated restore remain independent safeguards.
+
+### Enable Live Sync
+
+1. Create a Supabase project and run the SQL files in `supabase/migrations` in filename order.
+2. Copy `.env.example` to `.env.local` and supply the project URL and publishable/legacy anon key. Never use a service-role key in the browser.
+3. Add the deployed app URL and local development URL to Supabase Auth redirect URLs; configure production SMTP for reliable confirmation and reset mail.
+4. Enable Realtime for `public.sync_records` if the migration did not add it automatically.
+5. Start the app and create or sign in to an account. Existing local records are not removed during migration.
+
+See [Live Sync architecture](docs/live-sync-architecture.md), [Supabase setup](docs/supabase-setup.md), and [manual QA](docs/live-sync-manual-qa.md).
+
+## Previous v0.26.0 — Connected Collection Foundation
 
 Release F adds a sync-ready data boundary while keeping localStorage as the production plant store. Plant reads and writes now pass through a local repository that preserves the compatible `plant-inventory-plants` key, migrates legacy records with stable IDs and versioned sync metadata, records local work in a persistent collapsing outbox, and represents deletion with tombstones.
 

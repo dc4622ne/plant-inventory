@@ -1,8 +1,8 @@
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+import { enqueueImageUpload } from './services/imageSyncService.js';
 
 const MAX_IMAGE_DIMENSION = 1600;
 const RESIZE_THRESHOLD = 1_500_000;
-const plantImageBucket = 'plant-images';
 
 export const acceptedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 export const imageAcceptAttribute = `${acceptedImageTypes.join(',')},.jpg,.jpeg,.png,.webp,.heic,.heif`;
@@ -78,37 +78,11 @@ export async function prepareImageForStorage(file) {
   }
 }
 
-function imageExtension(contentType) {
-  if (contentType === 'image/png') return 'png';
-  if (contentType === 'image/webp') return 'webp';
-  if (contentType === 'image/heic') return 'heic';
-  if (contentType === 'image/heif') return 'heif';
-  return 'jpg';
-}
-
-function imageStoragePath(folderName, contentType) {
-  const extension = imageExtension(contentType);
-  const uniqueId = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${folderName}/${Date.now()}-${uniqueId}.${extension}`;
-}
-
-export async function uploadStoredImage(file, folderName = 'plants') {
+export async function uploadStoredImage(file, entityType = 'unassigned', entityId = '') {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured. Remove the photo or add Supabase Storage settings before saving with an uploaded photo.');
   }
 
-  const { file: preparedFile, contentType } = await prepareImageForStorage(file);
-  const storagePath = imageStoragePath(folderName, contentType);
-  const { error } = await supabase.storage
-    .from(plantImageBucket)
-    .upload(storagePath, preparedFile, {
-      cacheControl: '3600',
-      contentType,
-      upsert: false,
-    });
-
-  if (error) throw error;
-
-  const { data } = supabase.storage.from(plantImageBucket).getPublicUrl(storagePath);
-  return data.publicUrl || storagePath;
+  const { file: preparedFile } = await prepareImageForStorage(file);
+  return enqueueImageUpload(preparedFile, { folder: entityId || entityType, entityType, entityId, filename: file.name });
 }

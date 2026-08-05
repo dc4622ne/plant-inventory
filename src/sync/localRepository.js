@@ -15,8 +15,13 @@ export function createLocalPlantRepository({ storage = globalThis.localStorage, 
     try { const value = JSON.parse(storage.getItem(plantsStorageKey) || '[]'); return Array.isArray(value) ? value : []; }
     catch { return []; }
   };
-  const write = (records) => storage.setItem(plantsStorageKey, JSON.stringify(records));
-  const refreshStatus = () => status.set({ state: queue.pending().length ? 'pending' : 'local-only', pendingChanges: queue.pending().length });
+  const write = (records) => {
+    storage.setItem(plantsStorageKey, JSON.stringify(records));
+    globalThis.dispatchEvent?.(new Event('plant-collection-change'));
+  };
+  const refreshStatus = () => globalThis.__plantIndexedSyncActive
+    ? null
+    : status.set({ state: queue.pending().length ? 'pending' : 'local-only', pendingChanges: queue.pending().length });
   const getAll = ({ includeDeleted = false } = {}) => {
     const records = read();
     const migrated = records.map((record) => migrateRecord(record, deviceId(), now()));
@@ -31,7 +36,7 @@ export function createLocalPlantRepository({ storage = globalThis.localStorage, 
     const existingIndex = records.findIndex((item) => item.id === record.id);
     if (existingIndex >= 0) records[existingIndex] = record; else records.push(record);
     write(records);
-    if (queueChange) queue.enqueue({ entityId: record.id, operation: 'create', version: record.sync.version, payload: record, deviceId: deviceId(), changedAt: timestamp });
+    if (queueChange && !globalThis.__plantIndexedSyncActive) queue.enqueue({ entityId: record.id, operation: 'create', version: record.sync.version, payload: record, deviceId: deviceId(), changedAt: timestamp });
     refreshStatus(); return record;
   };
   const update = (id, updates, { queueChange = true } = {}) => {
@@ -40,7 +45,7 @@ export function createLocalPlantRepository({ storage = globalThis.localStorage, 
     if (index < 0) return null;
     const record = touchRecord(records[index], updates, deviceId(), now());
     records[index] = record; write(records);
-    if (queueChange) queue.enqueue({ entityId: id, operation: 'update', version: record.sync.version, payload: record, deviceId: deviceId(), changedAt: record.updatedAt });
+    if (queueChange && !globalThis.__plantIndexedSyncActive) queue.enqueue({ entityId: id, operation: 'update', version: record.sync.version, payload: record, deviceId: deviceId(), changedAt: record.updatedAt });
     refreshStatus(); return record;
   };
   const remove = (id, { queueChange = true } = {}) => {
@@ -49,7 +54,7 @@ export function createLocalPlantRepository({ storage = globalThis.localStorage, 
     if (index < 0) return null;
     const record = createTombstone(records[index], deviceId(), now());
     records[index] = record; write(records);
-    if (queueChange) queue.enqueue({ entityId: id, operation: 'delete', version: record.sync.version, payload: record, deviceId: deviceId(), changedAt: record.updatedAt });
+    if (queueChange && !globalThis.__plantIndexedSyncActive) queue.enqueue({ entityId: id, operation: 'delete', version: record.sync.version, payload: record, deviceId: deviceId(), changedAt: record.updatedAt });
     refreshStatus(); return record;
   };
   const upsertFromRemote = (record) => {

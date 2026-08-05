@@ -1,4 +1,4 @@
-import { storageKeys } from './backupUtils';
+import { storageKeys } from './backupUtils.js';
 
 export const plantSpacesStorageKey = storageKeys.plantSpaces;
 export const plantWallSpaceId = 'space-plant-wall';
@@ -54,20 +54,23 @@ function finitePercent(value, fallback, min = 0, max = 100) {
 }
 
 export function normalizePlantPlacement(rawPlacement = {}, index = 0) {
+  const placement = rawPlacement && typeof rawPlacement === 'object' && !Array.isArray(rawPlacement)
+    ? rawPlacement
+    : {};
   const now = new Date().toISOString();
   return {
-    ...rawPlacement,
-    id: rawPlacement.id || `placement-${rawPlacement.plantId || index}-${index}`,
-    plantId: String(rawPlacement.plantId || ''),
-    x: finitePercent(rawPlacement.x, 4 + (index % 5) * 18, 0, 96),
-    y: finitePercent(rawPlacement.y, 6 + Math.floor(index / 5) * 18, 0, 96),
-    width: finitePercent(rawPlacement.width, 16, 8, 42),
-    height: finitePercent(rawPlacement.height, 18, 8, 42),
-    zIndex: Number.isFinite(Number(rawPlacement.zIndex)) ? Number(rawPlacement.zIndex) : index + 1,
-    displayMode: normalizeDisplayMode(rawPlacement.displayMode),
-    shelf: rawPlacement.shelf || rawPlacement.zone || '',
-    createdAt: rawPlacement.createdAt || now,
-    updatedAt: rawPlacement.updatedAt || rawPlacement.createdAt || now,
+    ...placement,
+    id: placement.id || `placement-${placement.plantId || index}-${index}`,
+    plantId: String(placement.plantId || ''),
+    x: finitePercent(placement.x, 4 + (index % 5) * 18, 0, 96),
+    y: finitePercent(placement.y, 6 + Math.floor(index / 5) * 18, 0, 96),
+    width: finitePercent(placement.width, 16, 8, 42),
+    height: finitePercent(placement.height, 18, 8, 42),
+    zIndex: Number.isFinite(Number(placement.zIndex)) ? Number(placement.zIndex) : index + 1,
+    displayMode: normalizeDisplayMode(placement.displayMode),
+    shelf: placement.shelf || placement.zone || '',
+    createdAt: placement.createdAt || now,
+    updatedAt: placement.updatedAt || placement.createdAt || now,
   };
 }
 
@@ -96,12 +99,25 @@ export function normalizePlantSpace(rawSpace = {}, index = 0) {
   };
 }
 
-export function normalizePlantSpaces(rawSpaces) {
+function reportMalformedSpace(code, index) {
+  console.warn('[plant-tracker:plant-spaces]', { code, index, action: 'record_skipped' });
+}
+
+export function normalizePlantSpaces(rawSpaces, { ensureDefault = true } = {}) {
   const savedSpaces = Array.isArray(rawSpaces) ? rawSpaces : [];
-  const normalized = savedSpaces.map(normalizePlantSpace);
+  if (!Array.isArray(rawSpaces) && rawSpaces != null) reportMalformedSpace('COLLECTION_NOT_ARRAY', -1);
+  const normalized = savedSpaces.flatMap((space, index) => {
+    if (!space || typeof space !== 'object' || Array.isArray(space)) {
+      reportMalformedSpace('RECORD_NOT_OBJECT', index); return [];
+    }
+    if (!String(space.id || space.name || '').trim()) {
+      reportMalformedSpace('RECORD_MISSING_IDENTITY', index); return [];
+    }
+    return [normalizePlantSpace(space, index)];
+  });
   const hasPlantWall = normalized.some((space) => space.id === plantWallSpaceId);
 
-  return hasPlantWall
+  return !ensureDefault || hasPlantWall
     ? normalized
     : [normalizePlantSpace(defaultPlantWallSpace, 0), ...normalized];
 }
