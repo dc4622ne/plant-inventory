@@ -22,11 +22,18 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     recentAcknowledgements.set(entityKey(type, id), { mutationId, revision: Number(revision || 0), payload: applicationPayload(payload), acknowledgedAt: now() });
     while (recentAcknowledgements.size > 100) recentAcknowledgements.delete(recentAcknowledgements.keys().next().value);
   };
-  const putRemoteRecord = async (entityType, entityId, remote, fallbackRevision = 0) => {
+  const putRemoteRecord = async (entityType, entityId, remote, fallbackRevision = 0, { force = false, source = 'remote' } = {}) => {
     const payload = applicationPayload(remote); const revision = Number(remote?.sync?.version || fallbackRevision || 0);
+    const current = await store.get('records', [userId, entityType, entityId]);
+    if (!force && current && Number(current.revision || 0) > revision) return { payload: current.record, revision: Number(current.revision || 0), applied: false, ignoredReason: 'older-revision' };
+    if (!force && current && Number(current.revision || 0) === revision) {
+      if (comparable(current.record) === comparable(payload)) return { payload: current.record, revision, applied: false, ignoredReason: 'converged' };
+      return { payload: current.record, revision, applied: false, ignoredReason: 'same-revision-divergence' };
+    }
     await store.put('records', { userId, entityType, entityId, record: payload, serverRecord: payload, revision,
-      localUpdatedAt: now(), serverUpdatedAt: remote?.updatedAt || remote?.sync?.lastModifiedAt || null, deletedAt: remote?.sync?.deletedAt || null });
-    return { payload, revision };
+      localUpdatedAt: now(), serverUpdatedAt: remote?.updatedAt || remote?.sync?.lastModifiedAt || null, deletedAt: remote?.sync?.deletedAt || null,
+      lastWriteSource: source, lastWriteAt: now(), lastMutationId: remote?.__syncMutationId || null });
+    return { payload, revision, applied: true };
   };
   const notify = async () => {
     const status = await getStatus();
@@ -125,7 +132,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
       }
       if (mutation.operation === 'delete') payload = { ...payload, sync: { ...(payload.sync || {}), deletedAt: now() } };
       const acknowledged = await provider.applyChange({ ...mutation, payload, baseRevision });
-      const rebased = await putRemoteRecord(mutation.entityType, mutation.entityId, acknowledged, baseRevision + 1);
+      const rebased = await putRemoteRecord(mutation.entityType, mutation.entityId, acknowledged, baseRevision + 1, { force: true, source: 'acknowledgement' });
       rememberAcknowledgement(mutation.entityType, mutation.entityId, acknowledged?.__syncMutationId || mutation.id, rebased.revision, rebased.payload);
       await store.remove('mutations', [userId, mutation.id]);
       await store.remove('syncMetadata', [userId, `queue:${mutation.entityType}:${mutation.entityId}`]);
@@ -146,8 +153,9 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     const mutation = (await pendingMutations()).find((item) => item.entityType === entityType && item.entityId === entityId);
     const isMutationEcho = Boolean(remote.__syncMutationId && (remote.__syncMutationId === mutation?.id || remote.__syncMutationId === recent?.mutationId));
     const isConvergedEcho = Boolean(cached && Number(cached.revision) === remoteRevision && comparable(cached.record) === comparable(remotePayload));
+    if (cached && remoteRevision < Number(cached.revision || 0)) return;
     if (isMutationEcho) {
-      await putRemoteRecord(entityType, entityId, remote, remoteRevision);
+      await putRemoteRecord(entityType, entityId, remote, remoteRevision, { source: 'realtime-echo' });
       if (mutation?.id === remote.__syncMutationId) {
         await store.remove('mutations', [userId, mutation.id]);
         for (const conflict of await unresolvedConflicts()) if (conflict.mutationId === mutation.id) await store.remove('conflicts', [userId, conflict.id]);
@@ -162,7 +170,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
       await store.put('mutations', { ...mutation, payload: applicationPayload(merge.merged), baseRecord: remotePayload, baseRevision: remoteRevision, state: 'pending' });
       return;
     }
-    await putRemoteRecord(entityType, entityId, remote, remoteRevision);
+    await putRemoteRecord(entityType, entityId, remote, remoteRevision, { source: 'remote' });
   }
 
   async function hydrate() { writeEntitiesToCompatibilityStorage(await getRecords(), storage); }

@@ -86,3 +86,23 @@ test('non-user requeue loop is paused after the safe threshold', async () => {
   for (let index=0; index<7; index += 1) { await store.remove('records',['u','plant','p']); await store.remove('mutations',['u',(await store.forUser('mutations','u'))[0]?.id]); await coordinator.captureLocalChanges({source:'hydration'}); }
   const status = await coordinator.getStatus(); assert.equal(status.requeueLoops.length,1); assert.equal(status.requeueLoops[0].requeueCount,7);
 });
+
+test('older remote revisions and unrelated realtime events cannot overwrite canonical optimistic state', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage); await seedSingletonRecords(store,'u');
+  await store.put('records',{userId:'u',entityType:'plant',entityId:'p',record:{id:'p',type:'New'},serverRecord:{id:'p',type:'Old'},revision:5});
+  await store.put('mutations',{userId:'u',id:'m',deviceId:'d',entityType:'plant',entityId:'p',operation:'update',baseRevision:5,baseRecord:{id:'p',type:'Old'},payload:{id:'p',type:'New'},state:'pending',createdAt:'now'});
+  const provider = { async getRecord(){return null;}, async applyChange(){throw new Error('not used');}, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}});
+  await coordinator.ingestRemote({__syncEntityType:'plant',__syncEntityId:'p',__syncPayload:{id:'p',type:'Old'},sync:{version:4}});
+  await coordinator.ingestRemote({__syncEntityType:'journal_entry',__syncEntityId:'j',__syncPayload:{id:'j',text:'Unrelated'},sync:{version:1}});
+  assert.equal((await store.get('records',['u','plant','p'])).record.type,'New'); assert.ok(await store.get('mutations',['u','m']));
+});
+
+test('same revision divergent remote payload is diagnosed by preserving canonical state', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage); await seedSingletonRecords(store,'u');
+  await store.put('records',{userId:'u',entityType:'plant',entityId:'p',record:{id:'p',type:'Canonical'},serverRecord:{id:'p',type:'Canonical'},revision:8});
+  const provider = { async getRecord(){return null;}, async applyChange(){throw new Error('not used');}, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}});
+  await coordinator.ingestRemote({__syncEntityType:'plant',__syncEntityId:'p',__syncPayload:{id:'p',type:'Stale'},sync:{version:8}});
+  assert.equal((await store.get('records',['u','plant','p'])).record.type,'Canonical');
+});

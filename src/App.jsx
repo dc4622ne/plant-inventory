@@ -48,6 +48,7 @@ import { reminderRules } from './reminderRules';
 import { aboutGeneralItems, settingsSections } from './settingsLayout';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import { applicationEnvironment } from './config/environment.js';
+import { recordById, replaceRecordById } from './canonicalCollections.js';
 import {
   createConflictStore,
   getDeviceIdentity,
@@ -1090,7 +1091,9 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
   const [searchText, setSearchText] = useState('');
   const [areMoreFiltersVisible, setAreMoreFiltersVisible] = useState(false);
   const [newPlant, setNewPlant] = useState(emptyPlant);
-  const [selectedPlant, setSelectedPlant] = useState(null);
+  const [selectedPlantId, setSelectedPlantId] = useState('');
+  const selectedPlant = recordById(plants, selectedPlantId);
+  const setSelectedPlant = (plant) => setSelectedPlantId(plant?.id || '');
   const [isEditing, setIsEditing] = useState(false);
   const [lifecycleView, setLifecycleView] = useState('active');
   const [quarantineFilter, setQuarantineFilter] = useState('');
@@ -2186,9 +2189,6 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
     const persistedPlants = localPlantRepository.applyCollectionChanges(nextPlants);
     markLocalDataChanged(reason);
     setPlants(persistedPlants);
-    if (selectedPlant) {
-      setSelectedPlant(persistedPlants.find((plant) => plant.id === selectedPlant.id) || selectedPlant);
-    }
     return persistedPlants;
   }
 
@@ -2447,6 +2447,7 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
     localStorage.setItem(plantSpacesStorageKey, JSON.stringify(nextSpaces));
     markLocalDataChanged('plant-spaces');
     setPlantSpaces(nextSpaces);
+    window.dispatchEvent(new CustomEvent('plant-all-collections-change', { detail: { source: 'user', reason: 'plant-spaces', queueMutation: true } }));
   }
 
   async function submitWishlistItem(event) {
@@ -3246,7 +3247,9 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
       const uploadedImageUrl = plantImageFile ? await uploadStoredImage(plantImageFile, 'plant', savedPlantId) : newPlant.imageUrl;
       setPlantSubmitStatus('Saving plant...');
 
+      const latestPlant = isEditing ? recordById(plants, selectedPlantId) : null;
       const savedPlant = {
+        ...(latestPlant || {}),
         ...newPlant,
         purchasePrice: purchasePriceValidation.value,
         id: savedPlantId,
@@ -3254,10 +3257,10 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
         imageUrl: uploadedImageUrl,
         image: getPlantImage(newPlant.name, newPlant.type),
       };
-      if (isEditing && selectedPlant.lifecycleStage !== savedPlant.lifecycleStage) {
-        savedPlant.lifecycleHistory = [...(selectedPlant.lifecycleHistory || []), {
+      if (isEditing && latestPlant.lifecycleStage !== savedPlant.lifecycleStage) {
+        savedPlant.lifecycleHistory = [...(latestPlant.lifecycleHistory || []), {
           id: makeId('lifecycle-transition'),
-          previousStage: selectedPlant.lifecycleStage || '',
+          previousStage: latestPlant.lifecycleStage || '',
           newStage: savedPlant.lifecycleStage,
           transitionDate: todayDate(),
           note: 'Stage updated from Edit Plant',
@@ -3268,21 +3271,20 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
       // Keep older text values unless the user chooses a replacement date.
       if (isEditing) {
         ['lastWatered', 'repotDate', 'acquiredDate', 'pestQuarantineStartDate', 'pestQuarantineEndDate', 'doNotTouchUntil'].forEach((fieldName) => {
-          const previousValue = selectedPlant[fieldName];
+          const previousValue = latestPlant[fieldName];
           const isLegacyText = previousValue && !dateInputValue(previousValue);
 
           if (!newPlant[fieldName] && isLegacyText) savedPlant[fieldName] = previousValue;
         });
       }
       const updatedPlants = isEditing
-        ? plants.map((plant) => plant.id === selectedPlant.id ? savedPlant : plant)
+        ? replaceRecordById(plants, savedPlant)
         : [...plants, savedPlant];
 
       const persistedPlants = savePlants(updatedPlants, 'plants');
       const persistedPlant = persistedPlants.find((plant) => plant.id === savedPlant.id) || savedPlant;
-      createAutomaticRemindersForPlant(persistedPlant, isEditing ? selectedPlant : null);
+      createAutomaticRemindersForPlant(persistedPlant, isEditing ? latestPlant : null);
 
-      if (isEditing) setSelectedPlant(persistedPlant);
       setNewPlant(emptyPlant);
       setPlantFormBaseline(JSON.stringify(emptyPlant));
       clearPlantImageSelection();

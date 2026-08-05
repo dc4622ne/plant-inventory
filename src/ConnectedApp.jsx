@@ -161,11 +161,12 @@ export default function ConnectedApp() {
       setMigrationReport(await prepareInitialMigration({ userId, store, provider })); await active.hydrate(); await migrateLegacyImages(userId); if (!stopped) setReady(true); await sync(); })();
     const unsubscribeStatus = active.subscribe(setSyncStatus);
     const onSync = (event) => { if (event?.detail?.queueMutation === false) return; clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
+    const onCollectionChange = async (event) => { if (event?.detail?.queueMutation === false || stopped) return; await active.captureLocalChanges({ source: 'user', reason: event?.detail?.reason || 'application-write' }); onSync(event); };
     const onVisibility = () => { if (!document.hidden) onSync(); };
-    window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onSync); window.addEventListener('plant-all-collections-change', onSync);
+    window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onCollectionChange); window.addEventListener('plant-all-collections-change', onCollectionChange);
     const scanner = window.setInterval(() => { if (!document.hidden) active.captureLocalChanges(); }, 5_000); const timer = window.setInterval(sync, 60_000);
     return () => { stopped = true; if (runtimeRef.current === runtime) runtimeRef.current = null; globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
-      window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-sync-now', onSync); window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('plant-collection-change', onSync); window.removeEventListener('plant-all-collections-change', onSync); };
+      window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-sync-now', onSync); window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('plant-collection-change', onCollectionChange); window.removeEventListener('plant-all-collections-change', onCollectionChange); };
   }, [userId, service, runtimeGeneration, realtimeEnabled]);
   const syncNow = useCallback(async () => {
     if (runtimeRef.current) return runtimeRef.current.sync();

@@ -25,3 +25,17 @@ test('auth layout stays a single panel with recovery, signup, passkey, and colla
   assert.equal((source.match(/className="auth-card"/g) || []).length, 2);
   for (const text of ['Create an account', 'Forgot password?', 'Sign in with Face ID or passkey', '<details className="auth-diagnostic">']) assert.ok(source.includes(text));
 });
+
+test('plant Details selection derives from the canonical collection by stable ID', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const \[selectedPlantId, setSelectedPlantId\]/);
+  assert.match(source, /const selectedPlant = recordById\(plants, selectedPlantId\)/);
+  assert.doesNotMatch(source, /useState\(null\).*selectedPlant/);
+  assert.match(source, /replaceRecordById\(plants, savedPlant\)/);
+});
+
+test('Plant Space writes update canonical state and request durable queue capture immediately', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8');
+  const saveSpace = source.slice(source.indexOf('function savePlantSpaces'), source.indexOf('async function submitWishlistItem'));
+  assert.match(saveSpace, /setPlantSpaces\(nextSpaces\)/); assert.match(saveSpace, /queueMutation: true/);
+});
