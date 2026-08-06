@@ -22,7 +22,7 @@ test('every main destination remains owned by the existing application navigator
 
 test('auth layout stays a single panel with recovery, signup, passkey, and collapsed diagnostics', () => {
   const source = readFileSync(new URL('./ConnectedApp.jsx', import.meta.url), 'utf8');
-  assert.equal((source.match(/className="auth-card"/g) || []).length, 2);
+  assert.equal((source.match(/className="auth-card"/g) || []).length, 3);
   for (const text of ['Create an account', 'Forgot password?', 'Sign in with Face ID or passkey', '<details className="auth-diagnostic">']) assert.ok(source.includes(text));
 });
 

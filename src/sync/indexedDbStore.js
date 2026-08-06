@@ -51,5 +51,5 @@ export function createIndexedDbStore({ indexedDB = globalThis.indexedDB } = {}) 
       await remove(store, key);
     }
   };
-  return { get, put, remove, getAll, forUser, removeUser, close: () => { database?.close(); database = null; } };
+  return { open: db, get, put, remove, getAll, forUser, removeUser, close: () => { database?.close(); database = null; } };
 }

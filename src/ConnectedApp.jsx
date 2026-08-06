@@ -14,12 +14,14 @@ import { prepareInitialMigration, verifyAndCompleteMigration } from './services/
 import { clearUserOwnedCompatibilityStorage } from './sync/entityRegistry.js';
 import { createIndexedDbStore } from './sync/indexedDbStore.js';
 import { createLiveSyncCoordinator } from './sync/liveSyncCoordinator.js';
+import { createStartupRun, openLocalCollection, withStartupTimeout } from './startupPipeline.js';
 
-function StagingDiagnostic({ sessionState }) {
+function StagingDiagnostic({ sessionState, startupStage = '', elapsedMs = 0 }) {
   if (!import.meta.env.DEV) return null;
   return <details className="auth-diagnostic"><summary>Staging diagnostics</summary><dl>
     <div><dt>Supabase configured</dt><dd>{supabaseConfiguration.configured ? 'Yes' : 'No'}</dd></div>
     <div><dt>Session state</dt><dd>{sessionState}</dd></div>
+    {startupStage && <><div><dt>Startup stage</dt><dd>{startupStage}</dd></div><div><dt>Elapsed</dt><dd>{elapsedMs}ms</dd></div></>}
     <div><dt>Environment</dt><dd>Development</dd></div>
     <div><dt>Project host</dt><dd>{supabaseConfiguration.projectHost || 'Unavailable'}</dd></div>
   </dl></details>;
@@ -107,6 +109,16 @@ function ConflictReview({ coordinator, status }) {
     </section></div>}</>;
 }
 
+function StartupRecovery({ startup, elapsedMs, onRetry, onContinue, onSignOut }) {
+  const timedOut = startup.state === 'error' || elapsedMs >= 10_000;
+  return <main className="auth-shell"><section className="auth-card" aria-labelledby="startup-heading">
+    <h1 id="startup-heading">Restoring your secure collection…</h1><p role="status">Stage: {startup.stage} · {(elapsedMs / 1000).toFixed(1)}s</p>
+    {startup.warning && <p className="form-error-message" role="alert">{startup.warning}</p>}
+    {timedOut && <div className="form-actions"><button type="button" onClick={onRetry}>Retry startup</button>{startup.localSafe && <button type="button" className="secondary-button" onClick={onContinue}>Continue with local cached data</button>}<button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button></div>}
+    <details className="auth-diagnostic" open={timedOut}><summary>Open diagnostics</summary><dl><div><dt>Current stage</dt><dd>{startup.stage}</dd></div><div><dt>State</dt><dd>{startup.state}</dd></div><div><dt>Elapsed</dt><dd>{elapsedMs}ms</dd></div></dl></details>
+  </section></main>;
+}
+
 export default function ConnectedApp() {
   const service = useMemo(() => createAuthService({ client: supabase }), []);
   const [session, setSession] = useState(null); const [restoring, setRestoring] = useState(supabaseConfiguration.configured); const [ready, setReady] = useState(false);
@@ -114,26 +126,31 @@ export default function ConnectedApp() {
   const [coordinator, setCoordinator] = useState(null); const [syncStatus, setSyncStatus] = useState(null);
   const [removeOfflineData, setRemoveOfflineData] = useState(null);
   const [migrationReport, setMigrationReport] = useState(null);
-  const [runtimeGeneration, setRuntimeGeneration] = useState(0);
+  const [runtimeGeneration, setRuntimeGeneration] = useState(0); const [startup, setStartup] = useState({ stage: 'session-restoration', state: 'pending', warning: '', localSafe: false }); const [startupElapsed, setStartupElapsed] = useState(0);
   const runtimeRef = useRef(null);
+  const startupRunRef = useRef(0);
   const sessionRef = useRef(session); sessionRef.current = session;
   const userId = session?.user?.id || '';
   const realtimeEnabled = featureFlags.realtimeEnabled || applicationEnvironment.isStaging;
   useEffect(() => { if (!supabase) { setRestoring(false); return undefined; }
     let active = true;
-    const timeout = window.setTimeout(() => { if (active) { setAuthError('Session restoration timed out. Please sign in again.'); setRestoring(false); } }, sessionRestoreTimeoutMs);
-    supabase.auth.getSession().then(({ data, error }) => { if (!active) return; clearTimeout(timeout); setSession(data?.session || null); setAuthError(error?.message || ''); setRestoring(false); })
-      .catch(() => { if (active) { clearTimeout(timeout); setAuthError('We could not restore your session. Please sign in again.'); setRestoring(false); } });
-    const subscription = service.onAuthStateChange((event, nextSession) => { if (!active) return; setSession(nextSession); setAuthError(''); setRestoring(false);
+    const startedAt = Date.now(); const progress = window.setInterval(() => { if (active) setStartupElapsed(Date.now() - startedAt); }, 250);
+    const timeout = window.setTimeout(() => { if (active) { clearInterval(progress); setAuthError('Session restoration timed out. Please sign in again.'); setRestoring(false); } }, sessionRestoreTimeoutMs);
+    supabase.auth.getSession().then(({ data, error }) => { if (!active) return; clearTimeout(timeout); clearInterval(progress); setSession(data?.session || null); setAuthError(error?.message || ''); setRestoring(false); })
+      .catch(() => { if (active) { clearTimeout(timeout); clearInterval(progress); setAuthError('We could not restore your session. Please sign in again.'); setRestoring(false); } });
+    const subscription = service.onAuthStateChange((event, nextSession) => { if (!active) return; clearInterval(progress); setSession(nextSession); setAuthError(''); setRestoring(false);
       if (event === 'TOKEN_REFRESHED' && nextSession?.access_token) runtimeRef.current?.reconnect?.(nextSession.access_token, 'token-refresh');
       if (!nextSession) { runtimeRef.current?.stop?.(); runtimeRef.current = null; clearUserPhotoCache(); setReady(false); clearUserOwnedCompatibilityStorage(); } });
-    return () => { active = false; clearTimeout(timeout); subscription.unsubscribe(); }; }, [service]);
+    return () => { active = false; clearTimeout(timeout); clearInterval(progress); subscription.unsubscribe(); }; }, [service]);
   useEffect(() => {
     if (!userId) { setReady(false); return undefined; }
+    const runId = ++startupRunRef.current; const startedAt = Date.now(); const isCurrent = () => startupRunRef.current === runId;
+    setReady(false); setStartupElapsed(0); setStartup({ stage: 'indexeddb-open', state: 'pending', warning: '', localSafe: false });
     globalThis.__plantIndexedSyncActive = true;
     let stopped = false; let debounceTimer = 0; let reconnectTimer = 0; let unsubscribeRealtime = null; let reconnectAttempts = 0; let intentionalClose = false;
     const store = createIndexedDbStore(); const provider = createLiveSyncProvider({ client: supabase, userId });
     const active = createLiveSyncCoordinator({ userId, store, provider }); setCoordinator(active);
+    const report = (stage, changes = {}) => { if (!isCurrent()) return; const elapsed = Date.now() - startedAt; setStartup((current) => ({ ...current, stage, ...changes })); void active.setDiagnostics({ startupStage: stage, startupState: changes.state || 'pending', startupElapsedMs: elapsed, startupWarning: changes.warning || '' }); };
     const updateRealtime = (state, error, extra = {}) => active.setRealtimeState(state, { ...safeRealtimeError(error), ...extra, online: navigator.onLine !== false, coordinatorRunning: !stopped });
     const connectRealtime = async (token, reason = 'startup') => {
       if (stopped) return;
@@ -149,8 +166,8 @@ export default function ConnectedApp() {
     };
     const sync = async () => { if (stopped) return; await active.setDiagnostics({ syncStage: 'validate-session' });
       const { data, error } = await supabase.auth.getSession(); if (error || !data.session?.access_token) { await active.setDiagnostics({ state: 'error', syncStage: 'validate-session', ...safeRealtimeError(error || new Error('SESSION_MISSING')) }); return; }
-      await connectRealtime(data.session.access_token, 'sync-now'); await active.setDiagnostics({ syncStage: 'records' }); await active.sync();
-      await active.setDiagnostics({ syncStage: 'photos' }); await processImageUploads(userId); setMigrationReport(await verifyAndCompleteMigration({ userId, store })); await active.setDiagnostics({ syncStage: 'complete' }); };
+      void connectRealtime(data.session.access_token, 'sync-now'); await active.setDiagnostics({ syncStage: 'records' }); await active.sync();
+      await active.setDiagnostics({ syncStage: 'photos' }); void processImageUploads(userId).then(() => verifyAndCompleteMigration({ userId, store })).then(setMigrationReport).catch((error) => active.setDiagnostics({ imageQueueWarning: String(error?.message || error) })); await active.setDiagnostics({ syncStage: 'complete' }); };
     const runtime = { reconnect: connectRealtime, stop: () => { stopped = true; clearTimeout(reconnectTimer); unsubscribeRealtime?.(); }, sync };
     runtimeRef.current = runtime;
     const restoredToken = sessionRef.current?.access_token || '';
@@ -162,15 +179,34 @@ export default function ConnectedApp() {
       if (!window.confirm(`Remove this account’s offline data from this device? Hosted data will not be deleted.${warning}`)) return;
       await store.removeUser(userId); clearUserOwnedCompatibilityStorage(); await service.signOut();
     });
-    (async () => { if (restoredToken) await connectRealtime(restoredToken, 'session-restored');
-      setMigrationReport(await prepareInitialMigration({ userId, store, provider })); await active.hydrate(); await migrateLegacyImages(userId); if (!stopped) setReady(true); await sync(); })();
+    const startupClock = window.setInterval(() => { if (isCurrent()) setStartupElapsed(Date.now() - startedAt); }, 250);
+    const startupRun = createStartupRun(isCurrent, () => setReady(true));
+    (async () => {
+      try {
+        await openLocalCollection({ store, coordinator: active, report, run: startupRun });
+        report('application-ready', { state: 'ready', localSafe: true });
+      } catch (error) {
+        if (isCurrent()) setStartup({ stage: error?.stage || 'local-hydration', state: 'error', warning: error?.message || 'Local startup failed.', localSafe: Boolean(error?.localSafe) });
+        return;
+      }
+      // Everything below is bounded background work and cannot hold the local UI closed.
+      if (restoredToken) void withStartupTimeout(connectRealtime(restoredToken, 'session-restored'), 5_000, 'realtime-startup').catch((error) => report('realtime-retrying', { warning: error.message, localSafe: true }));
+      try { report('migration-v5-repair', { localSafe: true }); setMigrationReport(await withStartupTimeout(prepareInitialMigration({ userId, store, provider }), 12_000, 'migration-v5-repair')); }
+      catch (error) { report('migration-warning', { state: 'warning', warning: error.message, localSafe: true }); }
+      if (stopped || !isCurrent()) return;
+      try { report('compatibility-serialization', { localSafe: true }); await withStartupTimeout(active.hydrate(), 8_000, 'compatibility-serialization'); }
+      catch (error) { report('serialization-warning', { state: 'warning', warning: error.message, localSafe: true }); }
+      report('initial-direct-reconciliation', { localSafe: true });
+      void withStartupTimeout(sync(), 15_000, 'initial-direct-reconciliation').catch((error) => report('offline-local-first', { state: 'warning', warning: error.message, localSafe: true }));
+      report('image-queue-background', { localSafe: true }); void withStartupTimeout(migrateLegacyImages(userId), 10_000, 'image-queue-initialization').catch((error) => active.setDiagnostics({ imageQueueWarning: error.message }));
+    })().catch((error) => { if (isCurrent()) setStartup({ stage: 'startup-runtime', state: 'error', warning: String(error?.message || error), localSafe: startupRun.ready }); });
     const unsubscribeStatus = active.subscribe(setSyncStatus);
     const onSync = (event) => { if (event?.detail?.queueMutation === false) return; clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
     const onCollectionChange = async (event) => { if (event?.detail?.queueMutation === false || stopped) return; await active.captureLocalChanges({ source: 'user', reason: event?.detail?.reason || 'application-write' }); onSync(event); };
     const onVisibility = () => { if (!document.hidden) onSync(); };
     window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onCollectionChange); window.addEventListener('plant-all-collections-change', onCollectionChange);
     const scanner = window.setInterval(() => { if (!document.hidden) active.captureLocalChanges(); }, 5_000); const timer = window.setInterval(sync, 60_000);
-    return () => { stopped = true; if (runtimeRef.current === runtime) runtimeRef.current = null; globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
+    return () => { stopped = true; const wasCurrent = isCurrent(); if (wasCurrent) startupRunRef.current += 1; if (runtimeRef.current === runtime) runtimeRef.current = null; if (wasCurrent) globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearInterval(startupClock); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
       window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-sync-now', onSync); window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('plant-collection-change', onCollectionChange); window.removeEventListener('plant-all-collections-change', onCollectionChange); };
   }, [userId, service, runtimeGeneration, realtimeEnabled]);
   const syncNow = useCallback(async () => {
@@ -181,7 +217,8 @@ export default function ConnectedApp() {
   }, []);
   const authView = resolveAuthView({ configured: supabaseConfiguration.configured, restoring, session, error: authError });
   if (authView === 'configuration') return <><StagingBadge /><ConfigurationScreen /></>;
-  if (authView === 'loading' || (authView === 'application' && !ready)) return <><StagingBadge /><main className="auth-shell"><p role="status">Restoring your secure collection…</p><StagingDiagnostic sessionState="Loading" /></main></>;
+  if (authView === 'loading') return <><StagingBadge /><main className="auth-shell"><p role="status">Restoring your secure collection…</p><StagingDiagnostic sessionState="Loading" startupStage="session-restoration" elapsedMs={startupElapsed} /></main></>;
+  if (authView === 'application' && !ready) return <><StagingBadge /><StartupRecovery startup={startup} elapsedMs={startupElapsed} onRetry={() => setRuntimeGeneration((value) => value + 1)} onContinue={() => startup.localSafe && setReady(true)} onSignOut={() => service.signOut()} /></>;
   if (authView === 'authentication') return <><StagingBadge /><AuthScreen service={service} initialError={authError} /></>;
   return <><StagingBadge /><App account={session?.user || null} onSignOut={() => service.signOut()} onRemoveOfflineData={removeOfflineData} onSyncNow={syncNow} syncStatusOverride={syncStatus} migrationReport={migrationReport} passkeySettings={<PasskeySettings service={service} />} /><ConflictReview coordinator={coordinator} status={syncStatus} /></>;
 }

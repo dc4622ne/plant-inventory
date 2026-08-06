@@ -118,6 +118,15 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     await notify();
   }
 
+  async function recoverProcessingLeases() {
+    let recovered = 0;
+    for (const mutation of await store.forUser('mutations', userId)) if (mutation.state === 'processing') {
+      await store.put('mutations', { ...mutation, state: 'pending', leaseUntil: null, nextAttemptAt: null, queueSource: 'startup-repair', queueReason: 'abandoned-processing-lease' });
+      recovered += 1;
+    }
+    return recovered;
+  }
+
   async function addConflicts(mutation, remote, fields) {
     const records = await getRecords();
     const parentId = mutation.payload?.plantId || mutation.payload?.parentPlantId || (mutation.entityType === 'plant' ? mutation.entityId : '');
@@ -238,7 +247,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
     if (!remaining) await store.put('conflicts', { ...conflict, status: 'resolved', resolutionChoice: choice, resolvedAt: now() });
     return notify();
   }
-  return { captureLocalChanges, sync, ingestRemote, hydrate, getStatus, getConflicts: unresolvedConflicts, resolveConflict,
+  return { userId, captureLocalChanges, recoverProcessingLeases, sync, ingestRemote, hydrate, getStatus, getConflicts: unresolvedConflicts, resolveConflict,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     setRealtimeState: (state, details = {}) => setStatus({ realtimeState: state, ...details }), setDiagnostics: (details) => setStatus(details) };
 }

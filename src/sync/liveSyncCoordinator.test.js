@@ -38,6 +38,15 @@ test('expired processing leases recover while active leases remain protected', a
   assert.equal(uploads,1); assert.ok(await store.get('mutations',['user-a','active']));
 });
 
+test('startup repairs every processing lease abandoned by a prior app session', async () => {
+  const store = memoryStore(); const storage = memoryStorage();
+  await store.put('mutations',{userId:'u',id:'stale',deviceId:'old',entityType:'plant_space',entityId:'space',operation:'update',payload:{id:'space'},state:'processing',leaseUntil:'2999-01-01T00:00:00.000Z'});
+  const provider = { async getRecord(){return null;}, async applyChange(){throw new Error('unused');}, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'new'}});
+  assert.equal(await coordinator.recoverProcessingLeases(),1);
+  const repaired = await store.get('mutations',['u','stale']); assert.deepEqual({state:repaired.state,leaseUntil:repaired.leaseUntil},{state:'pending',leaseUntil:null});
+});
+
 test('migrated plant edit uses hosted revision, strips legacy sync metadata, and rebases', async () => {
   const store = memoryStore(); const storage = memoryStorage(); const plantDomain = synchronizedCollections.find((item) => item.entityType === 'plant');
   storage.setItem(plantDomain.storageKey, JSON.stringify([{ id: 'legacy', name: 'Old', type: 'Houseplant', sync: { version: 10144, baseVersion: 55 } }]));
@@ -77,6 +86,20 @@ test('same mutation realtime echo removes the mutation and never conflicts or re
   await coordinator.ingestRemote({ ...mutation.payload, __syncEntityType:'plant', __syncEntityId:'p', __syncMutationId:mutation.id, __syncPayload:mutation.payload, sync:{version:1} });
   assert.equal((await store.forUser('mutations','u')).length,0); assert.equal((await store.forUser('conflicts','u')).length,0);
   await coordinator.hydrate(); await coordinator.captureLocalChanges({source:'scan'}); { const queued = await store.forUser('mutations','u'); assert.equal(queued.length,0,JSON.stringify(queued)); }
+});
+
+test('successful plant_space acknowledgement compacts a regenerated processing entry to zero queued mutations', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage, { plant_space: [{ id:'space-a', name:'Shelf', placements:{} }] }); await seedSingletonRecords(store,'u');
+  let releaseUpload; const uploaded = new Promise((resolve) => { releaseUpload = resolve; });
+  const provider = { async getRecord(){return null;}, async applyChange(change){ await uploaded; return {...change.payload,__syncEntityType:'plant_space',__syncEntityId:change.entityId,__syncMutationId:change.id,__syncPayload:change.payload,sync:{version:1}}; }, async getChangesSince(){return [];} };
+  const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}});
+  await coordinator.captureLocalChanges({source:'user'}); const syncing = coordinator.sync();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const original = (await store.forUser('mutations','u'))[0];
+  await store.put('mutations', {...original,id:'regenerated',state:'processing',leaseUntil:'2999-01-01T00:00:00.000Z'});
+  releaseUpload(); await syncing;
+  assert.deepEqual(await store.forUser('mutations','u'), []);
+  assert.equal((await coordinator.getStatus()).pendingChanges, 0);
 });
 
 test('non-user requeue loop is paused after the safe threshold', async () => {

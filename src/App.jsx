@@ -6039,6 +6039,8 @@ function App({ account = null, onSignOut = null, onRemoveOfflineData = null, onS
                 <div><dt>Online</dt><dd>{syncStatus.online === false ? 'No' : 'Yes'}</dd></div>
                 <div><dt>Coordinator</dt><dd>{syncStatus.coordinatorRunning ? 'Running' : 'Stopped'}</dd></div>
                 <div><dt>Sync stage</dt><dd>{syncStatus.syncStage || 'idle'}</dd></div>
+                <div><dt>Startup stage</dt><dd>{syncStatus.startupStage || 'complete'}</dd></div>
+                <div><dt>Startup elapsed</dt><dd>{syncStatus.startupElapsedMs ? `${syncStatus.startupElapsedMs}ms` : 'Unavailable'}</dd></div>
                 {syncStatus.realtimeErrorMessage && <div><dt>Last channel error</dt><dd>{[syncStatus.realtimeErrorCode, syncStatus.realtimeErrorName, syncStatus.realtimeErrorMessage].filter(Boolean).join(' · ')}</dd></div>}
               </dl>
               <h4>Pending queue</h4>{syncStatus.queueGroups?.length ? <ul>{syncStatus.queueGroups.map((group) => <li key={`${group.entityType}:${group.state}`}><code>{group.entityType}</code> · {group.state} · {group.count} · base queue since {group.oldestAt ? new Date(group.oldestAt).toLocaleString() : 'unknown'}{group.lastErrorCode ? ` · ${group.lastErrorCode}` : ''}</li>)}</ul> : <p>No queued records.</p>}
