@@ -1,5 +1,6 @@
 import { normalizeDataError } from '../data/errors.js';
 import { applicationPayload } from '../sync/syncPayload.js';
+import { classifySyncFailure, preserveSyncError } from '../syncErrorDiagnostics.js';
 
 const rowToRecord = (row) => row ? ({
   ...row.payload,
@@ -21,34 +22,50 @@ const rowToRecord = (row) => row ? ({
 }) : null;
 
 export function createLiveSyncProvider({ client, userId }) {
-  const run = async (operation, promise) => {
-    const { data, error } = await promise;
-    if (error) throw normalizeDataError(error, operation);
-    return data;
+  const run = async (operation, providerFunction, execute, context = {}) => {
+    try {
+      const { data, error } = await execute();
+      if (error) {
+        const diagnostics = preserveSyncError(error, { ...context, repository: 'Supabase live-sync provider', providerFunction, failureOrigin: classifySyncFailure(providerFunction) });
+        throw normalizeDataError(error, operation, diagnostics);
+      }
+      return data;
+    } catch (error) {
+      if (error?.diagnostics) throw error;
+      const diagnostics = preserveSyncError(error, { ...context, repository: 'Supabase live-sync provider', providerFunction, failureOrigin: classifySyncFailure(providerFunction) });
+      throw normalizeDataError(error, operation, diagnostics);
+    }
   };
 
   return Object.freeze({
     async getRecord(entityType, entityId) {
-      const row = await run('sync.download', client.from('sync_records').select('*')
-        .eq('user_id', userId).eq('entity_type', entityType).eq('entity_id', entityId).maybeSingle());
+      const row = await run('sync.download', 'supabase.from(sync_records).maybeSingle', () => client.from('sync_records').select('*')
+        .eq('user_id', userId).eq('entity_type', entityType).eq('entity_id', entityId).maybeSingle(), { entityType, entityId });
       return rowToRecord(row);
     },
     async applyChange(change) {
-      const rows = await run('sync.upload', client.rpc('apply_sync_mutation', {
+      let payload;
+      try { payload = applicationPayload(change.payload); }
+      catch (error) {
+        const diagnostics = preserveSyncError(error, { entityType: change.entityType, entityId: change.entityId, mutationId: change.id,
+          repository: 'Supabase live-sync provider', providerFunction: 'serialization/applicationPayload', failureOrigin: 'serialization' });
+        throw normalizeDataError(error, 'sync.upload.serialize', diagnostics);
+      }
+      const rows = await run('sync.upload', 'supabase.rpc(apply_sync_mutation)', () => client.rpc('apply_sync_mutation', {
         p_mutation_id: change.id,
         p_entity_type: change.entityType,
         p_entity_id: change.entityId,
         p_expected_revision: Math.max(0, Number(change.baseRevision ?? change.payload?.sync?.baseVersion ?? 0)),
-        p_payload: applicationPayload(change.payload),
+        p_payload: payload,
         p_deleted_at: change.payload?.sync?.deletedAt || null,
         p_device_id: change.deviceId || null,
-      }));
+      }), { entityType: change.entityType, entityId: change.entityId, mutationId: change.id });
       return rowToRecord(rows?.[0]);
     },
     async getChangesSince(timestamp) {
       let query = client.from('sync_records').select('*').eq('user_id', userId).order('updated_at');
       if (timestamp) query = query.gt('updated_at', timestamp);
-      return (await run('sync.reconcile', query.limit(1000))).map(rowToRecord);
+      return (await run('sync.reconcile', 'supabase.from(sync_records).getChangesSince', () => query.limit(1000))).map(rowToRecord);
     },
     async subscribe(onChange, onStatus = () => {}, accessToken = '') {
       const attemptedAt = new Date().toISOString();

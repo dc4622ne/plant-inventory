@@ -1,14 +1,15 @@
 export class DataAccessError extends Error {
-  constructor({ code = 'DATA_ACCESS_ERROR', message = 'The requested data operation could not be completed.', operation = '', retryable = false, cause } = {}) {
+  constructor({ code = 'DATA_ACCESS_ERROR', message = 'The requested data operation could not be completed.', operation = '', retryable = false, cause, diagnostics } = {}) {
     super(message, { cause });
     this.name = 'DataAccessError';
     this.code = code;
     this.operation = operation;
     this.retryable = retryable;
+    this.diagnostics = diagnostics;
   }
 }
 
-export function normalizeDataError(error, operation = '') {
+export function normalizeDataError(error, operation = '', diagnostics) {
   if (error instanceof DataAccessError) return error;
   const conflict = error?.code === 'PGRST116' || error?.code === 'PT409';
   return new DataAccessError({
@@ -19,6 +20,7 @@ export function normalizeDataError(error, operation = '') {
     operation,
     retryable: !conflict,
     cause: error,
+    diagnostics,
   });
 }
 

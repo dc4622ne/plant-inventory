@@ -2,6 +2,7 @@ import { getDeviceIdentity } from './deviceIdentity.js';
 import { readLocalEntities, writeEntitiesToCompatibilityStorage } from './entityRegistry.js';
 import { threeWayMerge } from './mergeEngine.js';
 import { applicationPayload, isInternalConflictPath } from './syncPayload.js';
+import { classifySyncFailure, preserveSyncError } from '../syncErrorDiagnostics.js';
 
 const uuid = () => globalThis.crypto?.randomUUID?.() || `mutation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const now = () => new Date().toISOString();
@@ -56,6 +57,7 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
       lastSuccessfulSyncAt: metadata?.lastSuccessfulSyncAt || null, lastReconciliationAt: metadata?.lastReconciliationAt || null,
       realtimeState: metadata?.realtimeState || 'disconnected', error: metadata?.error || null, queueGroups,
       requeueLoops: queueDiagnostics.filter((item) => item.loopDetected).map(({ key, requeueCount, firstQueuedAt, mostRecentQueuedAt, lastQueueReason, lastSource }) => ({ entity: key.slice(6), requeueCount, firstQueuedAt, mostRecentQueuedAt, lastQueueReason, lastSource })),
+      mutationFailures: allMutations.filter((item) => item.lastError).map((item) => item.lastError),
       ...metadata, userId, deviceId: device.id };
   };
   const setStatus = async (changes) => {
@@ -149,8 +151,11 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
   async function processMutation(mutation) {
     const lease = { ...mutation, state: 'processing', leaseUntil: new Date(Date.now() + 30_000).toISOString(), lastAttemptAt: now() };
     await store.put('mutations', lease);
+    let providerFunction = 'indexeddb.mutations.put(processing-lease)';
     try {
+      providerFunction = 'provider.getRecord';
       const remote = await provider.getRecord(mutation.entityType, mutation.entityId);
+      providerFunction = 'serialization/threeWayMerge';
       let payload = mutation.payload; let baseRevision = mutation.baseRevision;
       if (remote && Number(remote.sync?.version || 0) !== Number(baseRevision)) {
         const merge = threeWayMerge(mutation.baseRecord || {}, mutation.payload || {}, remote || {});
@@ -160,15 +165,21 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
         await addConflicts(lease, remote, [{ fieldPath: 'record', baseValue: mutation.baseRecord, localValue: mutation.payload, remoteValue: null }]); return;
       }
       if (mutation.operation === 'delete') payload = { ...payload, sync: { ...(payload.sync || {}), deletedAt: now() } };
+      providerFunction = 'provider.applyChange → supabase.rpc(apply_sync_mutation)';
       const acknowledged = await provider.applyChange({ ...mutation, payload, baseRevision });
+      providerFunction = 'indexeddb.records.put(acknowledgement)';
       const rebased = await putRemoteRecord(mutation.entityType, mutation.entityId, acknowledged, baseRevision + 1, { force: true, source: 'acknowledgement' });
       rememberAcknowledgement(mutation.entityType, mutation.entityId, acknowledged?.__syncMutationId || mutation.id, rebased.revision, rebased.payload);
       await completeAcknowledgedMutation(mutation, acknowledged, rebased.revision);
     } catch (error) {
       const attempts = (mutation.attempts || 0) + 1; const failureClass = errorClass(error);
+      const lastError = error?.diagnostics ? { ...error.diagnostics, entityType: mutation.entityType, entityId: mutation.entityId, mutationId: mutation.id }
+        : preserveSyncError(error, { entityType: mutation.entityType, entityId: mutation.entityId, mutationId: mutation.id,
+          repository: 'IndexedDB mutation queue + Supabase live-sync provider', providerFunction, failureOrigin: classifySyncFailure(providerFunction) });
       await store.put('mutations', { ...mutation, attempts, lastAttemptAt: now(), leaseUntil: null, failureClass,
         errorCode: String(error?.code || error?.cause?.code || 'SYNC_FAILED'), state: failureClass === 'permanent' ? 'failed_permanent' : 'retryable',
-        nextAttemptAt: failureClass === 'retryable' ? new Date(Date.now() + retryDelay(attempts)).toISOString() : null });
+        nextAttemptAt: failureClass === 'retryable' ? new Date(Date.now() + retryDelay(attempts)).toISOString() : null, lastError });
+      await setStatus({ state: 'error', error: lastError.originalMessage, lastMutationError: lastError });
     }
   }
 
@@ -204,9 +215,11 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
   async function sync() {
     if (running) return getStatus(); running = true;
     await setStatus({ state: globalThis.navigator?.onLine === false ? 'offline' : 'syncing', error: null });
+    let syncBoundary = 'entity-registry.captureLocalChanges';
     try {
       if (globalThis.navigator?.onLine === false) return await getStatus();
       await captureLocalChanges();
+      syncBoundary = 'indexeddb.queue-deserialization';
       const mutations = await pendingMutations();
       for (const mutation of mutations) {
         if (mutation.state === 'blocked_conflict' || mutation.state === 'failed_permanent') continue;
@@ -214,13 +227,16 @@ export function createLiveSyncCoordinator({ userId, store, provider, storage = g
         if (mutation.nextAttemptAt && Date.parse(mutation.nextAttemptAt) > Date.now()) continue;
         await processMutation(mutation);
       }
+      syncBoundary = 'provider.getChangesSince';
       const metadata = await store.get('syncMetadata', [userId, 'status']);
       for (const remote of await provider.getChangesSince(metadata?.lastReconciliationAt || null)) await ingestRemote(remote);
+      syncBoundary = 'compatibility-serialization';
       await hydrate();
       const status = await getStatus();
       await setStatus({ state: status.conflicts ? 'conflict' : status.pendingChanges ? 'pending' : 'synced', lastReconciliationAt: now(),
         lastSuccessfulSyncAt: now() });
-    } catch (error) { await setStatus({ state: 'error', error: String(error?.message || error) }); }
+    } catch (error) { const lastSyncBoundaryError = error?.diagnostics || preserveSyncError(error, { repository: 'IndexedDB mutation queue + Supabase live-sync provider', providerFunction: syncBoundary, failureOrigin: classifySyncFailure(syncBoundary) });
+      await setStatus({ state: 'error', error: lastSyncBoundaryError.originalMessage, lastSyncBoundaryError }); }
     finally { running = false; }
     return getStatus();
   }
