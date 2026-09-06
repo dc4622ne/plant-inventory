@@ -23,6 +23,20 @@ test('live provider sends a stable mutation id and expected base revision', asyn
   assert.equal(rpc.values.p_expected_revision, 7);
 });
 
+test('live provider preserves the original Supabase RPC error before normalization', async () => {
+  const original = Object.assign(new Error('function apply_sync_mutation does not exist'), { code:'42883', details:'No matching function signature', hint:'Reload the schema cache' });
+  const client = { rpc: async () => ({ data:null, error:original }) }; const provider = createLiveSyncProvider({client,userId:'u'});
+  const previous = console.error; console.error = () => {};
+  try {
+    await assert.rejects(provider.applyChange({id:'m-1',entityType:'plant_space',entityId:'space-1',payload:{id:'space-1'}}), (error) => {
+      assert.equal(error.code,'DATA_ACCESS_ERROR'); assert.equal(error.cause,original);
+      assert.deepEqual({code:error.diagnostics.originalCode,message:error.diagnostics.originalMessage,details:error.diagnostics.originalDetails,hint:error.diagnostics.originalHint},
+        {code:'42883',message:'function apply_sync_mutation does not exist',details:'No matching function signature',hint:'Reload the schema cache'});
+      assert.equal(error.diagnostics.providerFunction,'supabase.rpc(apply_sync_mutation)'); assert.match(error.diagnostics.stackTrace,/function apply_sync_mutation/); return true;
+    });
+  } finally { console.error = previous; }
+});
+
 test('live provider applies the Realtime JWT before creating exactly one channel', async () => {
   const calls = []; let callback;
   const channel = { on() { calls.push('on'); return this; }, subscribe(next) { calls.push('subscribe'); callback = next; return this; } };
@@ -62,6 +76,16 @@ test('restored authentication starts Realtime with its token and Sync now can re
   const source = readFileSync(new URL('./ConnectedApp.jsx', import.meta.url), 'utf8');
   assert.match(source, /connectRealtime\(restoredToken, 'session-restored'\)/);
   assert.match(source, /featureFlags\.realtimeEnabled \|\| applicationEnvironment\.isStaging/);
-  assert.match(source, /if \(runtimeRef\.current\) return runtimeRef\.current\.sync\(\)/);
+  assert.match(source, /runtimeRef\.current\.sync\(\{ trigger: 'manual-sync-now', manual: true \}\)/);
   assert.match(source, /setRuntimeGeneration\(\(value\) => value \+ 1\)/);
+});
+
+test('runtime coalesces trigger storms, reauthorizes an existing channel, and has no foreground scanner', () => {
+  const source = readFileSync(new URL('./ConnectedApp.jsx', import.meta.url), 'utf8');
+  assert.match(source, /orchestrationFlight = createSingleFlight/);
+  assert.match(source, /realtimeFlight = createSingleFlight/);
+  assert.match(source, /provider\.setAuth\(token\)/);
+  assert.doesNotMatch(source, /setInterval\(\(\) => \{ if \(!document\.hidden\) active\.captureLocalChanges/);
+  assert.match(source, /activeSyncTimerCount: 1/);
+  assert.match(source, /featureFlags\.syncSafeMode && !manual/);
 });

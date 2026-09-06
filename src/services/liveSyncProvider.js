@@ -1,6 +1,7 @@
 import { normalizeDataError } from '../data/errors.js';
 import { applicationPayload } from '../sync/syncPayload.js';
 import { classifySyncFailure, preserveSyncError } from '../syncErrorDiagnostics.js';
+import { recordNetworkOperation } from './networkInstrumentation.js';
 
 const rowToRecord = (row) => row ? ({
   ...row.payload,
@@ -39,6 +40,7 @@ export function createLiveSyncProvider({ client, userId }) {
 
   return Object.freeze({
     async getRecord(entityType, entityId) {
+      recordNetworkOperation('sync_records_read', { entityType, trigger: 'mutation-preflight' });
       const row = await run('sync.download', 'supabase.from(sync_records).maybeSingle', () => client.from('sync_records').select('*')
         .eq('user_id', userId).eq('entity_type', entityType).eq('entity_id', entityId).maybeSingle(), { entityType, entityId });
       return rowToRecord(row);
@@ -51,6 +53,7 @@ export function createLiveSyncProvider({ client, userId }) {
           repository: 'Supabase live-sync provider', providerFunction: 'serialization/applicationPayload', failureOrigin: 'serialization' });
         throw normalizeDataError(error, 'sync.upload.serialize', diagnostics);
       }
+      recordNetworkOperation('apply_sync_mutation', { entityType: change.entityType, trigger: change.trigger || 'queue' });
       const rows = await run('sync.upload', 'supabase.rpc(apply_sync_mutation)', () => client.rpc('apply_sync_mutation', {
         p_mutation_id: change.id,
         p_entity_type: change.entityType,
@@ -63,6 +66,7 @@ export function createLiveSyncProvider({ client, userId }) {
       return rowToRecord(rows?.[0]);
     },
     async getChangesSince(timestamp) {
+      recordNetworkOperation('reconciliation_query', { trigger: timestamp ? 'incremental' : 'full-scan' });
       let query = client.from('sync_records').select('*').eq('user_id', userId).order('updated_at');
       if (timestamp) query = query.gt('updated_at', timestamp);
       return (await run('sync.reconcile', 'supabase.from(sync_records).getChangesSince', () => query.limit(1000))).map(rowToRecord);
@@ -72,6 +76,7 @@ export function createLiveSyncProvider({ client, userId }) {
       onStatus('CONNECTING', null, { attemptedAt, jwtConfigured: Boolean(accessToken) });
       if (!accessToken) throw new Error('REALTIME_SESSION_TOKEN_MISSING');
       await client.realtime.setAuth(accessToken);
+      recordNetworkOperation('realtime_subscription', { trigger: 'subscribe' });
       const channel = client.channel(`collection:${userId}`)
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'sync_records', filter: `user_id=eq.${userId}`,
@@ -85,5 +90,6 @@ export function createLiveSyncProvider({ client, userId }) {
         }));
       return async () => { await client.removeChannel(channel); };
     },
+    async setAuth(accessToken) { await client.realtime.setAuth(accessToken); },
   });
 }

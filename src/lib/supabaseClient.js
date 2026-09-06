@@ -27,14 +27,14 @@ export function createSupabaseClient(configuration, factory) {
   if (!configuration?.configured) return null;
   if (typeof factory !== 'function') throw new TypeError('A Supabase client factory is required.');
   return factory(configuration.url, configuration.anonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } }, db: { retryEnabled: false },
   });
 }
 
 export const supabaseConfiguration = readSupabaseConfiguration(import.meta.env || {});
 export const supabase = supabaseConfiguration.configured
   ? createClient(supabaseConfiguration.url, supabaseConfiguration.anonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } }, db: { retryEnabled: false },
   })
   : null;
 export const isSupabaseConfigured = supabaseConfiguration.configured;

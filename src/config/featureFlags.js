@@ -8,6 +8,7 @@ export function createFeatureFlags(environment = {}) {
     databaseEnabled: parseFeatureFlag(environment.VITE_DATABASE_ENABLED),
     authEnabled: parseFeatureFlag(environment.VITE_AUTH_ENABLED),
     realtimeEnabled: parseFeatureFlag(environment.VITE_REALTIME_ENABLED),
+    syncSafeMode: parseFeatureFlag(environment.VITE_SYNC_SAFE_MODE),
   });
 }
 

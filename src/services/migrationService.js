@@ -7,6 +7,7 @@ import { applicationPayload, isMetadataOnlyConflict } from '../sync/syncPayload.
 import { threeWayMerge } from '../sync/mergeEngine.js';
 
 export const liveMigrationVersion = 5;
+const migrationFlights = new Map();
 const legacyClaimKey = 'plant-inventory-legacy-data-claimed-by';
 const now = () => new Date().toISOString();
 const parse = (value, fallback) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
@@ -34,9 +35,9 @@ export async function repairFalseConflicts({ userId, store, provider }) {
   return { removed, released, retained };
 }
 
-export async function prepareInitialMigration({ userId, store, provider, storage = localStorage }) {
+async function runInitialMigration({ userId, store, provider, storage = localStorage }) {
   const existing = await store.get('migrationRuns', [userId, liveMigrationVersion]);
-  if (existing?.status === 'complete') return existing;
+  if (['prepared', 'in_progress', 'complete'].includes(existing?.status)) return existing;
   const claimedBy = storage.getItem(legacyClaimKey);
   const cached = await store.forUser('records', userId);
   const canClaimLegacy = !claimedBy || claimedBy === userId;
@@ -120,6 +121,14 @@ export async function prepareInitialMigration({ userId, store, provider, storage
   await store.put('syncMetadata', { userId, key: 'status', ...legacyStatus, migrationVersion: liveMigrationVersion, conflictRepair });
   storage.removeItem(changeQueueStorageKey); storage.removeItem(conflictsStorageKey); storage.removeItem(syncStatusStorageKey);
   return run;
+}
+
+export function prepareInitialMigration(options) {
+  const key = `${options.userId}:${liveMigrationVersion}`;
+  if (migrationFlights.has(key)) return migrationFlights.get(key);
+  const flight = runInitialMigration(options).finally(() => migrationFlights.delete(key));
+  migrationFlights.set(key, flight);
+  return flight;
 }
 
 export async function verifyAndCompleteMigration({ userId, store }) {

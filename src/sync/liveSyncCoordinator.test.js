@@ -47,6 +47,20 @@ test('startup repairs every processing lease abandoned by a prior app session', 
   const repaired = await store.get('mutations',['u','stale']); assert.deepEqual({state:repaired.state,leaseUntil:repaired.leaseUntil},{state:'pending',leaseUntil:null});
 });
 
+test('failed queued mutation exposes its identity, repository, provider function, original exception, and stack', async () => {
+  const store = memoryStore(); const storage = memoryStorage(); seedStorage(storage, { plant_space:[{id:'space-a',name:'Shelf'}] }); await seedSingletonRecords(store,'u');
+  const original = Object.assign(new Error('RPC rejected the payload'),{code:'22P02',details:'invalid input syntax',hint:'Check p_payload'});
+  const provider = { async getRecord(){return null;}, async applyChange(){throw original;}, async getChangesSince(){return [];} };
+  const previous = console.error; console.error = () => {};
+  try { const coordinator = createLiveSyncCoordinator({userId:'u',store,storage,provider,device:{id:'d'}}); await coordinator.sync();
+    const mutation = (await store.forUser('mutations','u')).find((item) => item.entityType === 'plant_space'); const failure = mutation.lastError;
+    assert.equal(failure.entityType,'plant_space'); assert.equal(failure.entityId,'space-a'); assert.equal(failure.mutationId,mutation.id);
+    assert.equal(failure.repository,'IndexedDB mutation queue + Supabase live-sync provider'); assert.match(failure.providerFunction,/provider\.applyChange/);
+    assert.equal(failure.originalMessage,'RPC rejected the payload'); assert.match(failure.stackTrace,/RPC rejected the payload/);
+    assert.equal((await coordinator.getStatus()).mutationFailures[0].originalDetails,'invalid input syntax');
+  } finally { console.error = previous; }
+});
+
 test('migrated plant edit uses hosted revision, strips legacy sync metadata, and rebases', async () => {
   const store = memoryStore(); const storage = memoryStorage(); const plantDomain = synchronizedCollections.find((item) => item.entityType === 'plant');
   storage.setItem(plantDomain.storageKey, JSON.stringify([{ id: 'legacy', name: 'Old', type: 'Houseplant', sync: { version: 10144, baseVersion: 55 } }]));

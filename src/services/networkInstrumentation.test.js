@@ -1,0 +1,3 @@
+import assert from 'node:assert/strict'; import test from 'node:test';
+import { networkSnapshot, recordNetworkOperation, resetNetworkInstrumentation } from './networkInstrumentation.js';
+test('request instrumentation counts bounded operation types and warns above the staging budget',()=>{resetNetworkInstrumentation();for(let i=0;i<21;i+=1)recordNetworkOperation(i?'sync_records_read':'apply_sync_mutation',{trigger:'test',entityType:'plant'},1000);const status=networkSnapshot(1000);assert.equal(status.totals.apply_sync_mutation,1);assert.equal(status.last60Seconds,21);assert.equal(status.requestRateWarning,true);});

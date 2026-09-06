@@ -8,8 +8,8 @@ test('feature flags require the exact string true', () => {
 });
 
 test('database features default to disabled and parse independently', () => {
-  assert.deepEqual(createFeatureFlags(), { databaseEnabled: false, authEnabled: false, realtimeEnabled: false });
+  assert.deepEqual(createFeatureFlags(), { databaseEnabled: false, authEnabled: false, realtimeEnabled: false, syncSafeMode: false });
   assert.deepEqual(createFeatureFlags({ VITE_DATABASE_ENABLED: 'true' }), {
-    databaseEnabled: true, authEnabled: false, realtimeEnabled: false,
+    databaseEnabled: true, authEnabled: false, realtimeEnabled: false, syncSafeMode: false,
   });
 });

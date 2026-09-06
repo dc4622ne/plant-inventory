@@ -2,12 +2,16 @@ import { supabase } from '../lib/supabaseClient.js';
 import { createIndexedDbStore } from '../sync/indexedDbStore.js';
 import { synchronizedCollections } from '../sync/entityRegistry.js';
 import { getImageAsset, localImageAssetPrefix } from '../imageAssetStore.js';
+import { createSingleFlight, isInfrastructureFailure, retryDelay } from '../sync/syncSafety.js';
+import { recordNetworkOperation } from './networkInstrumentation.js';
+import { featureFlags } from '../config/featureFlags.js';
 
 export const remoteImagePrefix = 'supabase-image://';
 export const pendingImagePrefix = 'pending-image://';
 export const plantPhotoBucket = 'plant-photos';
 const store = createIndexedDbStore();
 const signedUrlCache = new Map();
+const uploadFlights = new Map();
 const signedUrlLifetimeSeconds = 3600;
 const signedUrlRefreshMarginMs = 60_000;
 const uuid = () => crypto.randomUUID?.() || `photo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -49,28 +53,37 @@ function replacePendingReference(reference, replacement) {
     const value = localStorage.getItem(storageKey); if (!value?.includes(reference)) return;
     localStorage.setItem(storageKey, value.split(reference).join(replacement));
   });
-  dispatchEvent(new Event('plant-all-collections-change'));
-  dispatchEvent(new Event('plant-collection-change'));
+  const detail = { queueMutation: false, source: 'image-reference-replacement' };
+  dispatchEvent(new CustomEvent('plant-all-collections-change', { detail }));
+  dispatchEvent(new CustomEvent('plant-collection-change', { detail }));
 }
 
-export async function processImageUploads(userId) {
+async function runImageUploads(userId) {
   const queue = (await store.forUser('imageUploadQueue', userId)).filter((item) => ['pending', 'retryable', 'processing'].includes(item.state));
   for (const item of queue) {
     if (item.state === 'processing' && Date.parse(item.leaseUntil || 0) > Date.now()) continue;
+    if (item.nextAttemptAt && Date.parse(item.nextAttemptAt) > Date.now()) continue;
     const blobRecord = await store.get('imageBlobs', [userId, item.id]); if (!blobRecord?.blob) continue;
     await store.put('imageUploadQueue', { ...item, state: 'processing', leaseUntil: new Date(Date.now() + 30_000).toISOString() });
+    recordNetworkOperation('image_upload', { trigger: 'image-queue' });
     const { error } = await supabase.storage.from(plantPhotoBucket).upload(item.storagePath, blobRecord.blob, {
       cacheControl: '3600', contentType: item.contentType, upsert: false,
     });
     if (error && error.statusCode !== '409' && error.status !== 409) {
-      await store.put('imageUploadQueue', { ...item, state: 'retryable', attempts: item.attempts + 1, errorCode: error.statusCode || error.name || 'UPLOAD_FAILED', leaseUntil: null });
+      const attempts = (item.attempts || 0) + 1;
+      await store.put('imageUploadQueue', { ...item, state: attempts >= 5 ? 'failed_permanent' : 'retryable', attempts, errorCode: error.statusCode || error.name || 'UPLOAD_FAILED', leaseUntil: null,
+        nextAttemptAt: attempts >= 5 ? null : new Date(Date.now() + retryDelay(attempts)).toISOString() });
+      if (isInfrastructureFailure(error)) break;
       continue;
     }
+    recordNetworkOperation('image_signed_url', { trigger: 'upload-verification' });
     const { error: verifyError } = await supabase.storage.from(plantPhotoBucket).createSignedUrl(item.storagePath, 60);
     if (verifyError) {
-      await store.put('imageUploadQueue', { ...item, state: 'retryable', attempts: item.attempts + 1, errorCode: 'VERIFY_FAILED', leaseUntil: null });
+      const attempts = (item.attempts || 0) + 1; await store.put('imageUploadQueue', { ...item, state: attempts >= 5 ? 'failed_permanent' : 'retryable', attempts, errorCode: 'VERIFY_FAILED', leaseUntil: null, nextAttemptAt: attempts >= 5 ? null : new Date(Date.now() + retryDelay(attempts)).toISOString() });
+      if (isInfrastructureFailure(verifyError)) break;
       continue;
     }
+    recordNetworkOperation('image_metadata_upsert', { trigger: 'image-queue' });
     const { error: metadataError } = await supabase.from('plant_photos').upsert({
       id: item.id, user_id: userId, plant_id: null, storage_path: item.storagePath,
       original_filename: item.originalFilename || null, content_type: item.contentType,
@@ -78,12 +91,20 @@ export async function processImageUploads(userId) {
       legacy_metadata: { source_domain: item.entityType || item.plantId, entity_id: item.entityId || null }, updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,storage_path' });
     if (metadataError) {
-      await store.put('imageUploadQueue', { ...item, state: 'retryable', attempts: item.attempts + 1, errorCode: 'METADATA_FAILED', leaseUntil: null });
+      const attempts = (item.attempts || 0) + 1; await store.put('imageUploadQueue', { ...item, state: attempts >= 5 ? 'failed_permanent' : 'retryable', attempts, errorCode: 'METADATA_FAILED', leaseUntil: null, nextAttemptAt: attempts >= 5 ? null : new Date(Date.now() + retryDelay(attempts)).toISOString() });
+      if (isInfrastructureFailure(metadataError)) break;
       continue;
     }
     await store.put('imageUploadQueue', { ...item, state: 'complete', completedAt: new Date().toISOString(), leaseUntil: null });
     replacePendingReference(`${pendingImagePrefix}${userId}/${item.id}`, `${remoteImagePrefix}${item.storagePath}`);
   }
+}
+
+export function processImageUploads(userId, { manual = false } = {}) {
+  if (featureFlags.syncSafeMode && !manual) return Promise.resolve();
+  let flight = uploadFlights.get(userId);
+  if (!flight) { flight = createSingleFlight(); uploadFlights.set(userId, flight); }
+  return flight.run('image-processing', () => runImageUploads(userId));
 }
 
 export async function resolvePrivateImage(source, { force = false, expiresIn = signedUrlLifetimeSeconds } = {}) {
@@ -94,6 +115,7 @@ export async function resolvePrivateImage(source, { force = false, expiresIn = s
   const cacheKey = `${user.id}:${path}`;
   const cached = signedUrlCache.get(cacheKey);
   if (!force && cached && cached.expiresAt - signedUrlRefreshMarginMs > Date.now()) return cached.url;
+  recordNetworkOperation('image_signed_url', { trigger: force ? 'forced-refresh' : 'cache-miss' });
   const { data, error } = await supabase.storage.from(plantPhotoBucket).createSignedUrl(path, expiresIn);
   if (error) throw error;
   signedUrlCache.set(cacheKey, { url: data.signedUrl, expiresAt: Date.now() + expiresIn * 1000 });
@@ -110,7 +132,7 @@ export async function retryImageUpload(source) {
   const item = await store.get('imageUploadQueue', [userId, id]);
   if (!item) return false;
   await store.put('imageUploadQueue', { ...item, state: 'retryable', leaseUntil: null, errorCode: null });
-  await processImageUploads(userId);
+  await processImageUploads(userId, { manual: true });
   return true;
 }
 
@@ -146,6 +168,6 @@ export async function migrateLegacyImages(userId) {
     const next = JSON.stringify(migrated);
     if (next !== serialized) { localStorage.setItem(storageKey, next); changed += 1; }
   }
-  if (changed) { dispatchEvent(new Event('plant-all-collections-change')); dispatchEvent(new Event('plant-collection-change')); }
+  if (changed) { const detail = { queueMutation: false, source: 'compatibility-image-migration' }; dispatchEvent(new CustomEvent('plant-all-collections-change', { detail })); dispatchEvent(new CustomEvent('plant-collection-change', { detail })); }
   return changed;
 }

@@ -14,6 +14,7 @@ import { prepareInitialMigration, verifyAndCompleteMigration } from './services/
 import { clearUserOwnedCompatibilityStorage } from './sync/entityRegistry.js';
 import { createIndexedDbStore } from './sync/indexedDbStore.js';
 import { createLiveSyncCoordinator } from './sync/liveSyncCoordinator.js';
+import { createSingleFlight, retryDelay } from './sync/syncSafety.js';
 import { createStartupRun, openLocalCollection, withStartupTimeout } from './startupPipeline.js';
 
 function StagingDiagnostic({ sessionState, startupStage = '', elapsedMs = 0 }) {
@@ -148,26 +149,31 @@ export default function ConnectedApp() {
     setReady(false); setStartupElapsed(0); setStartup({ stage: 'indexeddb-open', state: 'pending', warning: '', localSafe: false });
     globalThis.__plantIndexedSyncActive = true;
     let stopped = false; let debounceTimer = 0; let reconnectTimer = 0; let unsubscribeRealtime = null; let reconnectAttempts = 0; let intentionalClose = false;
+    const orchestrationFlight = createSingleFlight(); const realtimeFlight = createSingleFlight();
     const store = createIndexedDbStore(); const provider = createLiveSyncProvider({ client: supabase, userId });
     const active = createLiveSyncCoordinator({ userId, store, provider }); setCoordinator(active);
     const report = (stage, changes = {}) => { if (!isCurrent()) return; const elapsed = Date.now() - startedAt; setStartup((current) => ({ ...current, stage, ...changes })); void active.setDiagnostics({ startupStage: stage, startupState: changes.state || 'pending', startupElapsedMs: elapsed, startupWarning: changes.warning || '' }); };
     const updateRealtime = (state, error, extra = {}) => active.setRealtimeState(state, { ...safeRealtimeError(error), ...extra, online: navigator.onLine !== false, coordinatorRunning: !stopped });
-    const connectRealtime = async (token, reason = 'startup') => {
+    const connectRealtime = (token, reason = 'startup', force = false) => realtimeFlight.run(reason, async () => {
       if (stopped) return;
       if (!realtimeEnabled) { await updateRealtime('disabled', null, { realtimeJwtConfigured: false, lastSubscriptionReason: reason }); return; }
       if (navigator.onLine === false) { await updateRealtime('offline', null, { realtimeJwtConfigured: Boolean(token), realtimeJwtExpiresAt: jwtExpiration(token), lastSubscriptionReason: reason }); return; }
-      clearTimeout(reconnectTimer); if (unsubscribeRealtime) { intentionalClose = true; await unsubscribeRealtime(); unsubscribeRealtime = null; intentionalClose = false; }
+      clearTimeout(reconnectTimer); reconnectTimer = 0;
+      if (unsubscribeRealtime && !force) { await provider.setAuth(token); await updateRealtime('SUBSCRIBED', null, { realtimeJwtConfigured: true, realtimeJwtExpiresAt: jwtExpiration(token), lastSubscriptionReason: `${reason}-reauthorized`, activeChannelCount: 1 }); return; }
+      if (unsubscribeRealtime) { intentionalClose = true; await unsubscribeRealtime(); unsubscribeRealtime = null; intentionalClose = false; }
       try { unsubscribeRealtime = await provider.subscribe(async (record) => { await active.ingestRemote(record); await active.hydrate(); }, (state, error, extra) => {
         const subscribed = state === 'SUBSCRIBED'; if (subscribed) reconnectAttempts = 0;
         updateRealtime(state, error, { ...extra, realtimeJwtConfigured: Boolean(token), realtimeJwtExpiresAt: jwtExpiration(token), lastSubscriptionReason: reason,
           ...(subscribed ? { lastSubscribedAt: new Date().toISOString() } : {}) });
-        if (!stopped && !intentionalClose && ['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(state)) { const delay = Math.min(30_000, 1000 * (2 ** reconnectAttempts++)); reconnectTimer = window.setTimeout(() => connectRealtime(token, `reconnect-${state.toLowerCase()}`), delay); }
+        if (!stopped && !intentionalClose && !reconnectTimer && ['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(state)) { const delay = retryDelay(++reconnectAttempts); reconnectTimer = window.setTimeout(() => { reconnectTimer = 0; void connectRealtime(sessionRef.current?.access_token || token, `reconnect-${state.toLowerCase()}`, true); }, delay); }
       }, token); } catch (error) { updateRealtime('CHANNEL_ERROR', error, { lastSubscriptionReason: reason }); }
-    };
-    const sync = async () => { if (stopped) return; await active.setDiagnostics({ syncStage: 'validate-session' });
+    });
+    const sync = ({ trigger = 'event', manual = false } = {}) => orchestrationFlight.run(trigger, async () => { if (stopped) return;
+      if (featureFlags.syncSafeMode && !manual) { await active.setDiagnostics({ state: 'paused', syncStage: 'safe-mode', syncSafeMode: true }); return; }
+      await active.setDiagnostics({ syncStage: 'validate-session', orchestration: orchestrationFlight.diagnostics() });
       const { data, error } = await supabase.auth.getSession(); if (error || !data.session?.access_token) { await active.setDiagnostics({ state: 'error', syncStage: 'validate-session', ...safeRealtimeError(error || new Error('SESSION_MISSING')) }); return; }
-      void connectRealtime(data.session.access_token, 'sync-now'); await active.setDiagnostics({ syncStage: 'records' }); await active.sync();
-      await active.setDiagnostics({ syncStage: 'photos' }); void processImageUploads(userId).then(() => verifyAndCompleteMigration({ userId, store })).then(setMigrationReport).catch((error) => active.setDiagnostics({ imageQueueWarning: String(error?.message || error) })); await active.setDiagnostics({ syncStage: 'complete' }); };
+      void connectRealtime(data.session.access_token, trigger); await active.setDiagnostics({ syncStage: 'records' }); await active.sync({ trigger, manual });
+      await active.setDiagnostics({ syncStage: 'photos' }); void processImageUploads(userId, { manual }).then(() => verifyAndCompleteMigration({ userId, store })).then(setMigrationReport).catch((error) => active.setDiagnostics({ imageQueueWarning: String(error?.message || error) })); await active.setDiagnostics({ syncStage: 'complete' }); });
     const runtime = { reconnect: connectRealtime, stop: () => { stopped = true; clearTimeout(reconnectTimer); unsubscribeRealtime?.(); }, sync };
     runtimeRef.current = runtime;
     const restoredToken = sessionRef.current?.access_token || '';
@@ -191,26 +197,27 @@ export default function ConnectedApp() {
       }
       // Everything below is bounded background work and cannot hold the local UI closed.
       if (restoredToken) void withStartupTimeout(connectRealtime(restoredToken, 'session-restored'), 5_000, 'realtime-startup').catch((error) => report('realtime-retrying', { warning: error.message, localSafe: true }));
-      try { report('migration-v5-repair', { localSafe: true }); setMigrationReport(await withStartupTimeout(prepareInitialMigration({ userId, store, provider }), 12_000, 'migration-v5-repair')); }
+      try { report('migration-v5-repair', { localSafe: true }); if (!featureFlags.syncSafeMode) setMigrationReport(await withStartupTimeout(prepareInitialMigration({ userId, store, provider }), 12_000, 'migration-v5-repair')); }
       catch (error) { report('migration-warning', { state: 'warning', warning: error.message, localSafe: true }); }
       if (stopped || !isCurrent()) return;
       try { report('compatibility-serialization', { localSafe: true }); await withStartupTimeout(active.hydrate(), 8_000, 'compatibility-serialization'); }
       catch (error) { report('serialization-warning', { state: 'warning', warning: error.message, localSafe: true }); }
       report('initial-direct-reconciliation', { localSafe: true });
-      void withStartupTimeout(sync(), 15_000, 'initial-direct-reconciliation').catch((error) => report('offline-local-first', { state: 'warning', warning: error.message, localSafe: true }));
-      report('image-queue-background', { localSafe: true }); void withStartupTimeout(migrateLegacyImages(userId), 10_000, 'image-queue-initialization').catch((error) => active.setDiagnostics({ imageQueueWarning: error.message }));
+      void withStartupTimeout(sync({ trigger: 'startup-reconciliation' }), 15_000, 'initial-direct-reconciliation').catch((error) => report('offline-local-first', { state: 'warning', warning: error.message, localSafe: true }));
+      report('image-queue-background', { localSafe: true }); if (!featureFlags.syncSafeMode) void withStartupTimeout(migrateLegacyImages(userId), 10_000, 'image-queue-initialization').catch((error) => active.setDiagnostics({ imageQueueWarning: error.message }));
     })().catch((error) => { if (isCurrent()) setStartup({ stage: 'startup-runtime', state: 'error', warning: String(error?.message || error), localSafe: startupRun.ready }); });
     const unsubscribeStatus = active.subscribe(setSyncStatus);
-    const onSync = (event) => { if (event?.detail?.queueMutation === false) return; clearTimeout(debounceTimer); debounceTimer = window.setTimeout(sync, 400); };
+    const onSync = (event) => { if (event?.detail?.queueMutation === false) return; const trigger = event?.type || 'event'; clearTimeout(debounceTimer); debounceTimer = window.setTimeout(() => sync({ trigger, manual: trigger === 'plant-sync-now' }), 400); };
     const onCollectionChange = async (event) => { if (event?.detail?.queueMutation === false || stopped) return; await active.captureLocalChanges({ source: 'user', reason: event?.detail?.reason || 'application-write' }); onSync(event); };
     const onVisibility = () => { if (!document.hidden) onSync(); };
     window.addEventListener('online', onSync); window.addEventListener('focus', onSync); window.addEventListener('plant-sync-now', onSync); window.addEventListener('visibilitychange', onVisibility); window.addEventListener('plant-collection-change', onCollectionChange); window.addEventListener('plant-all-collections-change', onCollectionChange);
-    const scanner = window.setInterval(() => { if (!document.hidden) active.captureLocalChanges(); }, 5_000); const timer = window.setInterval(sync, 60_000);
-    return () => { stopped = true; const wasCurrent = isCurrent(); if (wasCurrent) startupRunRef.current += 1; if (runtimeRef.current === runtime) runtimeRef.current = null; if (wasCurrent) globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(scanner); clearInterval(timer); clearInterval(startupClock); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
+    const timer = window.setInterval(() => sync({ trigger: 'periodic-timer' }), 60_000);
+    void active.setDiagnostics({ activeSyncTimerCount: 1, foregroundScannerEnabled: false, activeChannelCount: unsubscribeRealtime ? 1 : 0, syncSafeMode: featureFlags.syncSafeMode });
+    return () => { stopped = true; const wasCurrent = isCurrent(); if (wasCurrent) startupRunRef.current += 1; if (runtimeRef.current === runtime) runtimeRef.current = null; if (wasCurrent) globalThis.__plantIndexedSyncActive = false; setRemoveOfflineData(null); unsubscribeStatus(); unsubscribeRealtime?.(); clearInterval(timer); clearInterval(startupClock); clearTimeout(debounceTimer); clearTimeout(reconnectTimer); store.close();
       window.removeEventListener('online', onSync); window.removeEventListener('focus', onSync); window.removeEventListener('plant-sync-now', onSync); window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('plant-collection-change', onCollectionChange); window.removeEventListener('plant-all-collections-change', onCollectionChange); };
   }, [userId, service, runtimeGeneration, realtimeEnabled]);
   const syncNow = useCallback(async () => {
-    if (runtimeRef.current) return runtimeRef.current.sync();
+    if (runtimeRef.current) return runtimeRef.current.sync({ trigger: 'manual-sync-now', manual: true });
     const { data, error } = await supabase.auth.getSession();
     if (error || !data.session?.user?.id || !data.session.access_token) { setAuthError(error?.message || 'Your session could not be restored. Please sign in again.'); return; }
     setSession(data.session); setReady(false); setRuntimeGeneration((value) => value + 1);
