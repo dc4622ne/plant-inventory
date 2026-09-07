@@ -41,6 +41,8 @@ test('backup v4 round-trips quick notes and additive plant histories', () => {
   const plant = {
     id: 'plant-1',
     origin: 'Corm',
+    startingStage: 'Corm',
+    acquisitionMethod: 'Gift',
     lifecycleStage: 'Established Houseplant',
     lifecycleHistory: [{ id: 't1', previousStage: 'Corm', newStage: 'Established Houseplant' }],
     cormStage: 'Established',

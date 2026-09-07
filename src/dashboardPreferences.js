@@ -1,5 +1,5 @@
 export const dashboardPreferencesStorageKey = 'plant-tracker-dashboard-preferences';
-export const dashboardPreferencesVersion = 3;
+export const dashboardPreferencesVersion = 4;
 
 export const dashboardCards = [
   { id: 'needs-attention', title: 'Needs Attention', visible: true, size: 'wide' },
@@ -7,6 +7,7 @@ export const dashboardCards = [
   { id: 'quarantine', title: 'Quarantine', visible: true, size: 'standard' },
   { id: 'recently-added', title: 'Recently Added', visible: true, size: 'standard' },
   { id: 'watch-list', title: 'Watch List', visible: true, size: 'standard' },
+  { id: 'wishlist', title: 'Wishlist', visible: true, size: 'standard' },
   { id: 'tissue-culture', title: 'Tissue Culture', visible: true, size: 'standard' },
   { id: 'leca', title: 'LECA Conversions', visible: true, size: 'standard' },
   { id: 'corms', title: 'Corm Progress', visible: true, size: 'standard' },

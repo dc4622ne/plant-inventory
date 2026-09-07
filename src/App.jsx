@@ -12,6 +12,13 @@ import Resources from './ResourceLibrary';
 import { changelog, currentAppVersion } from './appVersion';
 import GlobalNavigation from './GlobalNavMenu';
 import { activeNavigationDestination } from './globalNavigation';
+import { createActivityLogEntry } from './activityLogData';
+import {
+  createPlantFromWishlistItem,
+  filterWishlistItemsByView,
+  getWishlistDashboardModel,
+  wishlistViews,
+} from './wishlistData';
 import { getGardenMetrics, loadGardenBeds } from './gardenData';
 import ImageUploadField, { SafeImage } from './ImageUploadField';
 import { useResolvedImageSource } from './resolvedImageSource';
@@ -70,25 +77,32 @@ import {
   hasMeaningfulValue,
   isValidPastOrTodayDate,
   isTrackerCompleted,
+  acquisitionMethodOptions,
   lifecycleStageOptions,
   normalizePlantRecord,
+  newPlantCollectionDefaults,
   plantOriginOptions,
+  projectLegacyOrigin,
   removeCormPhaseHistoryEntry,
+  startingStageOptions,
   shouldShowCormTracker,
   updateCormPhaseHistoryEntry,
 } from './plantData';
 import {
-  addCustomOption, countOptionUsage, countQuickViewOptionUsage, getSpendingSummary,
-  removeCustomOption, validatePurchasePrice,
+  addCustomOption, countOptionUsage, countQuickViewOptionUsage, discoverPlantFieldOptions, getSpendingSummary,
+  getMissingPurchasePricePlantListTarget, hasRecordedPurchasePrice,
+  matchesPlantSearchText, removeCustomOption, validatePurchasePrice,
 } from './collectionControl';
 import { loadQuickNotes, quickNotesStorageKey, updateQuickNote } from './quickNotesData';
 import { sortCategoricalOptions, sortOptionsAlphabetically, sortOptionsForField } from './optionSorting';
 import {
   activeFilterValueCount,
+  advancedPlantFilterFields,
   emptyPlantFilters,
   matchesFilterValue,
   matchesOriginLifecycleFilters,
   missingFilterValue,
+  primaryPlantFilterFields,
 } from './plantFilters';
 import {
   aggregateCormPhases,
@@ -223,8 +237,8 @@ const initialPlants = [
 
 const emptyPlant = {
   lifecycleStatus: 'active',
-  origin: 'Purchased plant', lifecycleStage: 'Juvenile Houseplant', lifecycleHistory: [],
-  name: '', genus: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
+  ...newPlantCollectionDefaults, lifecycleHistory: [],
+  name: '', genus: '', species: '', imageUrl: '', type: '', source: '', location: '', status: '', attention: 'Medium',
   lastWatered: '', repotDate: '', watering: '', careNote: '', lightNeeds: '', medium: '',
   wateringRhythm: '', moisturePreference: '', careDifficulty: '',
   potSize: '', thirstLevel: '', soilMix: '', acquiredDate: '', purchasePrice: '', wishlistStatus: 'Owned',
@@ -345,6 +359,10 @@ function getActivitySummaryUpdates(activityLog, activityTypesToUpdate) {
 }
 
 const initialDropdownOptions = {
+  activityType: activityTypes,
+  medium: [],
+  potSize: [],
+  watering: [],
   genus: ['Alocasia', 'Epipremnum', 'Monstera', 'Sweet Potato'],
   type: ['Garden', 'Houseplant', 'Propagation', 'Tissue Culture'],
   source: ['Palmstreet', 'Etsy', 'Local nursery', 'Giveaway', 'Friend', 'Personal collection', 'Garden start', 'Propagation'],
@@ -366,6 +384,18 @@ const initialDropdownOptions = {
   lecaFlushRhythm: lecaFlushOptions,
   lecaStressLevel: lecaStressOptions,
 };
+
+const dropdownOptionLabels = {
+  activityType: 'Activity Type',
+  medium: 'Growing Medium',
+  potSize: 'Pot Size',
+  soilMix: 'Soil / Substrate Mix',
+  watering: 'Water Mix',
+};
+
+function emptyDropdownOptionDraft() {
+  return Object.fromEntries(Object.keys(initialDropdownOptions).map((fieldName) => [fieldName, '']));
+}
 
 const plantsStorageKey = storageKeys.plants;
 const dropdownOptionsStorageKey = storageKeys.dropdownOptions;
@@ -480,14 +510,26 @@ function loadDropdownOptions() {
   // Preserve source values entered before Source became a reusable dropdown.
   const savedPlants = loadPlants();
   const savedPlantSources = savedPlants.map((plant) => plant.source).filter(Boolean);
+  const savedActivityTypes = savedPlants.flatMap((plant) => (
+    plant.activityLog || []
+  )).map((entry) => entry.activityType).filter(Boolean);
   const customSoilMixValues = savedPlants
     .map((plant) => plant.soilMix)
     .filter((value) => value && !getSoilMixByValue(value));
 
+  const discoveredOptions = discoverPlantFieldOptions(loadedOptions, savedPlants, [
+    'medium', 'potSize', 'soilMix', 'watering',
+  ]);
+
   return Object.fromEntries(Object.entries({
-    ...loadedOptions,
-    source: [...new Set([...loadedOptions.source, ...savedPlantSources])],
-    soilMix: [...new Set([...soilMixOptions.map((option) => option.value), ...customSoilMixValues])],
+    ...discoveredOptions,
+    activityType: [...new Set([...discoveredOptions.activityType, ...savedActivityTypes])],
+    source: [...new Set([...discoveredOptions.source, ...savedPlantSources])],
+    soilMix: [...new Set([
+      ...soilMixOptions.map((option) => option.value),
+      ...discoveredOptions.soilMix,
+      ...customSoilMixValues,
+    ])],
   }).map(([fieldName, options]) => [
     fieldName,
     sortOptionsForField(fieldName, options),
@@ -574,6 +616,16 @@ function displayValue(value) {
 
 function displaySoilMixValue(value) {
   return displayValue(getSoilMixDisplayName(value));
+}
+
+function soilMixSelectOptions(values) {
+  const choices = new Map();
+  (values || []).forEach((storedValue) => {
+    const recipe = getSoilMixByValue(storedValue);
+    const value = recipe?.id || storedValue;
+    if (!choices.has(value)) choices.set(value, { value, label: recipe?.name || storedValue });
+  });
+  return sortOptionsAlphabetically([...choices.values()]);
 }
 
 function normalizedFilterValue(value) {
@@ -957,18 +1009,19 @@ const detailSections = [
   {
     title: 'Plant information',
     fields: [
-      ['genus', 'Genus'], ['type', 'Type / category'], ['source', 'Source'],
+      ['genus', 'Genus'], ['species', 'Species'], ['type', 'Type / category'], ['source', 'Source'],
       ['location', 'Location'], ['status', 'Status'], ['attention', 'Attention'],
     ],
   },
   {
     title: 'Care details',
     fields: [
-      ['lightNeeds', 'Lighting'], ['medium', 'Growing medium'], ['potSize', 'Pot size'],
+      ['lightNeeds', 'Lighting'], ['medium', 'Growing medium'],
+      ['soilMix', 'Soil mix / substrate mix'], ['potSize', 'Pot size'],
       ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
       ['careDifficulty', 'Care difficulty'],
-      ['thirstLevel', 'Thirst level'], ['soilMix', 'Soil mix / substrate mix'],
-      ['watering', 'Watering notes'], ['lastWatered', 'Last watered'],
+      ['thirstLevel', 'Thirst level'],
+      ['watering', 'Water Mix'], ['lastWatered', 'Last watered'],
     ],
   },
   {
@@ -1048,6 +1101,13 @@ function getWishlistDetailFields(item) {
   return [...knownFields, ...extraFields];
 }
 
+function getUnprojectedLegacyOrigin(plant) {
+  const origin = String(plant?.origin || '').trim();
+  if (!origin) return '';
+  const projection = projectLegacyOrigin(origin);
+  return projection.startingStage || projection.acquisitionMethod ? '' : origin;
+}
+
 function App() {
   const [plants, setPlants] = useState(loadPlants);
   const syncStatus = useSyncStatus();
@@ -1068,13 +1128,7 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [plantFormBaseline, setPlantFormBaseline] = useState(JSON.stringify(emptyPlant));
   const [dropdownOptions, setDropdownOptions] = useState(loadDropdownOptions);
-  const [newOptionText, setNewOptionText] = useState({
-    genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
-    wateringRhythm: '', moisturePreference: '', careDifficulty: '',
-    tcStage: '', tcSetup: '', tcHumidityLevel: '',
-    lecaStatus: '', lecaRootStatus: '', lecaReservoirSetup: '', lecaNutrientStatus: '',
-    lecaFlushRhythm: '', lecaStressLevel: '',
-  });
+  const [newOptionText, setNewOptionText] = useState(emptyDropdownOptionDraft);
   const [plantFilters, setPlantFilters] = useState(emptyPlantFilters);
   const [searchText, setSearchText] = useState('');
   const [areMoreFiltersVisible, setAreMoreFiltersVisible] = useState(false);
@@ -1085,6 +1139,7 @@ function App() {
   const [quarantineFilter, setQuarantineFilter] = useState('');
   const [recentlyCheckedFilter, setRecentlyCheckedFilter] = useState(false);
   const [recentlyAcquiredFilter, setRecentlyAcquiredFilter] = useState(false);
+  const [missingPurchasePriceFilter, setMissingPurchasePriceFilter] = useState(false);
   const [plantInsightFilter, setPlantInsightFilter] = useState(null);
   const [activeQuickView, setActiveQuickView] = useState('');
   const [quickViewEditor, setQuickViewEditor] = useState(null);
@@ -1178,6 +1233,7 @@ function App() {
   const [gardenFormDirty, setGardenFormDirty] = useState(false);
   const [wishlistSearch, setWishlistSearch] = useState('');
   const [wishlistFilters, setWishlistFilters] = useState(emptyWishlistFilters);
+  const [wishlistView, setWishlistView] = useState(wishlistViews.active);
   const [selectedWishlistItemId, setSelectedWishlistItemId] = useState('');
   const importInputRef = useRef(null);
   const plantResultsRef = useRef(null);
@@ -1566,18 +1622,13 @@ function App() {
     resetTimelineEntryForm();
     setTimelineLightboxPhoto(null);
     setShowPhotoComparison(false);
-    setNewOptionText({
-      genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '',
-      wateringRhythm: '', moisturePreference: '', careDifficulty: '',
-      tcStage: '', tcSetup: '', tcHumidityLevel: '',
-      lecaStatus: '', lecaRootStatus: '', lecaReservoirSetup: '', lecaNutrientStatus: '',
-      lecaFlushRhythm: '', lecaStressLevel: '',
-    });
+    setNewOptionText(emptyDropdownOptionDraft());
   }
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const searchableFields = [
-    'name', 'genus', 'type', 'status', 'location', 'lightNeeds', 'origin', 'lifecycleStage',
+    'name', 'genus', 'species', 'type', 'status', 'location', 'lightNeeds', 'origin',
+    'startingStage', 'acquisitionMethod', 'lifecycleStage',
     'soilMix', 'careNote', 'watering', 'pestNotes', 'growthNotes',
     'wateringRhythm', 'moisturePreference', 'careDifficulty',
     'tcStage', 'tcSetup', 'tcHumidityLevel', 'tcNotes',
@@ -1586,18 +1637,8 @@ function App() {
     'cormGrowthMethod', 'cormCustomGrowthMethod', 'cormMedium', 'cormPhase',
     'cormProgressNotes', 'cormOutcome',
   ];
-  const primaryFilterFields = [
-    ['medium', 'Growing medium'], ['type', 'Type / category'], ['location', 'Location'],
-  ];
-  const advancedFilterFields = [
-    ['genus', 'Genus'], ['status', 'Status'], ['potSize', 'Pot size'],
-    ['attention', 'Attention'], ['thirstLevel', 'Thirst level'],
-    ['soilMix', 'Soil mix / substrate mix'],
-    ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
-    ['careDifficulty', 'Care difficulty'],
-    ['tcStage', 'TC stage'],
-    ['lecaStatus', 'LECA conversion status'], ['lecaStressLevel', 'LECA stress level'],
-  ];
+  const primaryFilterFields = primaryPlantFilterFields;
+  const advancedFilterFields = advancedPlantFilterFields;
   const filterFields = [...primaryFilterFields, ...advancedFilterFields];
   const getFilterOptions = (fieldName) => {
     if (fieldName === 'soilMix') {
@@ -1673,11 +1714,9 @@ function App() {
           return matchesFilterValue(plantValue, [selectedFilter]);
         });
       });
-      const matchesSearch = !normalizedSearch
-        || searchableFields.some((fieldName) => (
-          String(fieldName === 'soilMix' ? getSoilMixDisplayName(plant[fieldName]) : plant[fieldName] || '')
-            .toLowerCase().includes(normalizedSearch)
-        ))
+      const matchesSearch = matchesPlantSearchText(searchableFields.map((fieldName) => (
+        fieldName === 'soilMix' ? getSoilMixDisplayName(plant[fieldName]) : plant[fieldName]
+      )), normalizedSearch)
         || quickNotes.some((entry) => (
           entry.plantId === plant.id && entry.text.toLowerCase().includes(normalizedSearch)
         ));
@@ -1693,6 +1732,7 @@ function App() {
       const matchesRecentlyAcquired = !recentlyAcquiredFilter || (
         Boolean(acquiredDate) && acquiredDate >= fourteenDaysAgo && acquiredDate <= todayDate()
       );
+      const matchesMissingPurchasePrice = !missingPurchasePriceFilter || !hasRecordedPurchasePrice(plant);
 
       const matchesOriginLifecycle = plantFilters.origin.includes('__corm__')
         ? shouldShowCormTracker(plant) && matchesFilterValue(plant.lifecycleStage, plantFilters.lifecycleStage)
@@ -1700,7 +1740,7 @@ function App() {
 
       return matchesLifecycle && matchesFilters && matchesOriginLifecycle
         && matchesSearch && matchesQuarantine
-        && matchesRecentlyChecked && matchesRecentlyAcquired
+        && matchesRecentlyChecked && matchesRecentlyAcquired && matchesMissingPurchasePrice
         && matchesPlantInsightFilter(plant, plantInsightFilter);
     })
     .sort(comparePlants);
@@ -1721,7 +1761,7 @@ function App() {
   useEffect(() => {
     setPlantPage(1);
   }, [searchText, plantFilters, lifecycleView, quarantineFilter, recentlyCheckedFilter,
-    recentlyAcquiredFilter, plantInsightFilter, plantViewMode, plantSort]);
+    recentlyAcquiredFilter, missingPurchasePriceFilter, plantInsightFilter, plantViewMode, plantSort]);
 
   useEffect(() => {
     if (plantPage > plantPageCount) setPlantPage(plantPageCount);
@@ -1864,7 +1904,7 @@ function App() {
   const gardenMetrics = getGardenMetrics(gardenBeds);
   const wishlistFilterOptions = (field) => [...new Set(wishlistItems.map((item) => item[field]).filter(Boolean))].sort();
   const selectedWishlistItem = wishlistItems.find((item) => item.id === selectedWishlistItemId);
-  const visibleWishlistItems = wishlistItems.filter((item) => {
+  const visibleWishlistItems = filterWishlistItemsByView(wishlistItems, wishlistView).filter((item) => {
     const matchesSearch = !wishlistSearch.trim() || item.name.toLowerCase().includes(wishlistSearch.trim().toLowerCase());
     const matchesFilters = Object.entries(wishlistFilters).every(([field, value]) => !value || item[field] === value);
     const date = dateInputValue(item.expectedArrivalDate);
@@ -1929,6 +1969,7 @@ function App() {
     setQuarantineFilter(metric.quarantine || '');
     setRecentlyCheckedFilter(Boolean(metric.recentlyChecked));
     setRecentlyAcquiredFilter(Boolean(metric.recentlyAcquired));
+    setMissingPurchasePriceFilter(Boolean(metric.missingPurchasePrice));
     setPlantInsightFilter(metric.insight || null);
     if (metric.sort) setPlantSort(metric.sort);
     setActiveQuickView(matchingQuickView?.id || '');
@@ -2149,6 +2190,7 @@ function App() {
     setShowForm(false);
     setIsEditing(false);
     setWishlistSearch('');
+    setWishlistView(metric.view || wishlistViews.active);
     setWishlistFilters(metric.arrivingSoon
       ? { ...emptyWishlistFilters, arrivingSoon: true }
       : { ...emptyWishlistFilters, desiredStatus: metric.filter || '' });
@@ -2498,19 +2540,7 @@ function App() {
         : current));
       return;
     }
-    const newInventoryPlant = {
-      ...emptyPlant,
-      id: plantId,
-      name: item.name,
-      genus: item.genus,
-      type: item.type,
-      source: item.source,
-      acquiredDate: item.actualArrivalDate || item.expectedArrivalDate,
-      imageUrl: item.imageUrl,
-      careNote: item.notes,
-      purchasePrice: item.price,
-      image: getPlantImage(item.name, item.type),
-    };
+    const newInventoryPlant = createPlantFromWishlistItem(item, emptyPlant, getPlantImage);
     const persistedPlants = savePlants([...plants, newInventoryPlant], 'plants');
     createAutomaticRemindersForPlant(persistedPlants.find((plant) => plant.id === plantId) || newInventoryPlant);
     saveWishlist(wishlistItems.map((current) => current.id === item.id
@@ -2524,6 +2554,7 @@ function App() {
     setQuarantineFilter('');
     setRecentlyCheckedFilter(false);
     setRecentlyAcquiredFilter(false);
+    setMissingPurchasePriceFilter(false);
     setPlantInsightFilter(null);
     setLifecycleView('active');
     setActiveQuickView('');
@@ -2554,6 +2585,7 @@ function App() {
     + (quarantineFilter ? 1 : 0)
     + (recentlyCheckedFilter ? 1 : 0)
     + (recentlyAcquiredFilter ? 1 : 0)
+    + (missingPurchasePriceFilter ? 1 : 0)
     + (plantInsightFilter ? 1 : 0)
     + (searchText.trim() ? 1 : 0);
   const activeQuickViewRecord = quickViews.find((quickView) => quickView.id === activeQuickView);
@@ -2571,6 +2603,7 @@ function App() {
     setQuarantineFilter(state.quarantineFilter);
     setRecentlyCheckedFilter(state.recentlyCheckedFilter);
     setRecentlyAcquiredFilter(state.recentlyAcquiredFilter);
+    setMissingPurchasePriceFilter(false);
     setPlantInsightFilter(null);
     changePlantSort(state.sort);
     changePlantViewMode(state.viewMode);
@@ -2593,6 +2626,7 @@ function App() {
     setQuarantineFilter('');
     setRecentlyCheckedFilter(false);
     setRecentlyAcquiredFilter(false);
+    setMissingPurchasePriceFilter(false);
     setPlantInsightFilter(null);
     changePlantSort(state.sort);
     changePlantViewMode(state.viewMode);
@@ -2694,7 +2728,9 @@ function App() {
     const filterLabels = Object.fromEntries([
       ...primaryFilterFields,
       ...advancedFilterFields,
-      ['origin', 'Plant origin'],
+      ['origin', 'Legacy origin'],
+      ['startingStage', 'Starting stage'],
+      ['acquisitionMethod', 'Acquisition method'],
       ['lifecycleStage', 'Lifecycle stage'],
     ]);
     const specialValueLabels = {
@@ -3058,8 +3094,11 @@ function App() {
     const columns = [
       ['Plant Name', (plant) => plant.name],
       ['Origin', (plant) => plant.origin],
+      ['Starting Stage', (plant) => plant.startingStage],
+      ['Acquisition Method', (plant) => plant.acquisitionMethod],
       ['Lifecycle Stage', (plant) => plant.lifecycleStage],
       ['Genus', (plant) => plant.genus],
+      ['Species', (plant) => plant.species],
       ['Type / Category', (plant) => plant.type],
       ['Status', (plant) => plant.status],
       ['Lifecycle State', (plant) => lifecycleLabel(plant.lifecycleStatus)],
@@ -3084,7 +3123,7 @@ function App() {
       ['LECA Conversion Status', (plant) => plant.lecaStatus],
       ['LECA Stress Level', (plant) => plant.lecaStressLevel],
       ['Image URL', (plant) => plant.imageUrl],
-      ['Watering Notes', (plant) => plant.watering],
+      ['Water Mix', (plant) => plant.watering],
       ['Care Notes', (plant) => plant.careNote],
       ['Growth Notes', (plant) => plant.growthNotes],
       ['Pest Notes', (plant) => plant.pestNotes],
@@ -3242,6 +3281,14 @@ function App() {
         imageUrl: uploadedImageUrl,
         image: getPlantImage(newPlant.name, newPlant.type),
       };
+      const updatedDropdownOptions = discoverPlantFieldOptions(dropdownOptions, [savedPlant], [
+        'medium', 'potSize', 'soilMix', 'watering',
+      ]);
+      if (JSON.stringify(updatedDropdownOptions) !== JSON.stringify(dropdownOptions)) {
+        setDropdownOptions(updatedDropdownOptions);
+        localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedDropdownOptions));
+        markLocalDataChanged('dropdown-options');
+      }
       if (isEditing && selectedPlant.lifecycleStage !== savedPlant.lifecycleStage) {
         savedPlant.lifecycleHistory = [...(selectedPlant.lifecycleHistory || []), {
           id: makeId('lifecycle-transition'),
@@ -3274,7 +3321,7 @@ function App() {
       setNewPlant(emptyPlant);
       setPlantFormBaseline(JSON.stringify(emptyPlant));
       clearPlantImageSelection();
-      setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
+      setNewOptionText(emptyDropdownOptionDraft());
       setShowForm(shouldAddAnother);
       setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
       setSoilMixIsCustom(false);
@@ -3306,7 +3353,8 @@ function App() {
   function getSoilMixSelectValue(value) {
     if (soilMixIsCustom) return '__custom__';
     if (!value) return '';
-    return getSoilMixByValue(value)?.id || '__custom__';
+    return getSoilMixByValue(value)?.id
+      || (dropdownOptions.soilMix.includes(value) ? value : '__custom__');
   }
 
   function handleSoilMixSelectChange(event) {
@@ -3325,6 +3373,19 @@ function App() {
     setNewPlant((currentPlant) => ({ ...currentPlant, soilMix: event.target.value }));
   }
 
+  function saveCustomSoilMixOption() {
+    const option = newPlant.soilMix.trim();
+    if (!option) return;
+    setDropdownOptions((currentOptions) => {
+      const updatedOptions = addCustomOption(currentOptions, 'soilMix', option);
+      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedOptions));
+      markLocalDataChanged('dropdown-options');
+      return updatedOptions;
+    });
+    setNewPlant((currentPlant) => ({ ...currentPlant, soilMix: option }));
+    setSoilMixIsCustom(false);
+  }
+
   function addDropdownOption(fieldName, formName = 'plant') {
     const option = newOptionText[fieldName].trim();
     if (!option) return;
@@ -3338,6 +3399,8 @@ function App() {
     });
     if (formName === 'wishlist') {
       setWishlistDraft((currentItem) => ({ ...currentItem, [fieldName]: option }));
+    } else if (formName === 'activity') {
+      setNewLogEntry((currentEntry) => ({ ...currentEntry, activityType: option }));
     } else {
       setNewPlant((currentPlant) => ({ ...currentPlant, [fieldName]: option }));
     }
@@ -3372,6 +3435,12 @@ function App() {
       quickViews: userQuickViews, field: fieldName, value: option,
       replacement: mode === 'replace' ? replacement : '',
     });
+    if (fieldName === 'activityType') {
+      result.plants = result.plants.map((plant) => ({
+        ...plant,
+        ...getActivitySummaryUpdates(plant.activityLog || [], [option, replacement]),
+      }));
+    }
     setDropdownOptions(result.options);
     localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(result.options));
     savePlants(result.plants, 'dropdown-options');
@@ -3385,7 +3454,7 @@ function App() {
     setNewPlant(emptyPlant);
     setPlantFormBaseline(JSON.stringify(emptyPlant));
     clearPlantImageSelection();
-    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
+    setNewOptionText(emptyDropdownOptionDraft());
     setAddPlantMessage('');
     setSoilMixIsCustom(false);
     setShowForm(false);
@@ -3410,10 +3479,14 @@ function App() {
       lecaConversionStartDate: dateInputValue(selectedPlant.lecaConversionStartDate),
     };
     setNewPlant(editablePlant);
-    setSoilMixIsCustom(Boolean(editablePlant.soilMix && !getSoilMixByValue(editablePlant.soilMix)));
+    setSoilMixIsCustom(Boolean(
+      editablePlant.soilMix
+      && !getSoilMixByValue(editablePlant.soilMix)
+      && !dropdownOptions.soilMix.includes(editablePlant.soilMix)
+    ));
     setPlantFormBaseline(JSON.stringify(editablePlant));
     clearPlantImageSelection();
-    setNewOptionText({ genus: '', type: '', source: '', desiredStatus: '', status: '', location: '', lightNeeds: '', soilMix: '', wateringRhythm: '', moisturePreference: '', careDifficulty: '', tcStage: '', tcSetup: '', tcHumidityLevel: '' });
+    setNewOptionText(emptyDropdownOptionDraft());
     setAddPlantMessage('');
     setIsEditing(true);
   }
@@ -3423,7 +3496,9 @@ function App() {
     setSelectedPlant(null);
     setNewPlant(draft);
     setPlantFormBaseline(JSON.stringify(draft));
-    setSoilMixIsCustom(Boolean(draft.soilMix && !getSoilMixByValue(draft.soilMix)));
+    setSoilMixIsCustom(Boolean(
+      draft.soilMix && !getSoilMixByValue(draft.soilMix) && !dropdownOptions.soilMix.includes(draft.soilMix)
+    ));
     clearPlantImageSelection();
     setIsEditing(false);
     setShowForm(true);
@@ -3540,12 +3615,7 @@ function App() {
   function addLogEntry(event) {
     event.preventDefault();
 
-    const logEntry = {
-      ...newLogEntry,
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      createdAt: new Date().toISOString(),
-      notes: newLogEntry.notes.trim(),
-    };
+    const logEntry = createActivityLogEntry(newLogEntry);
     const updatedActivityLog = [...(selectedPlant.activityLog || []), logEntry];
 
     const updatedPlant = {
@@ -3561,23 +3631,29 @@ function App() {
     setQuickCheckMessage('');
   }
 
-  function addQuickCheckIn() {
-    const logEntry = {
-      activityType: 'Quick check-in',
+  function addQuickActivity(activityType, message) {
+    const logEntry = createActivityLogEntry({
+      activityType,
       date: todayDate(),
-      notes: '',
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      createdAt: new Date().toISOString(),
-    };
+    });
     const updatedPlant = {
       ...selectedPlant,
+      ...getActivitySummaryUpdates([...(selectedPlant.activityLog || []), logEntry], [activityType]),
       activityLog: [...(selectedPlant.activityLog || []), logEntry],
     };
     const updatedPlants = plants.map((plant) => plant === selectedPlant ? updatedPlant : plant);
 
     const persistedPlants = savePlants(updatedPlants, 'activity-log');
     setSelectedPlant(persistedPlants.find((plant) => plant.id === updatedPlant.id) || updatedPlant);
-    setQuickCheckMessage("Checked in today — you're all set.");
+    setQuickCheckMessage(message);
+  }
+
+  function addQuickCheckIn() {
+    addQuickActivity('Quick check-in', "Checked in today — you're all set.");
+  }
+
+  function addQuickWatering() {
+    addQuickActivity('Watered', `Watered today — ${selectedPlant.name} is up to date.`);
   }
 
   function startEditingLogEntry(entry) {
@@ -3903,6 +3979,7 @@ function App() {
       })),
     ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
     const spending = getSpendingSummary(plants);
+    const wishlistDashboard = getWishlistDashboardModel(wishlistItems);
 
     const cardContent = {
       'needs-attention': {
@@ -3944,6 +4021,14 @@ function App() {
         summary: watchPlants.length ? 'Plants you have marked to monitor closely.' : 'No plants are on your Watch List.',
         action: () => openPlantList({ lifecycle: 'active', filter: ['attention', 'Watch list'] }),
         actionLabel: 'Open Watch List',
+      },
+      wishlist: {
+        count: wishlistDashboard.count,
+        summary: wishlistDashboard.previewNames.length
+          ? wishlistDashboard.previewNames.join(', ')
+          : 'No active Wishlist items.',
+        action: () => openWishlist({ view: wishlistDashboard.targetView }),
+        actionLabel: 'Open Wishlist',
       },
       'tissue-culture': {
         count: tissueCulturePlants.length,
@@ -3993,7 +4078,12 @@ function App() {
         count: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(spending.total),
         summary: (
           <div>
-            <p>{spending.withPrice} plant{spending.withPrice === 1 ? '' : 's'} with a recorded price · {spending.withoutPrice} without</p>
+            <p>{spending.withPrice} plant{spending.withPrice === 1 ? '' : 's'} with a recorded price · {' '}
+              <button className="dashboard-inline-action" type="button"
+                onClick={() => openPlantList(getMissingPurchasePricePlantListTarget())}>
+                {spending.withoutPrice} without
+              </button>
+            </p>
             <small>Based on recorded purchase prices. Plants without a price are not included.</small>
           </div>
         ),
@@ -4261,7 +4351,7 @@ function App() {
             <div>
               <p className="detail-eyebrow">Plant details</p>
               <h2 id="plant-detail-heading">{selectedPlant.name}</h2>
-              <p><strong>Origin:</strong> {selectedPlant.origin} · <strong>Stage:</strong> {selectedPlant.lifecycleStage}</p>
+              <p><strong>Started:</strong> {displayValue(selectedPlant.startingStage)} · <strong>Current:</strong> {selectedPlant.lifecycleStage}</p>
               <p>{displayValue(selectedPlant.genus)} · {displayValue(selectedPlant.type)}</p>
               <p className={`lifecycle-badge lifecycle-${selectedPlant.lifecycleStatus || 'active'}`}>
                 {lifecycleLabel(selectedPlant.lifecycleStatus)}
@@ -4295,6 +4385,7 @@ function App() {
               <span>{displayValue(getLastCheckedDate(selectedPlant))}</span>
             </div>
             <button type="button" onClick={addQuickCheckIn}>✅ Quick Check-In</button>
+            <button type="button" onClick={addQuickWatering}>💧 Watered</button>
             <button type="button" onClick={() => openQuickNote(selectedPlant.id)}>New Journal Entry</button>
           </div>
           {quickCheckMessage && <p className="quick-check-message" role="status">{quickCheckMessage}</p>}
@@ -4318,10 +4409,14 @@ function App() {
           )}
           <div className="detail-sections">
             <section className="detail-section lifecycle-section" id="plant-lifecycle">
-              <h3>Identity and Origin</h3>
+              <h3>Collection history</h3>
               <dl className="detail-list">
-                <div><dt>Permanent origin</dt><dd>{selectedPlant.origin}</dd></div>
+                <div><dt>Starting stage</dt><dd>{displayValue(selectedPlant.startingStage)}</dd></div>
+                <div><dt>Acquisition method</dt><dd>{displayValue(selectedPlant.acquisitionMethod)}</dd></div>
                 <div><dt>Current lifecycle stage</dt><dd>{selectedPlant.lifecycleStage}</dd></div>
+                {getUnprojectedLegacyOrigin(selectedPlant) && (
+                  <div><dt>Legacy origin record</dt><dd>{getUnprojectedLegacyOrigin(selectedPlant)}</dd></div>
+                )}
               </dl>
               <div className="lifecycle-transition-control">
                 <label htmlFor="plant-stage-transition">Transition to</label>
@@ -4860,10 +4955,18 @@ function App() {
                   onChange={(event) => setNewLogEntry((entry) => ({
                     ...entry, activityType: event.target.value,
                   }))}>
-                  {sortCategoricalOptions(activityTypes).map((activityType) => (
+                  {dropdownOptions.activityType.map((activityType) => (
                     <option key={activityType}>{activityType}</option>
                   ))}
                 </select>
+                <div className="new-option-row activity-type-option-row">
+                  <input type="text" aria-label="New activity type option" placeholder="Add new option"
+                    value={newOptionText.activityType}
+                    onChange={(event) => setNewOptionText((currentText) => ({
+                      ...currentText, activityType: event.target.value,
+                    }))} />
+                  <button type="button" onClick={() => addDropdownOption('activityType', 'activity')}>Add option</button>
+                </div>
               </div>
               <div className="form-field">
                 <label htmlFor="activity-date">Date</label>
@@ -4899,7 +5002,7 @@ function App() {
                               onChange={(event) => setLogEntryDraft((draft) => ({
                                 ...draft, activityType: event.target.value,
                               }))}>
-                              {sortCategoricalOptions(activityTypes).map((activityType) => (
+                              {dropdownOptions.activityType.map((activityType) => (
                                 <option key={activityType}>{activityType}</option>
                               ))}
                             </select>
@@ -5160,7 +5263,7 @@ function App() {
           )}
         </article>
         ) : showForm || isEditing ? (
-        <form className="plant-form" onSubmit={handleSubmit} ref={plantFormRef}>
+        <form className="plant-form plant-form-long" onSubmit={handleSubmit} ref={plantFormRef}>
           <h2>{isEditing ? `Edit ${selectedPlant.name}` : 'Add New Plant'}</h2>
           {!isEditing && addPlantMessage && (
             <p className="form-success-message" role="status">{addPlantMessage}</p>
@@ -5171,24 +5274,42 @@ function App() {
           {plantSubmitStatus && (
             <p className="form-status-message" role="status">{plantSubmitStatus}</p>
           )}
+          <button className="mobile-plant-save" type="submit" disabled={isPlantSubmitting}>
+            {isPlantSubmitting ? 'Saving plant...' : (isEditing ? 'Save changes' : 'Save plant')}
+          </button>
           <div className="form-grid">
             <div className="form-field">
-              <label htmlFor="plant-origin">Plant origin</label>
-              <select id="plant-origin" name="origin" value={newPlant.origin} onChange={handleInputChange}>
-                {sortCategoricalOptions(plantOriginOptions).map((option) => <option key={option}>{option}</option>)}
+              <label htmlFor="plant-startingStage">Starting stage</label>
+              <select id="plant-startingStage" name="startingStage" value={newPlant.startingStage} onChange={handleInputChange}>
+                {[...new Set([...startingStageOptions, newPlant.startingStage].filter(Boolean))]
+                  .map((option) => <option key={option}>{option}</option>)}
               </select>
-              <small>Origin is permanent history and stays separate from the current stage.</small>
+              <small>Stage when this plant entered your collection.</small>
+            </div>
+            <div className="form-field">
+              <label htmlFor="plant-acquisitionMethod">Acquisition method</label>
+              <select id="plant-acquisitionMethod" name="acquisitionMethod" value={newPlant.acquisitionMethod} onChange={handleInputChange}>
+                {[...new Set([...acquisitionMethodOptions, newPlant.acquisitionMethod].filter(Boolean))]
+                  .map((option) => <option key={option}>{option}</option>)}
+              </select>
+              <small>How this plant was obtained.</small>
             </div>
             <div className="form-field">
               <label htmlFor="plant-lifecycleStage">Current lifecycle stage</label>
               <select id="plant-lifecycleStage" name="lifecycleStage" value={newPlant.lifecycleStage} onChange={handleInputChange}>
                 {lifecycleStageOptions.map((option) => <option key={option}>{option}</option>)}
               </select>
+              <small>Current stage.</small>
             </div>
+            {getUnprojectedLegacyOrigin(newPlant) && (
+              <div className="form-field"><label>Legacy origin record</label>
+                <p>{getUnprojectedLegacyOrigin(newPlant)}</p>
+                <small>Preserved for compatibility; it is not changed by these fields.</small>
+              </div>
+            )}
             {[
               ['name', 'Plant name'],
-              ['medium', 'Growing medium'], ['potSize', 'Pot size'],
-              ['watering', 'Watering notes'], ['propagationStatus', 'Propagation'],
+              ['propagationStatus', 'Propagation'],
               ['purchasePrice', 'Purchase price'],
             ].map(([fieldName, label]) => (
               <div className="form-field" key={fieldName}>
@@ -5222,30 +5343,41 @@ function App() {
               messageType={plantImageUploadError ? 'error' : 'status'} />
 
             {[
-              ['genus', 'Genus'], ['type', 'Type / category'], ['source', 'Source'], ['status', 'Status'],
+              ['genus', 'Genus'], ['species', 'Species'], ['type', 'Type / category'], ['source', 'Source'], ['status', 'Status'],
               ['location', 'Location'], ['lightNeeds', 'Light level'],
-              ['soilMix', 'Soil mix / substrate mix'], ['wateringRhythm', 'Watering rhythm'],
+              ['medium', 'Growing medium'], ['soilMix', 'Soil mix / substrate mix'], ['potSize', 'Pot size'],
+              ['watering', 'Water Mix'],
+              ['wateringRhythm', 'Watering rhythm'],
               ['moisturePreference', 'Moisture preference'], ['careDifficulty', 'Care difficulty'],
             ].map(([fieldName, label]) => (
-              fieldName === 'soilMix' ? (
+              fieldName === 'species' ? (
+                <div className="form-field" key={fieldName}>
+                  <label htmlFor="plant-species">Species</label>
+                  <input id="plant-species" name="species" type="text" value={newPlant.species}
+                    onChange={handleInputChange} />
+                </div>
+              ) : fieldName === 'soilMix' ? (
                 <div className="form-field" key={fieldName}>
                   <label htmlFor="plant-soilMix">Soil mix / substrate mix</label>
                   <select id="plant-soilMix" value={getSoilMixSelectValue(newPlant.soilMix)}
                     onChange={handleSoilMixSelectChange}>
                     <option value="">Not selected</option>
-                    {sortOptionsAlphabetically(soilMixOptions).map((option) => (
+                    {soilMixSelectOptions(dropdownOptions.soilMix).map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                     <option value="__custom__">Custom / Other</option>
                   </select>
                   {getSoilMixSelectValue(newPlant.soilMix) === '__custom__' && (
-                    <input
-                      type="text"
-                      aria-label="Custom soil mix"
-                      placeholder="Enter custom soil mix"
-                      value={newPlant.soilMix}
-                      onChange={handleSoilMixCustomChange}
-                    />
+                    <div className="new-option-row">
+                      <input
+                        type="text"
+                        aria-label="Custom soil mix"
+                        placeholder="Enter custom soil mix"
+                        value={newPlant.soilMix}
+                        onChange={handleSoilMixCustomChange}
+                      />
+                      <button type="button" onClick={saveCustomSoilMixOption}>Save option</button>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -5854,6 +5986,18 @@ function App() {
                   </div>
                 </article>
               )}
+              <div className="wishlist-view-controls" role="group" aria-label="Wishlist view">
+                {[
+                  [wishlistViews.active, 'Active'],
+                  [wishlistViews.converted, 'Converted'],
+                  [wishlistViews.all, 'All'],
+                ].map(([view, label]) => (
+                  <button type="button" key={view} aria-pressed={wishlistView === view}
+                    onClick={() => { setWishlistView(view); setSelectedWishlistItemId(''); }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className="wishlist-tools">
                 <div className="plant-search"><label htmlFor="wishlist-search">Search by plant name</label>
                   <input id="wishlist-search" type="search" placeholder="Search wishlist..." value={wishlistSearch} onChange={(e) => setWishlistSearch(e.target.value)} /></div>
@@ -6117,7 +6261,8 @@ function App() {
                 const custom = values.filter((value) => !builtIns.has(value.toLocaleLowerCase()))
                   .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
                 const expanded = Boolean(expandedDropdownGroups[fieldName]);
-                const label = fieldName.replaceAll(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase());
+                const label = dropdownOptionLabels[fieldName]
+                  || fieldName.replaceAll(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase());
                 return (
                   <section key={fieldName} className="dropdown-option-group">
                     <button type="button" className="dropdown-option-group-toggle"
@@ -6131,7 +6276,10 @@ function App() {
                     {custom.length ? (
                       <ul>{custom.map((option) => (
                         <li key={option}>
-                          <span>{option} · {countOptionUsage(plants, fieldName, option)} plants</span>
+                          <span>
+                            {option} · {countOptionUsage(plants, fieldName, option)}
+                            {fieldName === 'activityType' ? ' log entries' : ' plants'}
+                          </span>
                           <button type="button" className="delete-plant-button delete-text-button"
                             aria-label={`Delete custom option ${option}`}
                             onClick={() => requestDropdownOptionDeletion(fieldName, option)}>Delete</button>
@@ -6273,12 +6421,23 @@ function App() {
                       value={quickViewEditor.state.filters[fieldName]} options={getFilterOptions(fieldName)}
                       onChange={(value) => updateQuickViewEditorFilter(fieldName, value)} />
                   ))}
-                  <MultiValueFilter fieldName="origin" label="Plant Origin"
-                    value={quickViewEditor.state.filters.origin} options={plantOriginOptions}
-                    onChange={(value) => updateQuickViewEditorFilter('origin', value)} />
+                  <MultiValueFilter fieldName="startingStage" label="Starting Stage"
+                    value={quickViewEditor.state.filters.startingStage}
+                    options={[...new Set([...startingStageOptions, ...getFilterOptions('startingStage')])]}
+                    onChange={(value) => updateQuickViewEditorFilter('startingStage', value)} />
+                  <MultiValueFilter fieldName="acquisitionMethod" label="Acquisition Method"
+                    value={quickViewEditor.state.filters.acquisitionMethod}
+                    options={[...new Set([...acquisitionMethodOptions, ...getFilterOptions('acquisitionMethod')])]}
+                    onChange={(value) => updateQuickViewEditorFilter('acquisitionMethod', value)} />
                   <MultiValueFilter fieldName="lifecycleStage" label="Lifecycle Stage"
                     value={quickViewEditor.state.filters.lifecycleStage} options={lifecycleStageOptions}
                     onChange={(value) => updateQuickViewEditorFilter('lifecycleStage', value)} />
+                  {quickViewEditor.state.filters.origin.length > 0 && (
+                    <MultiValueFilter fieldName="origin" label="Legacy Origin"
+                      value={quickViewEditor.state.filters.origin}
+                      options={[...new Set([...plantOriginOptions, ...quickViewEditor.state.filters.origin])]}
+                      onChange={(value) => updateQuickViewEditorFilter('origin', value)} />
+                  )}
                 </div>
                 <div className="quick-view-editor-presentation">
                   <label htmlFor="settings-quick-view-plant-state">Plant view</label>
@@ -6477,6 +6636,12 @@ function App() {
               }}>Clear</button>
             </div>
           )}
+          {missingPurchasePriceFilter && (
+            <div className="applied-dashboard-filter" role="status">
+              <span>Plants with no recorded purchase price</span>
+              <button type="button" onClick={() => setMissingPurchasePriceFilter(false)}>Clear</button>
+            </div>
+          )}
           <div className="plant-search">
             <label htmlFor="plant-search">Search plants</label>
             <input
@@ -6545,12 +6710,22 @@ function App() {
               </div>
               {areMoreFiltersVisible && (
                 <div className="plant-filter-dropdowns advanced-filters" id="advanced-plant-filters">
-                  <MultiValueFilter fieldName="origin" label="Plant Origin"
-                    value={plantFilters.origin} options={plantOriginOptions}
-                    onChange={(value) => updatePlantFilter('origin', value)} />
+                  <MultiValueFilter fieldName="startingStage" label="Starting Stage"
+                    value={plantFilters.startingStage}
+                    options={[...new Set([...startingStageOptions, ...getFilterOptions('startingStage')])]}
+                    onChange={(value) => updatePlantFilter('startingStage', value)} />
+                  <MultiValueFilter fieldName="acquisitionMethod" label="Acquisition Method"
+                    value={plantFilters.acquisitionMethod}
+                    options={[...new Set([...acquisitionMethodOptions, ...getFilterOptions('acquisitionMethod')])]}
+                    onChange={(value) => updatePlantFilter('acquisitionMethod', value)} />
                   <MultiValueFilter fieldName="lifecycleStage" label="Lifecycle Stage"
                     value={plantFilters.lifecycleStage} options={lifecycleStageOptions}
                     onChange={(value) => updatePlantFilter('lifecycleStage', value)} />
+                  {plantFilters.origin.length > 0 && (
+                    <MultiValueFilter fieldName="origin" label="Legacy Origin"
+                      value={plantFilters.origin} options={[...new Set([...plantOriginOptions, ...plantFilters.origin])]}
+                      onChange={(value) => updatePlantFilter('origin', value)} />
+                  )}
                   {advancedFilterFields.map(([fieldName, label]) => (
                     <MultiValueFilter key={fieldName} fieldName={fieldName} label={label}
                       value={plantFilters[fieldName]} options={getFilterOptions(fieldName)}
@@ -6789,7 +6964,10 @@ function App() {
           <section className="tracker-modal" role="dialog" aria-modal="true" aria-labelledby="dropdown-deletion-heading">
             <div className="tracker-modal-heading"><h3 id="dropdown-deletion-heading">Delete “{dropdownDeletion.option}”?</h3></div>
             <form onSubmit={confirmDropdownOptionDeletion}>
-              <p>This affects {dropdownDeletion.usage} plant{dropdownDeletion.usage === 1 ? '' : 's'} and{' '}
+              <p>This affects {dropdownDeletion.usage}{' '}
+                {dropdownDeletion.fieldName === 'activityType'
+                  ? `log entr${dropdownDeletion.usage === 1 ? 'y' : 'ies'}`
+                  : `plant${dropdownDeletion.usage === 1 ? '' : 's'}`} and{' '}
                 {dropdownDeletion.quickViewUsage} Quick View{dropdownDeletion.quickViewUsage === 1 ? '' : 's'}.</p>
               <fieldset className="deletion-mode-options">
                 <legend>How should existing uses be handled?</legend>

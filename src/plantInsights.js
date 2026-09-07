@@ -36,6 +36,7 @@ function canonicalOrFallback(value, options) {
 
 export function isTissueCulturePlant(plant) {
   return plant.origin === 'Tissue culture'
+    || plant.startingStage === 'Tissue Culture'
     || plant.lifecycleStage === 'Tissue Culture'
     || text(plant.type).toLowerCase() === 'tissue culture'
     || Boolean(text(plant.tcStage))

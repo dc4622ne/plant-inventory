@@ -17,7 +17,7 @@ test('defaults include every supported card in application order', () => {
 
 test('defaults include restored home sections and Plant Insights', () => {
   assert.deepEqual(defaultDashboardPreferences().cards.map(({ id }) => id), [
-    'needs-attention', 'check-ins', 'quarantine', 'recently-added', 'watch-list',
+    'needs-attention', 'check-ins', 'quarantine', 'recently-added', 'watch-list', 'wishlist',
     'tissue-culture', 'leca', 'corms', 'recent-activity', 'journal', 'spending',
     'plant-insights', 'statistics',
   ]);
@@ -44,6 +44,7 @@ test('normalization preserves order and visibility while adding new cards', () =
   assert.ok(result.cards.some(({ id }) => id === 'check-ins'));
   assert.ok(result.cards.some(({ id }) => id === 'quarantine'));
   assert.ok(result.cards.some(({ id }) => id === 'plant-insights'));
+  assert.ok(result.cards.some(({ id }) => id === 'wishlist'));
 });
 
 test('migration inserts restored cards without changing saved card order or visibility', () => {
@@ -61,6 +62,7 @@ test('migration inserts restored cards without changing saved card order or visi
   assert.deepEqual(savedIds, ['journal', 'watch-list', 'needs-attention']);
   assert.equal(result.cards.find(({ id }) => id === 'journal').visible, false);
   assert.ok(result.cards.some(({ id }) => id === 'plant-insights'));
+  assert.ok(result.cards.some(({ id }) => id === 'wishlist'));
 });
 
 test('normalization removes invalid and duplicate card IDs', () => {

@@ -1,10 +1,23 @@
 export const missingFilterValue = '__missing__';
 
 export const categoricalPlantFilterFields = [
-  'medium', 'type', 'location', 'genus', 'status', 'potSize', 'attention',
-  'thirstLevel', 'soilMix', 'wateringRhythm', 'moisturePreference',
-  'careDifficulty', 'tcStage', 'lecaStatus', 'lecaStressLevel',
-  'origin', 'lifecycleStage',
+  'type', 'genus', 'location', 'source', 'medium', 'soilMix', 'potSize', 'watering',
+  'wateringRhythm', 'moisturePreference', 'careDifficulty', 'status', 'attention', 'thirstLevel',
+  'tcStage', 'lecaStatus', 'lecaStressLevel',
+  'origin', 'startingStage', 'acquisitionMethod', 'lifecycleStage',
+];
+
+export const primaryPlantFilterFields = [
+  ['type', 'Type / category'], ['genus', 'Genus'], ['location', 'Location'],
+];
+
+export const advancedPlantFilterFields = [
+  ['source', 'Source'], ['medium', 'Growing medium'],
+  ['soilMix', 'Soil mix / substrate mix'], ['potSize', 'Pot size'], ['watering', 'Water Mix'],
+  ['wateringRhythm', 'Watering rhythm'], ['moisturePreference', 'Moisture preference'],
+  ['careDifficulty', 'Care difficulty'], ['status', 'Status'], ['attention', 'Attention'],
+  ['thirstLevel', 'Thirst level'], ['tcStage', 'TC stage'],
+  ['lecaStatus', 'LECA conversion status'], ['lecaStressLevel', 'LECA stress level'],
 ];
 
 export const emptyPlantFilters = Object.fromEntries(
@@ -43,6 +56,8 @@ export function matchesFilterValue(value, selected) {
 
 export function matchesOriginLifecycleFilters(plant, filters) {
   return matchesFilterValue(plant.origin, filters.origin)
+    && matchesFilterValue(plant.startingStage, filters.startingStage)
+    && matchesFilterValue(plant.acquisitionMethod, filters.acquisitionMethod)
     && matchesFilterValue(plant.lifecycleStage, filters.lifecycleStage);
 }
 

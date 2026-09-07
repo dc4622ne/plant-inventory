@@ -60,6 +60,20 @@ test('detects modified state and reapplication restores saved criteria', () => {
   assert.equal(quickViewMatchesState(view, normalizePlantListState(view.state)), true);
 });
 
+test('legacy Quick Views retain existing filters and gain empty Source and Water Mix groups', () => {
+  const normalized = normalizePlantListState({
+    filters: { type: ['Houseplant'], genus: ['Monstera'], location: ['Office'] },
+    sort: 'name-asc',
+    viewMode: 'cards',
+  });
+  assert.deepEqual(normalized.filters.type, ['Houseplant']);
+  assert.deepEqual(normalized.filters.genus, ['Monstera']);
+  assert.deepEqual(normalized.filters.location, ['Office']);
+  assert.deepEqual(normalized.filters.source, []);
+  assert.deepEqual(normalized.filters.watering, []);
+  assert.equal(quickViewMatchesState({ id: 'legacy', name: 'Legacy', state: normalized }, normalized), true);
+});
+
 test('deletion returns a new collection without mutating the saved view', () => {
   const view = {
     id: 'view-1', name: 'Office plants', state: baseState,

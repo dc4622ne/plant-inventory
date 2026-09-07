@@ -9,6 +9,22 @@ export const lifecycleStageOptions = [
   'Garden Plant', 'Other',
 ];
 
+export const startingStageOptions = [
+  'Corm', 'Propagation', 'Tissue Culture', 'Juvenile Houseplant',
+  'Established Houseplant', 'Rehab', 'Garden Plant', 'Other',
+];
+
+export const acquisitionMethodOptions = [
+  'Purchased', 'Gift', 'Giveaway / Free', 'Trade', 'Self-propagated', 'Other',
+];
+
+export const newPlantCollectionDefaults = {
+  origin: 'Purchased plant',
+  startingStage: 'Juvenile Houseplant',
+  acquisitionMethod: '',
+  lifecycleStage: 'Juvenile Houseplant',
+};
+
 export const cormPhaseOptions = [
   'Starting', 'Rooting', 'Growth point emerging', 'First leaf emerging',
   'First leaf opened', 'Additional growth', 'Established', 'Unsuccessful',
@@ -76,9 +92,28 @@ export function inferLifecycleStage(plant) {
   return 'Juvenile Houseplant';
 }
 
+export function projectLegacyOrigin(origin) {
+  const value = text(origin);
+  const projections = {
+    'Tissue culture': { startingStage: 'Tissue Culture', acquisitionMethod: '' },
+    Corm: { startingStage: 'Corm', acquisitionMethod: '' },
+    Cutting: { startingStage: 'Propagation', acquisitionMethod: '' },
+    Division: { startingStage: 'Propagation', acquisitionMethod: '' },
+    Seed: { startingStage: 'Propagation', acquisitionMethod: '' },
+    'Purchased plant': { startingStage: '', acquisitionMethod: 'Purchased' },
+    Gift: { startingStage: '', acquisitionMethod: 'Gift' },
+  };
+  return projections[value] || { startingStage: '', acquisitionMethod: '' };
+}
+
 export function normalizePlantRecord(plant, fallbackId) {
   const origin = text(plant.origin) || inferPlantOrigin(plant);
   const lifecycleStage = text(plant.lifecycleStage) || inferLifecycleStage(plant);
+  const legacyProjection = projectLegacyOrigin(origin);
+  const startingStage = text(plant.startingStage) || legacyProjection.startingStage;
+  const acquisitionMethod = Object.hasOwn(plant, 'acquisitionMethod')
+    ? text(plant.acquisitionMethod)
+    : legacyProjection.acquisitionMethod;
   const cormPhase = normalizeCormPhase(plant.cormPhase || plant.cormStage);
   const cormStartedDate = text(plant.cormStartedDate) || text(plant.cormReceivedDate);
   const existingPhaseHistory = Array.isArray(plant.cormPhaseHistory) ? plant.cormPhaseHistory : [];
@@ -87,6 +122,8 @@ export function normalizePlantRecord(plant, fallbackId) {
     id: plant.id || fallbackId,
     lifecycleStatus: plant.lifecycleStatus || 'active',
     origin,
+    startingStage,
+    acquisitionMethod,
     lifecycleStage,
     lifecycleHistory: Array.isArray(plant.lifecycleHistory) ? plant.lifecycleHistory : [],
     activityLog: Array.isArray(plant.activityLog) ? plant.activityLog : [],
@@ -249,7 +286,8 @@ export function hasCormTrackerData(plant) {
 }
 
 export function shouldShowCormTracker(plant) {
-  return plant.origin === 'Corm' || plant.lifecycleStage === 'Corm' || hasCormTrackerData(plant);
+  return plant.origin === 'Corm' || plant.startingStage === 'Corm'
+    || plant.lifecycleStage === 'Corm' || hasCormTrackerData(plant);
 }
 
 export function isTrackerCompleted(tracker, plant) {
