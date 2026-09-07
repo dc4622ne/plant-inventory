@@ -1,10 +1,23 @@
 export const currentAppVersion = {
-  version: 'v0.26.0',
-  buildDateTime: '2026-08-04',
-  releaseName: 'Connected Collection Foundation',
+  version: 'v0.28.0',
+  buildDateTime: '2026-09-06',
+  releaseName: 'Collection Refinement',
 };
 
 export const changelog = [
+  {
+    version: 'v0.28.0',
+    releaseName: 'Collection Refinement',
+    releaseDate: '2026-09-06',
+    changes: [
+      'Added manageable Activity Type choices and a Plant Detail Watered quick action.',
+      'Added reusable Growing Medium, Pot Size, and Soil Mix / Substrate Mix choices.',
+      'Improved Plant List filter order, added Source and Water Mix filters, and made Water Mix reusable.',
+      'Refined Wishlist views, preserved Tissue Culture classification during conversion, and added a configurable Wishlist Dashboard card.',
+      'Separated historical Starting Stage and Acquisition Method from current Lifecycle Stage while retaining legacy Origin compatibility.',
+      'Preserved and rediscovered option values already stored on plants and activity logs.',
+    ],
+  },
   {
     version: 'v0.26.0',
     releaseName: 'Connected Collection Foundation',

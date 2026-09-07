@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   activeFilterValueCount,
+  advancedPlantFilterFields,
   clearAllPlantFilters,
   clearFilterGroup,
   matchesFilterValue,
   matchesOriginLifecycleFilters,
   missingFilterValue,
   normalizePlantFilters,
+  primaryPlantFilterFields,
 } from './plantFilters.js';
 
 const plants = [
@@ -26,6 +28,20 @@ test('combines origin and lifecycle filters', () => {
   assert.equal(plants.filter((plant) => matchesOriginLifecycleFilters(plant, {
     origin: ['Tissue culture', 'Gift'],
     lifecycleStage: ['Acclimating'],
+  })).length, 1);
+});
+
+test('filters Starting Stage and Acquisition Method including missing values', () => {
+  const records = [
+    { startingStage: 'Corm', acquisitionMethod: 'Purchased' },
+    { startingStage: 'Tissue Culture', acquisitionMethod: 'Gift' },
+    { startingStage: '', acquisitionMethod: '' },
+  ];
+  assert.equal(records.filter((plant) => matchesOriginLifecycleFilters(plant, {
+    origin: [], startingStage: ['Corm'], acquisitionMethod: ['Purchased'], lifecycleStage: [],
+  })).length, 1);
+  assert.equal(records.filter((plant) => matchesOriginLifecycleFilters(plant, {
+    origin: [], startingStage: [missingFilterValue], acquisitionMethod: [], lifecycleStage: [],
   })).length, 1);
 });
 
@@ -66,4 +82,31 @@ test('legacy singular values normalize safely and groups can be cleared', () => 
   assert.deepEqual(normalized.status, []);
   assert.deepEqual(clearFilterGroup(normalized, 'type').type, []);
   assert.equal(activeFilterValueCount(clearAllPlantFilters()), 0);
+});
+
+test('Plant List begins with Type/Category, Genus, and Location in exact order', () => {
+  assert.deepEqual(primaryPlantFilterFields, [
+    ['type', 'Type / category'],
+    ['genus', 'Genus'],
+    ['location', 'Location'],
+  ]);
+  assert.equal(advancedPlantFilterFields.some(([field]) => field === 'source'), true);
+  assert.equal(advancedPlantFilterFields.some(([field]) => field === 'watering'), true);
+});
+
+test('filters existing records by Source and stored Water Mix values', () => {
+  const records = [
+    { name: 'A', source: 'Local nursery', watering: 'Diluted foliage fertilizer' },
+    { name: 'B', source: 'Friend', watering: 'Rainwater' },
+    { name: 'C', source: '', watering: '' },
+  ];
+  assert.deepEqual(records.filter((plant) => (
+    matchesFilterValue(plant.source, ['Friend'])
+  )).map((plant) => plant.name), ['B']);
+  assert.deepEqual(records.filter((plant) => (
+    matchesFilterValue(plant.watering, ['Diluted foliage fertilizer'])
+  )).map((plant) => plant.name), ['A']);
+  assert.deepEqual(records.filter((plant) => (
+    matchesFilterValue(plant.watering, [missingFilterValue])
+  )).map((plant) => plant.name), ['C']);
 });

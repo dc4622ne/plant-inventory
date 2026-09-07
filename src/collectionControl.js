@@ -9,6 +9,26 @@ export function parseRecordedPrice(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+export function hasRecordedPurchasePrice(plant) {
+  return parseRecordedPrice(plant?.purchasePrice) !== null;
+}
+
+export function getPlantsMissingPurchasePrice(plants) {
+  return (Array.isArray(plants) ? plants : []).filter((plant) => !hasRecordedPurchasePrice(plant));
+}
+
+export function getMissingPurchasePricePlantListTarget() {
+  return { lifecycle: 'all', missingPurchasePrice: true };
+}
+
+export function matchesPlantSearchText(values, searchText) {
+  const query = text(searchText).toLocaleLowerCase();
+  if (!query) return true;
+  return (Array.isArray(values) ? values : []).some((value) => (
+    String(value ?? '').toLocaleLowerCase().includes(query)
+  ));
+}
+
 export function validatePurchasePrice(value) {
   const original = String(value ?? '').trim();
   if (!original) return { valid: true, value: '', error: '' };
@@ -64,8 +84,21 @@ export function addCustomOption(options, field, value, builtInOptions = {}) {
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })) };
 }
 
+export function discoverPlantFieldOptions(options, plants, fields) {
+  return (fields || []).reduce((nextOptions, field) => (
+    (plants || []).reduce((fieldOptions, plant) => (
+      addCustomOption(fieldOptions, field, plant?.[field])
+    ), nextOptions)
+  ), options || {});
+}
+
 export function countOptionUsage(plants, field, value) {
   const key = text(value).toLocaleLowerCase();
+  if (field === 'activityType') {
+    return (plants || []).reduce((count, plant) => count + (plant?.activityLog || []).filter((entry) => (
+      text(entry?.activityType).toLocaleLowerCase() === key
+    )).length, 0);
+  }
   return (plants || []).filter((plant) => text(plant?.[field]).toLocaleLowerCase() === key).length;
 }
 
@@ -89,9 +122,19 @@ export function removeCustomOption({ options, builtInOptions = {}, plants, quick
     ...(options || {}),
     [field]: (options?.[field] || []).filter((item) => text(item).toLocaleLowerCase() !== key),
   };
-  const nextPlants = (plants || []).map((plant) => (
-    text(plant?.[field]).toLocaleLowerCase() === key ? { ...plant, [field]: replacement } : plant
-  ));
+  const nextPlants = (plants || []).map((plant) => {
+    if (field === 'activityType') {
+      return {
+        ...plant,
+        activityLog: (plant?.activityLog || []).map((entry) => (
+          text(entry?.activityType).toLocaleLowerCase() === key
+            ? { ...entry, activityType: replacement }
+            : entry
+        )),
+      };
+    }
+    return text(plant?.[field]).toLocaleLowerCase() === key ? { ...plant, [field]: replacement } : plant;
+  });
   const nextQuickViews = (quickViews || []).map((view) => {
     const filters = view?.state?.filters;
     if (!filters || !Array.isArray(filters[field])) return view;
