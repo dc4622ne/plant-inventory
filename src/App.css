@@ -277,6 +277,10 @@
 
 .image-upload-field { align-content: start; }
 
+.plant-image-section { min-width: 0; margin-bottom: 18px; }
+
+.plant-form-long .form-field { align-content: start; }
+
 .image-choice-label,
 .image-upload-field small {
   color: var(--text-muted);
