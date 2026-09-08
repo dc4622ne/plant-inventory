@@ -49,6 +49,7 @@ import {
   getSoilMixDisplayName,
   soilMixGuideResourceId,
   soilMixOptions,
+  soilMixSelectOptions,
 } from './resources';
 import { reminderRules } from './reminderRules';
 import { aboutGeneralItems, settingsSections } from './settingsLayout';
@@ -618,16 +619,6 @@ function displaySoilMixValue(value) {
   return displayValue(getSoilMixDisplayName(value));
 }
 
-function soilMixSelectOptions(values) {
-  const choices = new Map();
-  (values || []).forEach((storedValue) => {
-    const recipe = getSoilMixByValue(storedValue);
-    const value = recipe?.id || storedValue;
-    if (!choices.has(value)) choices.set(value, { value, label: recipe?.name || storedValue });
-  });
-  return sortOptionsAlphabetically([...choices.values()]);
-}
-
 function normalizedFilterValue(value) {
   return String(value ?? '').trim();
 }
@@ -1186,7 +1177,6 @@ function App() {
   const [timelineLightboxPhoto, setTimelineLightboxPhoto] = useState(null);
   const [profilePhotoLightboxOpen, setProfilePhotoLightboxOpen] = useState(false);
   const [showReturnToTop, setShowReturnToTop] = useState(false);
-  const [soilMixIsCustom, setSoilMixIsCustom] = useState(false);
   const [showPhotoComparison, setShowPhotoComparison] = useState(false);
   const [comparisonPhotoIds, setComparisonPhotoIds] = useState({ before: '', after: '' });
   const [quickCheckMessage, setQuickCheckMessage] = useState('');
@@ -2046,7 +2036,6 @@ function App() {
     setAddPlantMessage('');
     setNewPlant(emptyPlant);
     setPlantFormBaseline(JSON.stringify(emptyPlant));
-    setSoilMixIsCustom(false);
     clearPlantImageSelection();
     setIsEditing(false);
     setShowForm(true);
@@ -3324,7 +3313,6 @@ function App() {
       setNewOptionText(emptyDropdownOptionDraft());
       setShowForm(shouldAddAnother);
       setAddPlantMessage(shouldAddAnother ? 'Plant added. Ready for the next one.' : '');
-      setSoilMixIsCustom(false);
       setIsEditing(false);
       if (shouldAddAnother) {
         requestAnimationFrame(() => {
@@ -3348,42 +3336,6 @@ function App() {
   function handleInputChange(event) {
     const { name, value, type, checked } = event.target;
     setNewPlant((currentPlant) => ({ ...currentPlant, [name]: type === 'checkbox' ? checked : value }));
-  }
-
-  function getSoilMixSelectValue(value) {
-    if (soilMixIsCustom) return '__custom__';
-    if (!value) return '';
-    return getSoilMixByValue(value)?.id
-      || (dropdownOptions.soilMix.includes(value) ? value : '__custom__');
-  }
-
-  function handleSoilMixSelectChange(event) {
-    const value = event.target.value;
-    const custom = value === '__custom__';
-    setSoilMixIsCustom(custom);
-    setNewPlant((currentPlant) => ({
-      ...currentPlant,
-      soilMix: custom
-        ? (getSoilMixByValue(currentPlant.soilMix) ? '' : currentPlant.soilMix)
-        : value,
-    }));
-  }
-
-  function handleSoilMixCustomChange(event) {
-    setNewPlant((currentPlant) => ({ ...currentPlant, soilMix: event.target.value }));
-  }
-
-  function saveCustomSoilMixOption() {
-    const option = newPlant.soilMix.trim();
-    if (!option) return;
-    setDropdownOptions((currentOptions) => {
-      const updatedOptions = addCustomOption(currentOptions, 'soilMix', option);
-      localStorage.setItem(dropdownOptionsStorageKey, JSON.stringify(updatedOptions));
-      markLocalDataChanged('dropdown-options');
-      return updatedOptions;
-    });
-    setNewPlant((currentPlant) => ({ ...currentPlant, soilMix: option }));
-    setSoilMixIsCustom(false);
   }
 
   function addDropdownOption(fieldName, formName = 'plant') {
@@ -3456,7 +3408,6 @@ function App() {
     clearPlantImageSelection();
     setNewOptionText(emptyDropdownOptionDraft());
     setAddPlantMessage('');
-    setSoilMixIsCustom(false);
     setShowForm(false);
     setIsEditing(false);
   }
@@ -3479,11 +3430,6 @@ function App() {
       lecaConversionStartDate: dateInputValue(selectedPlant.lecaConversionStartDate),
     };
     setNewPlant(editablePlant);
-    setSoilMixIsCustom(Boolean(
-      editablePlant.soilMix
-      && !getSoilMixByValue(editablePlant.soilMix)
-      && !dropdownOptions.soilMix.includes(editablePlant.soilMix)
-    ));
     setPlantFormBaseline(JSON.stringify(editablePlant));
     clearPlantImageSelection();
     setNewOptionText(emptyDropdownOptionDraft());
@@ -3496,9 +3442,6 @@ function App() {
     setSelectedPlant(null);
     setNewPlant(draft);
     setPlantFormBaseline(JSON.stringify(draft));
-    setSoilMixIsCustom(Boolean(
-      draft.soilMix && !getSoilMixByValue(draft.soilMix) && !dropdownOptions.soilMix.includes(draft.soilMix)
-    ));
     clearPlantImageSelection();
     setIsEditing(false);
     setShowForm(true);
@@ -4168,7 +4111,6 @@ function App() {
             setAddPlantMessage('');
             setNewPlant(emptyPlant);
             setPlantFormBaseline(JSON.stringify(emptyPlant));
-            setSoilMixIsCustom(false);
             clearPlantImageSelection();
             setShowForm(true);
           }}>+ Add New Plant</button>
@@ -5302,7 +5244,7 @@ function App() {
               <small>Current stage.</small>
             </div>
             {getUnprojectedLegacyOrigin(newPlant) && (
-              <div className="form-field"><label>Legacy origin record</label>
+              <div className="form-field form-field-wide"><label>Legacy origin record</label>
                 <p>{getUnprojectedLegacyOrigin(newPlant)}</p>
                 <small>Preserved for compatibility; it is not changed by these fields.</small>
               </div>
@@ -5329,19 +5271,21 @@ function App() {
                 )}
               </div>
             ))}
+          </div>
 
-            <ImageUploadField id="plant-image" value={newPlant.imageUrl}
-              onChange={(imageUrl) => {
-                clearPlantImageSelection();
-                setNewPlant((plant) => ({ ...plant, imageUrl }));
-              }}
-              onFileSelected={selectPlantImageFile}
-              selectedFileName={plantImageFile?.name || ''}
-              previewUrl={plantImagePreviewUrl}
-              disabled={isPlantSubmitting}
-              message={plantImageUploadError}
-              messageType={plantImageUploadError ? 'error' : 'status'} />
+          <ImageUploadField id="plant-image" className="plant-image-section" value={newPlant.imageUrl}
+            onChange={(imageUrl) => {
+              clearPlantImageSelection();
+              setNewPlant((plant) => ({ ...plant, imageUrl }));
+            }}
+            onFileSelected={selectPlantImageFile}
+            selectedFileName={plantImageFile?.name || ''}
+            previewUrl={plantImagePreviewUrl}
+            disabled={isPlantSubmitting}
+            message={plantImageUploadError}
+            messageType={plantImageUploadError ? 'error' : 'status'} />
 
+          <div className="form-grid">
             {[
               ['genus', 'Genus'], ['species', 'Species'], ['type', 'Type / category'], ['source', 'Source'], ['status', 'Status'],
               ['location', 'Location'], ['lightNeeds', 'Light level'],
@@ -5356,40 +5300,20 @@ function App() {
                   <input id="plant-species" name="species" type="text" value={newPlant.species}
                     onChange={handleInputChange} />
                 </div>
-              ) : fieldName === 'soilMix' ? (
-                <div className="form-field" key={fieldName}>
-                  <label htmlFor="plant-soilMix">Soil mix / substrate mix</label>
-                  <select id="plant-soilMix" value={getSoilMixSelectValue(newPlant.soilMix)}
-                    onChange={handleSoilMixSelectChange}>
-                    <option value="">Not selected</option>
-                    {soilMixSelectOptions(dropdownOptions.soilMix).map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                    <option value="__custom__">Custom / Other</option>
-                  </select>
-                  {getSoilMixSelectValue(newPlant.soilMix) === '__custom__' && (
-                    <div className="new-option-row">
-                      <input
-                        type="text"
-                        aria-label="Custom soil mix"
-                        placeholder="Enter custom soil mix"
-                        value={newPlant.soilMix}
-                        onChange={handleSoilMixCustomChange}
-                      />
-                      <button type="button" onClick={saveCustomSoilMixOption}>Save option</button>
-                    </div>
-                  )}
-                </div>
               ) : (
                 <div className="form-field" key={fieldName}>
                   <label htmlFor={`plant-${fieldName}`}>{label}</label>
-                  <select id={`plant-${fieldName}`} name={fieldName} value={newPlant[fieldName]}
+                  <select id={`plant-${fieldName}`} name={fieldName}
+                    value={fieldName === 'soilMix' ? (getSoilMixByValue(newPlant.soilMix)?.id || newPlant.soilMix) : newPlant[fieldName]}
                     onChange={handleInputChange}>
                     <option value="">
-                      {careRhythmFields.includes(fieldName) ? 'Not set' : `Select ${label.toLowerCase()}`}
+                      {fieldName === 'soilMix' ? 'Not selected' : careRhythmFields.includes(fieldName) ? 'Not set' : `Select ${label.toLowerCase()}`}
                     </option>
-                    {dropdownOptions[fieldName].map((option) => (
-                      <option key={option} value={option}>{option}</option>
+                    {(fieldName === 'soilMix'
+                      ? soilMixSelectOptions(dropdownOptions.soilMix, newPlant.soilMix)
+                      : dropdownOptions[fieldName].map((value) => ({ value, label: value }))
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
                   <div className="new-option-row">
@@ -5574,7 +5498,6 @@ function App() {
                 setAddPlantMessage('');
                 setNewPlant(emptyPlant);
                 setPlantFormBaseline(JSON.stringify(emptyPlant));
-                setSoilMixIsCustom(false);
                 clearPlantImageSelection();
                 setShowForm(true);
               }}>+ Add New Plant</button>
@@ -6533,7 +6456,6 @@ function App() {
             setAddPlantMessage('');
             setNewPlant(emptyPlant);
             setPlantFormBaseline(JSON.stringify(emptyPlant));
-            setSoilMixIsCustom(false);
             clearPlantImageSelection();
             setShowForm(true);
           }}

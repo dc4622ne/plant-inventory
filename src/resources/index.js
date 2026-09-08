@@ -1,4 +1,5 @@
-import { soilMixGuide } from './soilMixGuide';
+import { soilMixGuide } from './soilMixGuide.js';
+import { sortCategoricalOptions } from '../optionSorting.js';
 
 export const resources = [
   soilMixGuide,
@@ -62,4 +63,16 @@ export function getSoilMixByValue(value) {
 
 export function getSoilMixDisplayName(value) {
   return getSoilMixByValue(value)?.name || value || '';
+}
+
+// Resolve recipe aliases for display only; never rewrite the plant's stored value.
+// Include the draft value so older/imported values remain selectable even if absent from settings.
+export function soilMixSelectOptions(values, currentValue = '') {
+  const choices = new Map();
+  [...(values || []), currentValue].filter(Boolean).forEach((storedValue) => {
+    const recipe = getSoilMixByValue(storedValue);
+    const value = recipe?.id || storedValue;
+    if (!choices.has(value)) choices.set(value, { value, label: recipe?.name || storedValue });
+  });
+  return sortCategoricalOptions([...choices.values()]);
 }
